@@ -239,13 +239,8 @@ func saveNewSetupAccount(session *Session, configPath string, fc *cfg_g.FileConf
 		empty := []cfg_acc.AccountConfig{}
 		fc.Accounts = &empty
 	}
-	// A first run finds only the placeholder the loader seeded. Appending kept
-	// it first, so later runs selected it instead of the account just set up;
-	// it is replaced, along with a default sender that named it.
-	if cfg_g.OnlyPlaceholders(*fc.Accounts) {
-		*fc.Accounts = (*fc.Accounts)[:0]
-		fc.DefaultSendAccount = ""
-	}
+	// A first run may find only a placeholder; it is replaced, not kept first.
+	cfg_g.DropPlaceholders(fc)
 	*fc.Accounts = append(*fc.Accounts, acc)
 
 	// A test account exists to be mutated by the live tests; it never becomes

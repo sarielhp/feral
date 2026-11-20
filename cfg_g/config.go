@@ -85,23 +85,36 @@ func evaluateRawFieldDefaults(fc *FileConfig, raw map[string]interface{}, config
 	return dirty
 }
 
+// evaluateAccountDefaults fills each account's missing folders, and turns a
+// single-account config -- top-level gmail credentials, from before accounts[]
+// -- into an account named "gmail". Without credentials there is nothing to
+// migrate -- or only the placeholders older first runs wrote there -- and no
+// account is written: a placeholder on disk used to sit beside
+// the first real account `account add` made, first in the list, with a settings
+// directory that blocked renaming an account to "gmail". The runtime config
+// still holds one in memory (applyFileFilterAndToolConfig) for the paths that
+// expect an account, and NeedsOnboarding tells it apart.
 func evaluateAccountDefaults(fc *FileConfig) bool {
 	dirty := false
 	if len(*fc.Accounts) == 0 {
-		*fc.Accounts = []cfg_acc.AccountConfig{
-			{
-				Name:           "gmail", // never "default", which is reserved; see ValidateAccountName
-				Type:           "gmail",
-				Username:       fc.Username,
-				Password:       fc.Password,
-				IMAPHost:       fc.IMAPHost,
-				SpamFolder:     fc.SpamFolder,
-				ReceivedFolder: fc.ReceivedFolder,
-				SpamLearn:      fc.SpamLearn,
-				UnspamLearn:    fc.UnspamLearn,
-			},
+		legacy := cfg_acc.AccountConfig{
+			Name:           "gmail", // never "default", which is reserved; see ValidateAccountName
+			Type:           "gmail",
+			Username:       fc.Username,
+			Password:       fc.Password,
+			IMAPHost:       fc.IMAPHost,
+			SpamFolder:     fc.SpamFolder,
+			ReceivedFolder: fc.ReceivedFolder,
+			SpamLearn:      fc.SpamLearn,
+			UnspamLearn:    fc.UnspamLearn,
 		}
-		dirty = true
+		// Older first runs wrote the template's username at the top level;
+		// that is nothing to migrate either. The password is not consulted:
+		// GMAIL_PASS may supply it from the environment.
+		if !isPlaceholderUsername(legacy.Username) {
+			*fc.Accounts = []cfg_acc.AccountConfig{legacy}
+			dirty = true
+		}
 	}
 
 	for i := range *fc.Accounts {
@@ -287,8 +300,6 @@ func loadOrInitFileConfig(configPath string, config *Config, noWrite bool) (*Fil
 
 	if !configExists {
 		fc = FileConfig{
-			Username:         "your-email@gmail.com",
-			Password:         "your-app-password",
 			IMAPHost:         config.IMAPHost,
 			DownloadDir:      config.CacheRoot,
 			Limit:            &config.Limit,

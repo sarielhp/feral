@@ -296,3 +296,67 @@ func TestAccountAddMbox(t *testing.T) {
 		t.Errorf("the saved account does not validate: %v", err)
 	}
 }
+
+// A config an older first run wrote holds a placeholder "gmail" account.
+// `account add` replaces it rather than appending beside it -- the placeholder
+// stayed first, so commands kept selecting it -- and its name is free to use.
+func TestAccountAddReplacesPlaceholder(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	seeded := `{"default_send_account": "gmail", "default_account": "gmail", "accounts": [
+	  {"name": "gmail", "type": "gmail", "username": "your-email@gmail.com", "password": "your-app-password"}]}`
+	if err := os.WriteFile(configPath, []byte(seeded), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mboxPath := filepath.Join(tempDir, "old.mbox")
+	if err := os.WriteFile(mboxPath, []byte("From a@example.com Tue Sep 01 09:00:00 2026\nSubject: x\n\nbody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	session := &Session{Config: &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: tempDir}}}
+
+	if err := InitCLI(session).Execute([]string{"account", "add", "mbox", "gmail", "--path", mboxPath}); err != nil {
+		t.Fatalf("account add over a placeholder of the same name: %v", err)
+	}
+	fc, err := cfg_g.LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.Accounts == nil || len(*fc.Accounts) != 1 || (*fc.Accounts)[0].Type != "mbox" {
+		t.Fatalf("want only the new mbox account, got %+v", fc.Accounts)
+	}
+	if fc.DefaultSendAccount != "" || fc.DefaultAccount != "" {
+		t.Errorf("defaults still name the placeholder: send %q, default %q", fc.DefaultSendAccount, fc.DefaultAccount)
+	}
+}
+
+// Only the account a first run seeded is replaced. `account add jmap` offers
+// the placeholder token as its default answer, and an account saved that way
+// is the user's: a second `account add` keeps it.
+func TestAccountAddKeepsAnAccountWithADefaultToken(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	saved := `{"default_send_account": "fm", "accounts": [
+	  {"name": "fm", "type": "jmap", "username": "me@fastmail.example", "password": "your-jmap-api-token"}]}`
+	if err := os.WriteFile(configPath, []byte(saved), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mboxPath := filepath.Join(tempDir, "old.mbox")
+	if err := os.WriteFile(mboxPath, []byte("From a@example.com Tue Sep 01 09:00:00 2026\nSubject: x\n\nbody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	session := &Session{Config: &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: tempDir}}}
+
+	if err := InitCLI(session).Execute([]string{"account", "add", "mbox", "old", "--path", mboxPath}); err != nil {
+		t.Fatalf("account add: %v", err)
+	}
+	fc, err := cfg_g.LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.Accounts == nil || len(*fc.Accounts) != 2 || (*fc.Accounts)[0].Name != "fm" {
+		t.Fatalf("want fm kept and old added, got %+v", fc.Accounts)
+	}
+	if fc.DefaultSendAccount != "fm" {
+		t.Errorf("default_send_account = %q, want fm kept", fc.DefaultSendAccount)
+	}
+}

@@ -53,7 +53,7 @@ feral 🐕 -- a terminal mail client for Linux: Gmail, Outlook, Fastmail.
 
 ## Version
 
-0.7.78
+0.7.79
 
 ## Config file location
 

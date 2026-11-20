@@ -22,15 +22,49 @@ func TestLoadOrInitFileConfig_FirstRunSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first-run config creation failed: %v", err)
 	}
-	if fc.Accounts == nil || len(*fc.Accounts) == 0 {
-		t.Fatalf("expected a seeded default account, got %+v", fc.Accounts)
-	}
-	// Never "default": that name is reserved (ValidateAccountName).
-	if got := (*fc.Accounts)[0].Name; got != "gmail" || ValidateAccountName(got) != nil {
-		t.Errorf("expected the seeded account to be named %q, a legal name, got %q", "gmail", got)
+	// No credentials, nothing to migrate: the accounts list is written empty,
+	// so the first account `account add` makes is the only one.
+	if fc.Accounts == nil || len(*fc.Accounts) != 0 {
+		t.Fatalf("expected an empty accounts list, got %+v", fc.Accounts)
 	}
 	if _, statErr := os.Stat(configPath); statErr != nil {
 		t.Fatalf("expected config file to be written, stat failed: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(tempDir, "accounts", "gmail")); !os.IsNotExist(statErr) {
+		t.Errorf("a first run left a placeholder account directory: %v", statErr)
+	}
+}
+
+// A config from before accounts[] -- gmail credentials at the top level --
+// still becomes an account named "gmail" on the first load, with or without a
+// password in the file (GMAIL_PASS may supply it).
+func TestLoadOrInitFileConfig_MigratesTopLevelCredentials(t *testing.T) {
+	for name, file := range map[string]string{
+		"with a password": `{"username": "me@gmail.example", "password": "app-password"}`,
+		"username only":   `{"username": "me@gmail.example"}`,
+	} {
+		t.Run(name, func(t *testing.T) { checkTopLevelMigration(t, file) })
+	}
+}
+
+func checkTopLevelMigration(t *testing.T, file string) {
+	t.Helper()
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fc, err := loadOrInitFileConfig(configPath, newDefaultConfig(tempDir), false)
+	if err != nil {
+		t.Fatalf("loading a single-account config failed: %v", err)
+	}
+	if fc.Accounts == nil || len(*fc.Accounts) != 1 {
+		t.Fatalf("expected one migrated account, got %+v", fc.Accounts)
+	}
+	// Never "default": that name is reserved (ValidateAccountName).
+	acc := (*fc.Accounts)[0]
+	if acc.Name != "gmail" || ValidateAccountName(acc.Name) != nil || acc.Username != "me@gmail.example" {
+		t.Errorf("migrated account = %q (%q), want gmail with the top-level username", acc.Name, acc.Username)
 	}
 }
 
@@ -46,8 +80,8 @@ func TestLoadOrInitFileConfig_NoWriteSkipsFirstRunWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("noWrite first-run load failed: %v", err)
 	}
-	if fc == nil || fc.Accounts == nil || len(*fc.Accounts) == 0 {
-		t.Fatalf("expected a usable in-memory config with a seeded account, got %+v", fc)
+	if fc == nil || fc.Accounts == nil {
+		t.Fatalf("expected a usable in-memory config, got %+v", fc)
 	}
 	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
 		t.Errorf("expected config file NOT to be written under noWrite, stat err = %v", statErr)

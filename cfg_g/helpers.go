@@ -351,9 +351,9 @@ func ValidateAccountParams(acc cfg_acc.AccountConfig) error {
 // at all, or only accounts still carrying the placeholder credentials a freshly
 // created config.json is seeded with.
 //
-// A brand-new install is never literally account-less: loadConfig seeds a
-// "gmail" account so the older single-account code paths still resolve
-// one. That seeding is why the TUI's own "no accounts" check never fired and a
+// A brand-new install is never literally account-less at run time: loadConfig
+// seeds a "gmail" account in memory (never on disk) so the older
+// single-account code paths still resolve one. That seeding is why the TUI's own "no accounts" check never fired and a
 // first launch fell through to a connection attempt against
 // "your-email@gmail.com". This is the check that tells a first run apart from a
 // configured one, and it mirrors ValidateAccountParams's placeholder rules.
@@ -365,9 +365,9 @@ func NeedsOnboarding(config *Config) bool {
 }
 
 // OnlyPlaceholders reports whether accounts holds nothing but unconfigured
-// placeholders -- such as the "gmail" account loadConfig seeds -- or is
-// empty. Setup replaces such a list rather than appending to it, since keeping
-// the placeholder first left later runs selecting it.
+// placeholders -- such as the "gmail" account loadConfig seeds in memory --
+// or is empty. What a command that adds an account replaces is narrower:
+// DropPlaceholders.
 func OnlyPlaceholders(accounts []cfg_acc.AccountConfig) bool {
 	for _, acc := range accounts {
 		if !isPlaceholderAccount(acc) {
@@ -377,11 +377,22 @@ func OnlyPlaceholders(accounts []cfg_acc.AccountConfig) bool {
 	return true
 }
 
+// isSeededPlaceholder is the account an older first run wrote: a gmail
+// account with no username, or the template's. No real account looks like
+// it -- ValidateAccountParams refuses both usernames.
+func isSeededPlaceholder(acc cfg_acc.AccountConfig) bool {
+	return strings.EqualFold(acc.Type, "gmail") && isPlaceholderUsername(acc.Username)
+}
+
+func isPlaceholderUsername(username string) bool {
+	return username == "" || username == "your-email@gmail.com" || username == "your-email@example.com"
+}
+
 func isPlaceholderAccount(acc cfg_acc.AccountConfig) bool {
 	if acc.IsMbox() {
 		return strings.TrimSpace(acc.Path) == ""
 	}
-	if acc.Username == "" || acc.Username == "your-email@gmail.com" || acc.Username == "your-email@example.com" {
+	if isPlaceholderUsername(acc.Username) {
 		return true
 	}
 	// Outlook authenticates through OAuth, so its password is intentionally
@@ -390,6 +401,28 @@ func isPlaceholderAccount(acc cfg_acc.AccountConfig) bool {
 		return false
 	}
 	return acc.Password == "" || acc.Password == "your-app-password" || acc.Password == "your-jmap-api-token"
+}
+
+// DropPlaceholders empties fc's account list when it holds nothing but the
+// account older first runs seeded (isSeededPlaceholder), and clears the
+// default_account and default_send_account that could only have named it. A
+// command that adds an account calls it first, before checking the new name:
+// appending kept the placeholder first in the list, so later runs selected it,
+// and its name counted as taken. It is narrower than OnlyPlaceholders on
+// purpose: `account add jmap` offers the placeholder token as its default, and
+// an account saved that way is the user's, not one to drop.
+func DropPlaceholders(fc *FileConfig) {
+	if fc.Accounts == nil || len(*fc.Accounts) == 0 {
+		return
+	}
+	for _, acc := range *fc.Accounts {
+		if !isSeededPlaceholder(acc) {
+			return
+		}
+	}
+	*fc.Accounts = (*fc.Accounts)[:0]
+	fc.DefaultSendAccount = ""
+	fc.DefaultAccount = ""
 }
 
 // SanitizeLabelForCache maps a label or account name to a filesystem-safe

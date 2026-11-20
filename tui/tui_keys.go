@@ -341,6 +341,7 @@ func (m *tuiModel) kGlobalKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.treeOpen = true
 				m.showGlobalTree = true
+				m.refreshUnifiedCounts()
 				m.buildEntries()
 			}
 		}

@@ -9,6 +9,25 @@ this file.
 
 ## [Unreleased]
 
+### Fixes
+
+- **A first run no longer makes a placeholder `gmail` account.** A new
+  config.json was written with a `gmail` account holding placeholder
+  credentials, so the first `account add` put its account second, beside one
+  that could not sign in, with a settings directory that kept the name
+  `gmail` taken. The accounts list now starts empty; top-level credentials from
+  a config older than `accounts[]` are still turned into a `gmail` account.
+  `account add` and `account setup` both replace the placeholder an older build
+  left when it is the only account, along with a `default_account` or
+  `default_send_account` naming it; a placeholder beside real accounts stays
+  until `account rm gmail`.
+- **The folder tree counts an mbox account's INBOX** (total and unread: the
+  listing reads the file through the cache, and the local read state says what
+  is read) instead of showing `INBOX (0)`, and **All Inboxes** counts what it
+  would show -- every account's cached inbox, recounted whenever the tree
+  opens -- instead of `(0)`. An account whose inbox was never opened counts
+  once it is.
+
 ### Development
 
 - **The test opt-in variables are `FERAL_*`**: `FERAL_LIVE`, `FERAL_INTERACTIVE`,
@@ -18,6 +37,8 @@ this file.
   `--on-mail` hook still exports `MAIL_CLI_*` beside `FERAL_*`.
 - **The repositories are `sarielhp/feral` and `sarielhp/feral_dev`**; GitHub
   redirects the old `mail_cli` names.
+- **A logo**: `docs/assets/feral-logo.jpg` heads the README, and
+  `docs/assets/feral-social.jpg` (1280x640) is the repository's social preview.
 
 ### Undo in the TUI
 

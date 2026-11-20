@@ -3,6 +3,7 @@ package mbox
 import (
 	"context"
 	"errors"
+	"github.com/sarielhp/feral/cache"
 	"github.com/sarielhp/feral/cache/cachedir"
 	"github.com/sarielhp/feral/email"
 	"github.com/sarielhp/feral/label"
@@ -236,5 +237,49 @@ func TestMboxClientSearchesBodies(t *testing.T) {
 		if err != nil || len(ids) != want {
 			t.Errorf("SearchEmails(%q) = %v, %v; want %d match(es)", query, ids, err, want)
 		}
+	}
+}
+
+// Listing the folders reads the file and counts the INBOX: every message, and
+// as unread those the local read state does not mark read. The TUI lists
+// folders before it loads the inbox, so counting only what was already cached
+// showed INBOX (0) on a first open.
+func TestMboxClientCountsInbox(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.mbox")
+	body := "From x@example.com Tue Sep 01 09:00:00 2026\nSubject: one\nMessage-ID: <1@example.com>\n\na\n\n" +
+		"From y@example.com Tue Sep 01 10:00:00 2026\nSubject: two\nMessage-ID: <2@example.com>\n\nb\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &cfg_g.Config{AccountCache: cachedir.At(filepath.Join(dir, "cache"))}
+	client := NewClient(cfg_acc.AccountConfig{Name: "m", Type: "mbox"}, cfg, path)
+
+	items, err := client.GetLabelItems()
+	if err != nil || len(items) != 1 || items[0].MessagesTotal != 2 || items[0].MessagesUnread != 2 {
+		t.Fatalf("first listing: %+v, %v; want INBOX with 2 unread of 2", items, err)
+	}
+	ids, err := folderindex.IDs(cfg.AccountCache, "INBOX")
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("the listing did not index the file: %v, %v", ids, err)
+	}
+	if err = cache.MarkIDsRead(cfg.AccountCache, ids[:1], nil); err != nil {
+		t.Fatal(err)
+	}
+	items, err = client.GetLabelItems()
+	if err != nil || len(items) != 1 || items[0].MessagesTotal != 2 || items[0].MessagesUnread != 1 {
+		t.Errorf("after a read: %+v, %v; want INBOX with 1 unread of 2", items, err)
+	}
+	// The tree keeps the total only of a folder that holds messages
+	// (IsLabel); without it the INBOX drew as (1/0).
+	if tree := label.BuildLabelTree(items); len(tree) != 1 || tree[0].MessagesTotal != 2 {
+		t.Errorf("the folder tree lost the INBOX total: %+v", tree)
+	}
+
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if items, err = client.GetLabelItems(); err != nil || len(items) != 1 || items[0].MessagesTotal != 0 {
+		t.Errorf("a missing file: %+v, %v; want the INBOX listed without counts", items, err)
 	}
 }

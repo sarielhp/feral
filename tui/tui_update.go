@@ -124,9 +124,10 @@ func (m *tuiModel) resizeModalViewports(msg tea.WindowSizeMsg) {
 
 func (m *tuiModel) handleFoldersLoaded(msg foldersLoadedMsg) (tea.Model, tea.Cmd) {
 	folders := msg.folders
+	unified := m.unifiedInboxItems()
 	// The tree the folder pane shows is the global one, so the unified inbox
 	// belongs there too; offered only in m.folders, it could not be opened.
-	gFolders := append(m.unifiedInboxItems(), folders...)
+	gFolders := append(append([]label.Item(nil), unified...), folders...)
 	sort.Slice(gFolders, func(i, j int) bool {
 		return strings.ToLower(gFolders[i].FullName) < strings.ToLower(gFolders[j].FullName)
 	})
@@ -145,7 +146,7 @@ func (m *tuiModel) handleFoldersLoaded(msg foldersLoadedMsg) (tea.Model, tea.Cmd
 		folders = filtered
 		m.lpr = ""
 	}
-	folders = append(m.unifiedInboxItems(), folders...)
+	folders = append(append([]label.Item(nil), unified...), folders...)
 	sort.Slice(folders, func(i, j int) bool {
 		return strings.ToLower(folders[i].FullName) < strings.ToLower(folders[j].FullName)
 	})

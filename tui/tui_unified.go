@@ -35,12 +35,64 @@ func isUnifiedInbox(folder string) bool {
 }
 
 // unifiedInboxItems is the folder entry for the unified inbox, offered when
-// more than one account is configured.
+// more than one account is configured. It counts what opening it shows: each
+// account's cached INBOX index (loadUnifiedCachedEmails), unread by the
+// local read marks. It used to carry no counts, so the tree always showed
+// All Inboxes (0).
 func (m *tuiModel) unifiedInboxItems() []label.Item {
-	if len(m.getAccounts()) < 2 {
+	accounts := m.getAccounts()
+	if len(accounts) < 2 {
 		return nil
 	}
-	return []label.Item{{Name: UnifiedInboxFolder, FullName: UnifiedInboxFolder, IsSystem: true}}
+	// IsLabel: it holds messages, so the tree keeps its total.
+	item := label.Item{Name: UnifiedInboxFolder, FullName: UnifiedInboxFolder, IsSystem: true, IsLabel: true}
+	cfg := m.Config()
+	if cfg == nil {
+		cfg = m.cfg
+	}
+	for _, acc := range accounts {
+		total, unread := cachedInboxCounts(cfg.AccountCacheFor(acc), acc.Type)
+		item.MessagesTotal += total
+		item.MessagesUnread += unread
+	}
+	return []label.Item{item}
+}
+
+// refreshUnifiedCounts recounts All Inboxes where the folder trees show it.
+// The folder list is fetched once, as an account opens, and another account's
+// inbox may be cached only later; the count is local, so opening the tree
+// recounts it rather than showing what the cache held at startup.
+func (m *tuiModel) refreshUnifiedCounts() {
+	fresh := m.unifiedInboxItems()
+	if len(fresh) == 0 {
+		return
+	}
+	for _, tree := range [][]*label.TreeNode{m.globalTree, m.tree} {
+		for _, node := range tree {
+			if node.FullName == UnifiedInboxFolder {
+				node.MessagesTotal, node.MessagesUnread = fresh[0].MessagesTotal, fresh[0].MessagesUnread
+			}
+		}
+	}
+}
+
+// cachedInboxCounts counts an account's cached INBOX index, leaving out a
+// cache loadUnifiedCachedEmails would leave out.
+func cachedInboxCounts(dir cachedir.Account, backend string) (total, unread int64) {
+	if dir.IsZero() || !folderindex.HasStructure(dir) || meta.Check(dir, backend) != nil {
+		return 0, 0
+	}
+	ids, err := folderindex.IDs(dir, "INBOX")
+	if err != nil {
+		return 0, 0
+	}
+	read := cache.LoadReadState(dir)
+	for _, id := range ids {
+		if !read[id] {
+			unread++
+		}
+	}
+	return int64(len(ids)), unread
 }
 
 // stampAccount marks a row with the account it came from: the name that

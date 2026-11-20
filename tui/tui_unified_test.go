@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sarielhp/feral/cache"
 	"github.com/sarielhp/feral/cache/folderindex"
 	"github.com/sarielhp/feral/cache/meta"
 	"github.com/sarielhp/feral/cache/msg"
@@ -14,6 +15,8 @@ import (
 	"github.com/sarielhp/feral/email"
 	"github.com/sarielhp/feral/label"
 	"github.com/sarielhp/feral/mailclient"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestIsUnifiedInbox(t *testing.T) {
@@ -321,5 +324,70 @@ func TestLoadUnifiedCachedEmailsSkipsNewerCache(t *testing.T) {
 	}
 	if !strings.Contains(m.saveStatus, "Work left out") {
 		t.Errorf("status %q does not say which account was left out", m.saveStatus)
+	}
+}
+
+// All Inboxes counts what opening it shows: every account's cached INBOX
+// index, unread by the local read marks. It used to carry no counts, so the
+// tree always showed All Inboxes (0).
+func TestUnifiedInboxCountsAccountInboxes(t *testing.T) {
+	tmpDir := t.TempDir()
+	acc1 := cfg_acc.AccountConfig{Name: "Personal", Type: "gmail"}
+	acc2 := cfg_acc.AccountConfig{Name: "Work", Type: "outlook"}
+	acc3 := cfg_acc.AccountConfig{Name: "Never", Type: "jmap"}
+	cfg := &cfg_g.Config{
+		Paths:    cfg_g.Paths{ConfigDir: tmpDir, CacheRoot: tmpDir},
+		Accounts: []cfg_acc.AccountConfig{acc1, acc2, acc3},
+	}
+	dir1, dir2 := cfg.AccountCacheFor(acc1), cfg.AccountCacheFor(acc2)
+	if err := folderindex.ReplaceAll(dir1, "INBOX", []email.ID{"p1", "p2", "p3"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := folderindex.ReplaceAll(dir1, "Sent", []email.ID{"s1", "s2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := folderindex.ReplaceAll(dir2, "INBOX", []email.ID{"w1", "w2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.MarkIDsRead(dir1, []email.ID{"p1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &tuiModel{cfg: cfg}
+	items := m.unifiedInboxItems()
+	if len(items) != 1 {
+		t.Fatalf("unifiedInboxItems = %+v, want one entry", items)
+	}
+	if items[0].MessagesTotal != 5 || items[0].MessagesUnread != 4 {
+		t.Errorf("All Inboxes counts %d/%d, want 4 unread of 5", items[0].MessagesUnread, items[0].MessagesTotal)
+	}
+	if tree := label.BuildLabelTree(items); len(tree) != 1 || tree[0].MessagesTotal != 5 {
+		t.Errorf("the folder tree lost the All Inboxes total: %+v", tree)
+	}
+}
+
+// Opening the tree recounts All Inboxes: an account's inbox cached after the
+// folder list was fetched is counted, rather than the startup snapshot.
+func TestUnifiedInboxRecountedWhenTreeOpens(t *testing.T) {
+	tmpDir := t.TempDir()
+	acc1 := cfg_acc.AccountConfig{Name: "Personal", Type: "mbox"}
+	acc2 := cfg_acc.AccountConfig{Name: "Work", Type: "mbox"}
+	cfg := &cfg_g.Config{
+		Paths:    cfg_g.Paths{ConfigDir: tmpDir, CacheRoot: tmpDir},
+		Accounts: []cfg_acc.AccountConfig{acc1, acc2},
+	}
+	m := &tuiModel{cfg: cfg, currentF: "INBOX"}
+	m.globalTree = label.BuildLabelTree(m.unifiedInboxItems())
+	if len(m.globalTree) != 1 || m.globalTree[0].MessagesTotal != 0 {
+		t.Fatalf("startup tree = %+v, want All Inboxes with nothing cached", m.globalTree)
+	}
+
+	if err := folderindex.ReplaceAll(cfg.AccountCacheFor(acc2), "INBOX", []email.ID{"w1", "w2"}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	tree := res.(*tuiModel).globalTree
+	if len(tree) != 1 || tree[0].MessagesTotal != 2 || tree[0].MessagesUnread != 2 {
+		t.Errorf("after opening the tree: %+v, want All Inboxes with 2 unread of 2", tree)
 	}
 }

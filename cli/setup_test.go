@@ -153,7 +153,7 @@ func TestVerifySetupAccount_VerifiesTheAccountJustAdded(t *testing.T) {
 	}
 }
 
-// The loader seeds a placeholder "default" gmail account on a first run.
+// Older builds seeded a placeholder "default" gmail account on a first run.
 // Setup used to append the real account after it, so later runs selected the
 // placeholder; it must be replaced.
 func TestSaveNewSetupAccount_ReplacesSeededPlaceholder(t *testing.T) {

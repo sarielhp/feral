@@ -218,9 +218,18 @@ module Tooling
 
     run(executable('go'), 'vet', "-vettool=#{executable('shadow')}", './...')
     run(executable('revive'), '-set_exit_status', '-exclude', 'vendor/...', './...')
-    out = run(executable('dupl'), '-threshold', '50', '.')
+    out = run(executable('dupl'), '-threshold', '50', *dupl_files)
     raise 'dupl reported clone groups; review and adapt the explicit project check' unless out.strip.empty? ||
                                                                                            out.strip == 'Found total 0 clone groups.'
+  end
+
+  # The Go files dupl compares: what git tracks or would add, never a walk of
+  # '.'. A walk reached the public repository's working clone in
+  # .git/publish and nested worktrees under .claude/worktrees, and reported
+  # every file as a clone of its own copy there.
+  def dupl_files
+    git('ls-files', '--cached', '--others', '--exclude-standard', '--', '*.go')
+      .lines(chomp: true).select { |path| File.file?(path) }
   end
 
   def gate(full)

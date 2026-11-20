@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/feral-logo.jpg" alt="feral: a scruffy dog shredding a pile of mail" width="240">
+</p>
+
 # feral
 
 [![CI](https://github.com/sarielhp/feral/actions/workflows/ci.yml/badge.svg)](https://github.com/sarielhp/feral/actions/workflows/ci.yml)

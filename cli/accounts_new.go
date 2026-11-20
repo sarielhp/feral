@@ -298,6 +298,9 @@ func accountNewCmd(session *Session) clihelp.Command {
 				empty := []cfg_acc.AccountConfig{}
 				fc.Accounts = &empty
 			}
+			// A placeholder is replaced, and before the name check: it is not an
+			// account whose name a new one could clash with.
+			cfg_g.DropPlaceholders(fc)
 			if err = cfg_g.CheckNewAccountName(*fc.Accounts, name, -1); err != nil {
 				return err
 			}

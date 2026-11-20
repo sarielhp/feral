@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sarielhp/feral/cache"
 	"github.com/sarielhp/feral/cache/folderindex"
 	"github.com/sarielhp/feral/cache/msg"
 	"github.com/sarielhp/feral/cfg_acc"
@@ -68,10 +69,29 @@ func (c *client) GetMatchingLabels(_ string) ([]string, error) {
 	return []string{"INBOX"}, nil
 }
 
+// GetLabelItems is the one INBOX, counted: every message the file holds, and
+// as unread those the local read state -- an mbox file keeps none of its own --
+// does not mark read. It reads the file through the cache first, as listing a
+// server's folders asks the server: the TUI lists folders as it opens, before
+// the inbox is loaded, so counting only what was already cached showed INBOX
+// (0) beside a header counting 30 unread. An unchanged file costs a stat. A
+// file it cannot read leaves the counts out rather than failing the listing
+// they decorate; opening the folder reports why.
 func (c *client) GetLabelItems() ([]cfg_acc.Item, error) {
-	return []cfg_acc.Item{
-		{Name: "INBOX", FullName: "INBOX"},
-	}, nil
+	// IsLabel: a folder that holds messages, so the tree keeps its own total.
+	inbox := cfg_acc.Item{Name: "INBOX", FullName: "INBOX", IsLabel: true}
+	ids, err := IngestMbox(c.mboxPath, c.localCfg.AccountCache, c.dispName)
+	if err != nil {
+		return []cfg_acc.Item{inbox}, nil
+	}
+	read := cache.LoadReadState(c.localCfg.AccountCache)
+	inbox.MessagesTotal = int64(len(ids))
+	for _, id := range ids {
+		if !read[id] {
+			inbox.MessagesUnread++
+		}
+	}
+	return []cfg_acc.Item{inbox}, nil
 }
 
 func (c *client) FetchAndDownloadEmails(_ label.Folder, _ string) ([]email.ID, error) {
