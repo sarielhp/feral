@@ -8,9 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/report"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,8 +20,15 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"golang.org/x/term"
 	gmailapi "google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 var oauthScopes = []string{
@@ -79,11 +83,7 @@ func resolveConfigDir(config *Config) (string, error) {
 	if config.ConfigDir != "" {
 		return config.ConfigDir, nil
 	}
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home: %w", err)
-	}
-	return filepath.Join(homeDir, ".config", app.AppName), nil
+	return cfg_g.UserConfigDir()
 }
 
 // NewOAuthHTTPClient returns an HTTP client authorized for the Google scopes
@@ -320,10 +320,40 @@ func startStdinCodeReader(ctx context.Context, rep report.Reporter, codeChan cha
 	}()
 }
 
+// ErrInteractiveAuthRequired reports that the account needs a sign-in a
+// non-interactive process cannot perform.
+var ErrInteractiveAuthRequired = mailclient.ErrInteractiveAuthRequired
+
+// interactiveAuthPossible reports whether there is a person here to read a code
+// off the screen and type it into a browser.
+//
+// It is a variable so a test can drive both answers without a terminal.
+var interactiveAuthPossible = func() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+func accountTargetName(appConfig *Config) string {
+	if appConfig == nil {
+		return "<name>"
+	}
+	if appConfig.SelectedAccount != "" {
+		return string(appConfig.SelectedAccount)
+	}
+	if len(appConfig.Accounts) == 1 {
+		return appConfig.Accounts[0].Name
+	}
+	return "<name>"
+}
+
 // getTokenFromWebContext requests a token from the web respecting caller context.
-func getTokenFromWebContext(ctx context.Context, rep report.Reporter, config *oauth2.Config, _ *Config) (*oauth2.Token, error) {
+func getTokenFromWebContext(ctx context.Context, rep report.Reporter, config *oauth2.Config, appConfig *Config) (*oauth2.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if !interactiveAuthPossible() || !report.CanPrompt(rep) {
+		target := accountTargetName(appConfig)
+		return nil, fmt.Errorf("%w: run `feral account login %s` from a terminal (web OAuth sign-in needs a browser and cannot run unattended)",
+			ErrInteractiveAuthRequired, target)
 	}
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)

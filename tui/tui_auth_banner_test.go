@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func authBannerModel(t *testing.T, err error) *tuiModel {
@@ -29,7 +29,7 @@ func authBannerModel(t *testing.T, err error) *tuiModel {
 // An expired sign-in used to show the generic banner -- "Press R to retry" --
 // so the 'L' that signs in from inside the TUI was never discovered.
 func TestErrorBannerOffersSignInForAuthErrors(t *testing.T) {
-	authErr := fmt.Errorf("fetch: %w: run `mail_cli account login work` from a terminal",
+	authErr := fmt.Errorf("fetch: %w: run `feral account login work` from a terminal",
 		mailclient.ErrInteractiveAuthRequired)
 	banner := renderErrorBanner(authBannerModel(t, authErr))
 	if !strings.Contains(banner, "Press L to sign in") || !strings.Contains(banner, "work") {

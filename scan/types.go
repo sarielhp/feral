@@ -1,6 +1,6 @@
 package scan
 
-import "github.com/sarielhp/mail_cli/spam"
+import "github.com/sarielhp/feral/spam"
 
 // The classifier's verdict, named locally for readability at the call sites
 // that pass it around.

@@ -5,7 +5,7 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/sarielhp/mail_cli/outbox"
+	"github.com/sarielhp/feral/outbox"
 )
 
 // isOfflineSendError reports whether a SendEmail failure means the server was

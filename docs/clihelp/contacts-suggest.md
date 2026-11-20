@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts suggest'
-parent: 'mail_cli contacts'
+title: 'feral contacts suggest'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts suggest
+# feral contacts suggest
 
 Suggest ranked email recipients combining curated contacts and interaction history.
 
 ## Usage
 
 ```
-mail_cli contacts suggest [query]
+feral contacts suggest [query]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli contacts suggest [query]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,10 +34,10 @@ mail_cli contacts suggest [query]
 
 ## Examples
 
-- `mail_cli contacts suggest`
-- `mail_cli contacts suggest alice`
-- `mail_cli contacts suggest algo`
+- `feral contacts suggest`
+- `feral contacts suggest alice`
+- `feral contacts suggest algo`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

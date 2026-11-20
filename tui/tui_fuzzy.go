@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"sort"
 	"strings"
 	"unicode"
@@ -66,6 +66,24 @@ func fuzzyMatchEmailRunes(qRunes []rune, e email.Email) int {
 	}
 	if score == 0 {
 		score = fuzzyScoreRunes(qRunes, e.FromEmail)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.ThreadSenderSummary)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.ToRaw)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.ToEmail)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.CcRaw)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.CcEmail)
+	}
+	if score == 0 {
+		score = fuzzyScoreRunes(qRunes, e.ThreadCCSummary)
 	}
 	if score == 0 {
 		score = fuzzyScoreRunes(qRunes, string(e.ID))

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule remote rm'
-parent: 'mail_cli rule remote'
+title: 'feral rule remote rm'
+parent: 'feral rule remote'
 ---
 
-# mail\_cli rule remote rm
+# feral rule remote rm
 
 Delete a server filter and its local rule.
 
 ## Usage
 
 ```
-mail_cli rule remote rm <target> [flags]
+feral rule remote rm <target> [flags]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli rule remote rm <target> [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,10 +36,10 @@ mail_cli rule remote rm <target> [flags]
 
 ## Examples
 
-- `mail_cli rule remote rm 1`
-- `mail_cli rule remote rm AN63b9f`
-- `mail_cli rule remote rm alerts@github.com`
+- `feral rule remote rm 1`
+- `feral rule remote rm AN63b9f`
+- `feral rule remote rm alerts@github.com`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

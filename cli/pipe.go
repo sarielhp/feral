@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -21,7 +21,7 @@ func PipeCmd(session *Session) clihelp.Command {
 		Group:           "Messages",
 		Description:     "Pipe message raw RFC822 or body to command.",
 		LongDescription: "Fetch the specified message and pipe its contents (raw RFC822 by default, or body text with --body, or headers with --headers-only) into the standard input of an external command.",
-		UsageLine:       "mail_cli msg pipe [flags] <message-id> <command...>",
+		UsageLine:       "feral msg pipe [flags] <message-id> <command...>",
 		Parameters: []clihelp.Param{
 			{Name: "<message-id>", Description: "Message ID or prefix hash of the email to pipe."},
 			{Name: "<command...>", Description: "Command and arguments to execute.", Variadic: true},
@@ -35,9 +35,9 @@ func PipeCmd(session *Session) clihelp.Command {
 			return runPipe(session, ctx.Args[0], ctx.Args[1:])
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg pipe 18fb1234 git am", Description: "Pipe email directly to git am"},
-			{Line: "mail_cli msg pipe --body 18fb1234 -- wc -w", Description: "Count words in message body"},
-			{Line: "mail_cli msg pipe 18fb1234 'xclip -selection clipboard'", Description: "Copy raw RFC822 email to system clipboard"},
+			{Line: "feral msg pipe 18fb1234 git am", Description: "Pipe email directly to git am"},
+			{Line: "feral msg pipe --body 18fb1234 -- wc -w", Description: "Count words in message body"},
+			{Line: "feral msg pipe 18fb1234 'xclip -selection clipboard'", Description: "Copy raw RFC822 email to system clipboard"},
 		},
 	}
 }

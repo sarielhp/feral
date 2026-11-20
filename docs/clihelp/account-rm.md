@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account rm'
-parent: 'mail_cli account'
+title: 'feral account rm'
+parent: 'feral account'
 ---
 
-# mail\_cli account rm
+# feral account rm
 
 Delete an account and its credentials.
 
 ## Usage
 
 ```
-mail_cli account rm <account_name>
+feral account rm <account_name>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli account rm <account_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli account rm <account_name>
 
 ## Examples
 
-- `mail_cli account rm temp-account`
+- `feral account rm temp-account`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

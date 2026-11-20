@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli msg'
+title: 'feral msg'
 has_children: true
 ---
 
-# mail\_cli msg
+# feral msg
 
 Use msg show to read a message or folder, msg send for scripts and pipes, and msg reply to continue a thread. msg drafts manages saved work, msg last lists recent mail, and msg export saves messages or threads. Write new mail with write. Archive and block operate on message IDs; label archive acts on a whole folder.
 
 ## Usage
 
 ```
-mail_cli msg <subcommand> [args...]
+feral msg <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -27,6 +27,11 @@ mail_cli msg <subcommand> [args...]
 | [outbox](msg-outbox.md) | Manage offline outbound email queue. |
 | [archive](msg-archive.md) | Archive one or more messages by ID. |
 | [block](msg-block.md) | Block the senders of messages and move them. |
+| [snooze](msg-snooze.md) | Hide messages until a time, then return them. |
+| [unsub](msg-unsub.md) | Leave the mailing list a message came from. |
+| [mute](msg-mute.md) | Archive a thread's new messages on arrival. |
+| [unmute](msg-unmute.md) | Let a muted thread reach the inbox again. |
+| [muted](msg-muted.md) | List the account's muted threads. |
 
 ## Flags
 
@@ -35,7 +40,7 @@ mail_cli msg <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -43,11 +48,12 @@ mail_cli msg <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli msg show abc123de` — Read a message
-- `mail_cli msg last 20` — List recent messages across folders
-- `mail_cli msg archive abc123de` — Archive one message by ID
-- `mail_cli msg block abc123de` — Block sender of message to Spam
+- `feral msg show abc123de` — Read a message
+- `feral msg last 20` — List recent messages across folders
+- `feral msg archive abc123de` — Archive one message by ID
+- `feral msg block abc123de` — Block sender of message to Spam
+- `feral msg unsub abc123de` — Leave the mailing list of a message
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

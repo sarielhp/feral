@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestRunExport_Validation(t *testing.T) {

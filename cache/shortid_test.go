@@ -1,6 +1,6 @@
 package cache
 
-import "github.com/sarielhp/mail_cli/email"
+import "github.com/sarielhp/feral/email"
 
 // shortIDOf mirrors what listings print beside a message, so a test can look
 // one up the way a user would type it.

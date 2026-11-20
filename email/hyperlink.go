@@ -108,8 +108,10 @@ func EmbedOSC8Hyperlinks(text string) string {
 	return EmbedOSC8HyperlinksAlways(text)
 }
 
-// EmbedOSC8HyperlinksAlways converts raw URLs in text into OSC 8 hyperlinks unconditionally.
+// EmbedOSC8HyperlinksAlways converts raw URLs in text into OSC 8 hyperlinks
+// unconditionally, and draws each Markdown reference link over its label.
 func EmbedOSC8HyperlinksAlways(text string) string {
+	text = embedReferenceLinks(text)
 	return linkOrOSC8Regex.ReplaceAllStringFunc(text, func(m string) string {
 		if strings.HasPrefix(m, "\x1b]8;;") {
 			return m
@@ -147,4 +149,56 @@ func EmbedCompactOSC8Hyperlinks(text string, maxWidth int) string {
 		}
 		return FormatOSC8Link(target, display) + punct
 	})
+}
+
+var (
+	// referenceDefRegex matches a Markdown link-reference definition as
+	// labelLinks writes one: `[1]: https://example.com "Sign in"`, the title
+	// optional.
+	referenceDefRegex = regexp.MustCompile(`(?m)^\[(\d+)\]: (\S+)(?: "[^"\n]*")?$`)
+	// referenceLinkRegex matches a Markdown reference link, "[Sign in][1]".
+	referenceLinkRegex = regexp.MustCompile(`\[([^\[\]\n]{1,300})\]\[(\d+)\]`)
+)
+
+// embedReferenceLinks draws each reference link whose number has a definition
+// as an OSC 8 hyperlink over its label, leaving the definitions for the bare
+// URL pass. The label is underlined, so it reads as a link whether or not
+// the terminal marks hyperlinks, and keeps its number, so a reader can still
+// find it in the References list.
+func embedReferenceLinks(text string) string {
+	targets := map[string]string{}
+	for _, def := range referenceDefRegex.FindAllStringSubmatch(text, -1) {
+		targets[def[1]] = def[2]
+	}
+	if len(targets) == 0 {
+		return text
+	}
+	return referenceLinkRegex.ReplaceAllStringFunc(text, func(link string) string {
+		parts := referenceLinkRegex.FindStringSubmatch(link)
+		target, ok := targets[parts[2]]
+		if !ok {
+			return link
+		}
+		return formatLabeledLink(target, parts[1], parts[2])
+	})
+}
+
+// formatLabeledLink links each word of the label on its own: the wrappers
+// never split a word that carries an escape, but do break a line between
+// words, and a hyperlink broken across lines is one the click handler cannot
+// see the end of.
+func formatLabeledLink(target, label, number string) string {
+	words := strings.Fields(label)
+	var sb strings.Builder
+	for i, word := range words {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		display := "\x1b[4m" + word + "\x1b[24m"
+		if i == len(words)-1 {
+			display += "[" + number + "]"
+		}
+		sb.WriteString(FormatOSC8Link(target, display))
+	}
+	return sb.String()
 }

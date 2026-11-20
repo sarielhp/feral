@@ -102,8 +102,51 @@ func (c ColoredString) Width() int {
 	return w
 }
 
+// TruncateTo shortens the whole string to at most width display cells,
+// dropping runes from the end of the first segment that crosses the limit and
+// emptying the segments after it; a non-positive width empties the segments.
+// The receiver is a value but its Segments slice is shared: the caller's
+// segments are shortened too, so keep the result and drop the original.
+func (c ColoredString) TruncateTo(width int) ColoredString {
+	if width <= 0 {
+		for i := range c.Segments {
+			c.Segments[i].Text = ""
+		}
+		return c
+	}
+	_, limit := c.terminateAt(width)
+	for i := range c.Segments {
+		if i > limit {
+			c.Segments[i].Text = ""
+		}
+	}
+	return c
+}
+
+// terminateAt is TruncateTo's walk: it reports how much width was consumed
+// and which segment last received text, having shortened that segment in
+// place.
+func (c ColoredString) terminateAt(width int) (used, limit int) {
+	for i := range c.Segments {
+		w := runewidth.StringWidth(c.Segments[i].Text)
+		if used+w <= width {
+			used += w
+			continue
+		}
+		runes := []rune(c.Segments[i].Text)
+		for used+runewidth.StringWidth(string(runes)) > width {
+			runes = runes[:len(runes)-1]
+		}
+		c.Segments[i].Text = string(runes)
+		used += runewidth.StringWidth(c.Segments[i].Text)
+		return used, i
+	}
+	return used, len(c.Segments) - 1
+}
+
 // TruncateLeft shortens every segment to at most width display cells by
 // dropping runes from its front; a non-positive width empties the segments.
+// Like TruncateTo, it shortens the caller's shared segments in place.
 func (c ColoredString) TruncateLeft(width int) ColoredString {
 	if width <= 0 {
 		for i := range c.Segments {

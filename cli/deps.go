@@ -3,19 +3,22 @@ package cli
 import (
 	"context"
 	"errors"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/last"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/scan"
-	"github.com/sarielhp/mail_cli/show"
-	"github.com/sarielhp/mail_cli/watcher"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/last"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/outlookids"
+	"github.com/sarielhp/feral/scan"
+	"github.com/sarielhp/feral/show"
+	"github.com/sarielhp/feral/snooze"
+	"github.com/sarielhp/feral/watcher"
 )
 
 // The CLI declares here what it needs from the layers beneath it, grouped by
@@ -62,6 +65,7 @@ type MailOps interface {
 	Show(opts show.Options, config *cfg_g.Config, labelPrefix, msgID string) error
 	Last(opts last.Options, config *cfg_g.Config, n int) error
 	Export(config *cfg_g.Config, opts ExportOptions) error
+	SaveFolderToMbox(config *cfg_g.Config, path, labelPrefix string) error
 	Pipe(config *cfg_g.Config, opts PipeOptions, cmdArgs []string) error
 	RunBackendTests(config *cfg_g.Config) error
 }
@@ -132,15 +136,26 @@ type AccountOps interface {
 	// OpenMbox builds a read-only client over a local mbox file, caching into
 	// cacheDir.
 	OpenMbox(config *cfg_g.Config, mboxPath string, cacheDir cachedir.Account) (mailclient.MailClient, error)
+
+	// MigrateOutlookIDs rebuilds an Outlook account's cache keyed by
+	// immutable message IDs. See package outlookids.
+	MigrateOutlookIDs(ctx context.Context, config *cfg_g.Config, acc cfg_acc.AccountConfig) (outlookids.Report, error)
+
+	// RenameAccount renames the account ident to `to`, with every file named
+	// after it; under --dry-run it only plans. See runner.RenameAccount.
+	RenameAccount(config *cfg_g.Config, ident, to string) (cfg_g.AccountRename, error)
 }
 
 // ComposeOptions configures an interactive compose session.
 type ComposeOptions struct {
-	To          []string
-	Cc          []string
-	Bcc         []string
-	Subject     string
-	Body        string
+	To      []string
+	Cc      []string
+	Bcc     []string
+	Subject string
+	Body    string
+	// Quote is the quoted original of a reply, placed under Body and the
+	// account's signature.
+	Quote       string
 	Attachments []string
 	Account     string
 	InReplyTo   string
@@ -155,6 +170,8 @@ type TUILauncher interface {
 	Run(config *cfg_g.Config, labelPrefix string, initialNotice ...string) error
 	RunWithClient(config *cfg_g.Config, client mailclient.MailClient, labelPrefix string) error
 	Compose(config *cfg_g.Config, opts ComposeOptions) error
+	// DefaultKeys is the TUI's default keymap as a keys.json.
+	DefaultKeys() ([]byte, error)
 }
 
 // ContactOps manages importing, syncing, listing, searching, and suggesting contacts and aliases.
@@ -167,6 +184,18 @@ type ContactOps interface {
 	Suggest(config *cfg_g.Config, query string) error
 	Harvest(config *cfg_g.Config) error
 	Purge(config *cfg_g.Config, email string) error
+	Pick(config *cfg_g.Config, opts PickOptions) error
+	Manage(config *cfg_g.Config) error
+}
+
+// PickOptions configure `contacts pick`.
+type PickOptions struct {
+	Title        string
+	Query        string
+	Preselect    []string
+	Single       bool
+	Format       string
+	ExpandGroups bool
 }
 
 // SendOptions contains parameters for an outbound email send.
@@ -182,6 +211,11 @@ type SendOptions struct {
 	Raw         bool
 	RawBytes    []byte
 	Queue       bool
+	// SendAfter, when set, queues the message to be sent by the first
+	// outbox flush at or after it.
+	SendAfter time.Time
+	// NoSignature leaves the account's signature off.
+	NoSignature bool
 	// Sign asks for the message body to be PGP-signed.
 	Sign bool
 	// Encrypt asks for the message body to be PGP-encrypted to the recipients.
@@ -193,9 +227,12 @@ type SendOptions struct {
 
 // ReplyOptions contains parameters for replying to an email.
 type ReplyOptions struct {
-	MessageID   string
-	Account     string
-	Group       bool
+	MessageID string
+	Account   string
+	Group     bool
+	// List addresses the reply to the list the message came through
+	// (List-Post) instead of its sender.
+	List        bool
 	Subject     string
 	Cc          []string
 	Bcc         []string
@@ -205,12 +242,29 @@ type ReplyOptions struct {
 	Headless    bool
 	NoQuote     bool
 	DryRun      bool
+	// NoSignature leaves the account's signature off a --headless reply.
+	NoSignature bool
 }
 
 // SendOps delivers outbound mail.
 type SendOps interface {
 	Send(config *cfg_g.Config, opts SendOptions) error
 	Reply(config *cfg_g.Config, opts ReplyOptions) error
+}
+
+// UnsubscribeOptions names the message whose mailing list is to be left.
+type UnsubscribeOptions struct {
+	MessageID string
+	Account   string
+	// Confirm is asked, after the preview is shown, before anything is
+	// sent or opened; an error -- ErrDeclined among them -- stops it. It is
+	// not asked under --read-only or --dry-run, which only report.
+	Confirm func(action string) error
+}
+
+// UnsubscribeOps leaves the mailing list a message came from.
+type UnsubscribeOps interface {
+	Unsubscribe(config *cfg_g.Config, opts UnsubscribeOptions) error
 }
 
 // OutboxOps manages the offline send spool.
@@ -220,9 +274,28 @@ type OutboxOps interface {
 	Remove(config *cfg_g.Config, id string) error
 }
 
+// SnoozeOps hides messages until a time and lists, wakes or forgets them.
+type SnoozeOps interface {
+	// Items resolves message references in the client's account cache.
+	Items(client mailclient.MailClient, refs []string) ([]snooze.Item, error)
+	// Snooze moves items to the account's snooze folder until a time.
+	Snooze(config *cfg_g.Config, client mailclient.MailClient, items []snooze.Item, until time.Time) ([]snooze.Entry, error)
+	// List returns every snoozed message, the soonest due first.
+	List(config *cfg_g.Config) ([]snooze.Entry, error)
+	// Select returns the snoozed messages refs name, or with none those due.
+	Select(config *cfg_g.Config, refs []string) ([]snooze.Entry, error)
+	// Wake brings the selected messages back to the inbox, unread.
+	Wake(config *cfg_g.Config, refs []string) ([]snooze.Entry, error)
+	// Forget drops the selected records and moves nothing.
+	Forget(config *cfg_g.Config, refs []string) ([]snooze.Entry, error)
+}
+
 // WatchOps runs the background mail watcher.
 type WatchOps interface {
 	Watch(ctx context.Context, config *cfg_g.Config, opts watcher.Options) error
+	// WatchInBackground is Watch beside the TUI: it reports to the log, which
+	// the TUI's diagnostics panel shows, never to the terminal the TUI owns.
+	WatchInBackground(ctx context.Context, config *cfg_g.Config, opts watcher.Options) error
 }
 
 // Deps is everything the CLI needs from below. A nil member is not a crash: the
@@ -240,8 +313,10 @@ type Deps struct {
 	TUI      TUILauncher
 	Contacts ContactOps
 	Send     SendOps
+	Unsub    UnsubscribeOps
 	Outbox   OutboxOps
 	Watch    WatchOps
+	Snooze   SnoozeOps
 }
 
 // One stub per interface, rather than one type implementing all of them:
@@ -271,6 +346,7 @@ func (noMail) Scan(scan.Options, *cfg_g.Config, string) (int, error) {
 func (noMail) Show(show.Options, *cfg_g.Config, string, string) error { return ErrNotConfigured }
 func (noMail) Last(last.Options, *cfg_g.Config, int) error            { return ErrNotConfigured }
 func (noMail) Export(*cfg_g.Config, ExportOptions) error              { return ErrNotConfigured }
+func (noMail) SaveFolderToMbox(*cfg_g.Config, string, string) error   { return ErrNotConfigured }
 func (noMail) Pipe(*cfg_g.Config, PipeOptions, []string) error        { return ErrNotConfigured }
 func (noMail) RunBackendTests(*cfg_g.Config) error                    { return ErrNotConfigured }
 
@@ -355,6 +431,14 @@ func (noAccounts) OpenMbox(*cfg_g.Config, string, cachedir.Account) (mailclient.
 	return nil, ErrNotConfigured
 }
 
+func (noAccounts) MigrateOutlookIDs(context.Context, *cfg_g.Config, cfg_acc.AccountConfig) (outlookids.Report, error) {
+	return outlookids.Report{}, ErrNotConfigured
+}
+
+func (noAccounts) RenameAccount(*cfg_g.Config, string, string) (cfg_g.AccountRename, error) {
+	return cfg_g.AccountRename{}, ErrNotConfigured
+}
+
 type noTUI struct{}
 
 func (noTUI) Run(*cfg_g.Config, string, ...string) error { return ErrNotConfigured }
@@ -367,6 +451,8 @@ func (noTUI) Compose(*cfg_g.Config, ComposeOptions) error {
 	return ErrNotConfigured
 }
 
+func (noTUI) DefaultKeys() ([]byte, error) { return nil, ErrNotConfigured }
+
 type noContacts struct{}
 
 func (noContacts) List(*cfg_g.Config, string) error       { return ErrNotConfigured }
@@ -377,6 +463,8 @@ func (noContacts) Path(*cfg_g.Config) error               { return ErrNotConfigu
 func (noContacts) Suggest(*cfg_g.Config, string) error    { return ErrNotConfigured }
 func (noContacts) Harvest(*cfg_g.Config) error            { return ErrNotConfigured }
 func (noContacts) Purge(*cfg_g.Config, string) error      { return ErrNotConfigured }
+func (noContacts) Pick(*cfg_g.Config, PickOptions) error  { return ErrNotConfigured }
+func (noContacts) Manage(*cfg_g.Config) error             { return ErrNotConfigured }
 
 // Accessors. Each substitutes the stub for an unbound dependency, so the 41
 // scattered nil checks this replaces live in one place.
@@ -456,6 +544,17 @@ type noSend struct{}
 func (noSend) Send(*cfg_g.Config, SendOptions) error   { return ErrNotConfigured }
 func (noSend) Reply(*cfg_g.Config, ReplyOptions) error { return ErrNotConfigured }
 
+type noUnsub struct{}
+
+func (noUnsub) Unsubscribe(*cfg_g.Config, UnsubscribeOptions) error { return ErrNotConfigured }
+
+func (s *Session) unsub() UnsubscribeOps {
+	if s.Deps.Unsub == nil {
+		return noUnsub{}
+	}
+	return s.Deps.Unsub
+}
+
 func (s *Session) send() SendOps {
 	if s.Deps.Send == nil {
 		return noSend{}
@@ -475,6 +574,10 @@ func (noWatch) Watch(context.Context, *cfg_g.Config, watcher.Options) error {
 	return ErrNotConfigured
 }
 
+func (noWatch) WatchInBackground(context.Context, *cfg_g.Config, watcher.Options) error {
+	return ErrNotConfigured
+}
+
 func (s *Session) outbox() OutboxOps {
 	if s.Deps.Outbox == nil {
 		return noOutbox{}
@@ -487,4 +590,35 @@ func (s *Session) watch() WatchOps {
 		return noWatch{}
 	}
 	return s.Deps.Watch
+}
+
+type noSnooze struct{}
+
+func (noSnooze) Items(mailclient.MailClient, []string) ([]snooze.Item, error) {
+	return nil, ErrNotConfigured
+}
+
+func (noSnooze) Snooze(*cfg_g.Config, mailclient.MailClient, []snooze.Item, time.Time) ([]snooze.Entry, error) {
+	return nil, ErrNotConfigured
+}
+
+func (noSnooze) List(*cfg_g.Config) ([]snooze.Entry, error) { return nil, ErrNotConfigured }
+
+func (noSnooze) Select(*cfg_g.Config, []string) ([]snooze.Entry, error) {
+	return nil, ErrNotConfigured
+}
+
+func (noSnooze) Wake(*cfg_g.Config, []string) ([]snooze.Entry, error) {
+	return nil, ErrNotConfigured
+}
+
+func (noSnooze) Forget(*cfg_g.Config, []string) ([]snooze.Entry, error) {
+	return nil, ErrNotConfigured
+}
+
+func (s *Session) snoozer() SnoozeOps {
+	if s.Deps.Snooze == nil {
+		return noSnooze{}
+	}
+	return s.Deps.Snooze
 }

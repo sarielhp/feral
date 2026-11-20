@@ -3,22 +3,23 @@ package jmap
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	mailemail "github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache/cachedir"
+	mailemail "github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/train"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/train"
 
 	"git.sr.ht/~rockorager/go-jmap"
 	jmapMail "git.sr.ht/~rockorager/go-jmap/mail"
 	jmapEmail "git.sr.ht/~rockorager/go-jmap/mail/email"
+	"git.sr.ht/~rockorager/go-jmap/mail/emailsubmission"
 )
 
 func TestBuildMovePatch_DistinctSourceAndDest(t *testing.T) {
@@ -326,5 +327,94 @@ func TestJMAPClient_LearnSpam_CorruptedLedger(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "delete the file to start the trained-spam record over") {
 		t.Errorf("expected remediation hint in error, got: %v", err)
+	}
+}
+
+// sendServer fakes a JMAP server for SendEmail. importReply is its answer to
+// Email/import; submissions says how many EmailSubmission objects already exist
+// for the email. It counts the EmailSubmission/set calls, the ones that send.
+func sendServer(importReply string, submissions int) (*client, *int) {
+	sess := newTestMailSession("https://test.local/api")
+	sess.UploadURL = "https://test.local/upload/{accountId}"
+	sess.RawCapabilities[emailsubmission.URI] = []byte("{}")
+	reply := func(body string) *http.Response {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
+	}
+	submitted := 0
+	existing := ""
+	if submissions > 0 {
+		existing = `"sub-1"`
+	}
+	c := &client{
+		config:        &cfg_g.Config{},
+		rep:           &recordReporter{},
+		accID:         "acc-1",
+		sentMailboxID: "mb-sent",
+		account:       cfg_acc.AccountConfig{Username: "me@example.com"},
+		client: &jmap.Client{
+			Session:         sess,
+			SessionEndpoint: "https://test.local/session",
+			HttpClient: &http.Client{Transport: mockTransport(func(req *http.Request) *http.Response {
+				if strings.Contains(req.URL.Path, "/upload/") {
+					return reply(`{"accountId":"acc-1","blobId":"blob-1","type":"message/rfc822","size":10}`)
+				}
+				body, _ := io.ReadAll(req.Body)
+				switch {
+				case strings.Contains(string(body), "Identity/get"):
+					return reply(`{"methodResponses":[["Identity/get",{"list":[{"id":"id-1","email":"me@example.com"}]},"0"]]}`)
+				case strings.Contains(string(body), "Email/import"):
+					return reply(importReply)
+				case strings.Contains(string(body), "Email/query"):
+					return reply(`{"methodResponses":[["Email/query",{"ids":["existing-1"]},"0"]]}`)
+				case strings.Contains(string(body), "Email/set"):
+					return reply(`{"methodResponses":[["Email/set",{"updated":{"existing-1":null}},"0"]]}`)
+				case strings.Contains(string(body), "EmailSubmission/query"):
+					return reply(`{"methodResponses":[["EmailSubmission/query",{"ids":[` + existing + `]},"0"]]}`)
+				}
+				submitted++
+				return reply(`{"methodResponses":[["EmailSubmission/set",{"created":{"sub1":{"id":"sub-2"}}},"0"]]}`)
+			})},
+		},
+	}
+	return c, &submitted
+}
+
+const (
+	importCreated       = `{"methodResponses":[["Email/import",{"created":{"import1":{"id":"new-1"}}},"0"]]}`
+	importAlreadyExists = `{"methodResponses":[["Email/import",{"notCreated":{"import1":{"type":"alreadyExists"}}},"0"]]}`
+)
+
+// A retried send re-imports identical bytes and the server answers
+// alreadyExists. That must not fail the send, and it must not deliver the
+// message twice when the first attempt had already submitted it.
+func TestSendEmail_RetryAfterAlreadyExists(t *testing.T) {
+	raw := []byte("Message-ID: <a@b>\r\nTo: you@example.com\r\nSubject: x\r\n\r\nbody\r\n")
+	for _, tc := range []struct {
+		name        string
+		importReply string
+		submissions int
+		wantSent    int
+	}{
+		{"fresh import is submitted", importCreated, 0, 1},
+		{"imported but never submitted is submitted now", importAlreadyExists, 0, 1},
+		{"already submitted is not sent again", importAlreadyExists, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, sent := sendServer(tc.importReply, tc.submissions)
+			if err := c.SendEmail(raw); err != nil {
+				t.Fatalf("SendEmail: %v", err)
+			}
+			if *sent != tc.wantSent {
+				t.Errorf("submitted %d times, want %d", *sent, tc.wantSent)
+			}
+		})
+	}
+}
+
+func TestUploadAndImportEmail_ReportsExistingCopy(t *testing.T) {
+	c, _ := sendServer(importAlreadyExists, 0)
+	id, existing, err := c.uploadAndImportEmail([]byte("Message-ID: <a@b>\r\nSubject: x\r\n\r\nbody\r\n"))
+	if err != nil || id != "existing-1" || !existing {
+		t.Errorf("got id=%q existing=%v err=%v, want existing-1, true, nil", id, existing, err)
 	}
 }

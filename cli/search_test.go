@@ -1,16 +1,16 @@
 package cli
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/email"
 )
 
 func searchTestEmail(id, subject string, date time.Time) email.Email {
@@ -163,7 +163,7 @@ func TestSaveSearchMailboxRecordsResults(t *testing.T) {
 	}
 	saveSearchMailbox(client, emails, "taxes")
 
-	vm, err := virtual.Load(cachedir.At(dir), "search")
+	vm, err := virtual.Load(cachedir.At(dir), "taxes")
 	if err != nil {
 		t.Fatalf("the search result set was not saved: %v", err)
 	}

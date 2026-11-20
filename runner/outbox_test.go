@@ -3,14 +3,17 @@ package runner
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/report"
 )
 
 func TestOutboxServiceListAndRemove(t *testing.T) {
@@ -140,5 +143,67 @@ func TestOutboxFlushWaitsForTheOutboxLock(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("flush did not proceed after the lock was released")
+	}
+}
+
+// A flush sends only what is due. The clock is injected: at 07:59 the entry
+// due at 08:00 is left alone, untouched; at 08:00 it is attempted (it fails,
+// as its account is not configured, and the attempt is recorded -- the proof
+// that the flush tried to send it).
+func TestOutboxFlushSendsOnlyWhatIsDue(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := &cfg_g.Config{
+		Paths:    cfg_g.Paths{CacheRoot: tmpDir},
+		Accounts: []cfg_acc.AccountConfig{{Name: "other", Type: "mbox"}},
+	}
+	obDir := outbox.Dir(tmpDir)
+	due := time.Date(2026, 11, 21, 8, 0, 0, 0, time.Local)
+	e, err := outbox.EnqueueEntry(obDir, outbox.Entry{Account: "unknown-acc", Subject: "Later", SendAfter: due}, []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := due.Add(-time.Minute)
+	svc := OutboxService{Rep: report.Discard(), Now: func() time.Time { return clock }}
+
+	results, err := svc.Flush(config)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("a flush before the due time = %+v, %v; want nothing attempted", results, err)
+	}
+	if item, _, getErr := outbox.Get(obDir, e.ID); getErr != nil || item.Attempts != 0 {
+		t.Fatalf("an entry not yet due was touched: %+v %v", item, getErr)
+	}
+
+	clock = due
+	results, err = svc.Flush(config)
+	if err != nil || len(results) != 1 || results[0].ID != e.ID || results[0].Success {
+		t.Fatalf("a flush at the due time = %+v, %v; want the entry attempted", results, err)
+	}
+	if item, _, getErr := outbox.Get(obDir, e.ID); getErr != nil || item.Attempts != 1 {
+		t.Errorf("the due entry's attempt was not recorded: %+v %v", item, getErr)
+	}
+}
+
+// An entry a newer build wrote is reported as a failed flush whatever its due
+// time says, and is never attempted.
+func TestOutboxFlushRefusesANewerFormatEntry(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := &cfg_g.Config{Paths: cfg_g.Paths{CacheRoot: tmpDir}}
+	home := filepath.Join(outbox.Dir(tmpDir), "scheduled")
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"id":"f3","account":"work","format":3,"send_after":"2099-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(home, "f3.json"), []byte(meta), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "f3.eml"), []byte("body"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	results, err := OutboxService{Rep: report.Discard()}.Flush(config)
+	if err != nil || len(results) != 1 || results[0].Success || !strings.Contains(results[0].Err, "newer feral") {
+		t.Fatalf("Flush = %+v, %v; want the format-3 entry refused", results, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, "f3.json")); string(data) != meta {
+		t.Errorf("the refused entry was rewritten: %s", data)
 	}
 }

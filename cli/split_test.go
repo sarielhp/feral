@@ -3,20 +3,22 @@ package cli
 import (
 	"bytes"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/transfer"
+
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func TestResolveUniqueLabel(t *testing.T) {
@@ -148,7 +150,7 @@ func TestSplitSameAccountUsesMove(t *testing.T) {
 	if a == b {
 		t.Fatal("test premise broken: expected distinct client pointers")
 	}
-	if !isSameAccount(a, b) {
+	if !transfer.SameAccount(a, b) {
 		t.Error("isSameAccount must recognise two clients for the same account despite differing pointers")
 	}
 
@@ -157,7 +159,7 @@ func TestSplitSameAccountUsesMove(t *testing.T) {
 		Cfg:            &cfg_g.Config{SelectedAccount: "acct-b", Paths: cfg_g.Paths{CacheRoot: t.TempDir()}, AccountCache: cachedir.At(t.TempDir())},
 		BackendTypeVal: "gmail",
 	}
-	if isSameAccount(a, other) {
+	if transfer.SameAccount(a, other) {
 		t.Error("isSameAccount must not conflate different accounts")
 	}
 }

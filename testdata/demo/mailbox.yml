@@ -1,0 +1,459 @@
+# The synthetic mailbox the README's demo GIF is recorded on
+# (tools/demo_mbox.rb turns it into mbox files, tools/demo_gif records it).
+#
+# Every person, address and list here is made up, and every address is on a
+# domain reserved for examples (RFC 2606), so nothing in it can reach anyone.
+# `at` is hours after first_day; `account` defaults to the first account.
+
+first_day: '2026-11-02 07:40:00 +02:00'
+me: Sam Rivera <sam@demo.example>
+
+accounts: [work, home]
+
+people:
+  ada: Ada Moreno <ada@northwind.example>
+  ben: Ben Okafor <ben.okafor@northwind.example>
+  chen: Chen Liu <chen@harbor-labs.example>
+  dana: Dana Whitfield <dana@harbor-labs.example>
+  eli: Eli Brandt <eli@fieldnotes.example>
+  noa: Noa Levi <noa@fieldnotes.example>
+  priya: Priya Natarajan <priya@tui-dev.example.org>
+  tom: Tom Kessler <tom@tui-dev.example.org>
+  rosa: Rosa Ibarra <rosa@stargazers.example.net>
+  owen: Owen Park <owen@stargazers.example.net>
+  billing: Northwind Billing <billing@northwind.example>
+  ci: Build Robot <ci@harbor-labs.example>
+  library: City Library <notices@library.example>
+  cal: Harbor Calendar <calendar@harbor-labs.example>
+
+lists:
+  tui: { id: tui-dev.lists.example.org, name: TUI developers, post: tui-dev@lists.example.org }
+  astro: { id: stargazers.lists.example.net, name: Stargazers club, post: club@lists.example.net }
+
+messages:
+  - key: kickoff
+    from: ada
+    at: 0
+    subject: Q4 planning kickoff
+    body: |
+      Hi Sam,
+
+      The Q4 planning kickoff is on Thursday at 10:00 in the big room.
+      Please bring the open items from your team.
+
+      Ada
+  - key: lib1
+    account: home
+    from: library
+    at: 5
+    subject: Your hold is ready for pickup
+    body: |
+      The item you placed on hold is ready:
+
+        The Pragmatic Typesetter (2nd ed.)
+
+      It will be kept for you until 12 November.
+  - key: tui1
+    from: priya
+    at: 9
+    list: tui
+    subject: Mouse support in the list view
+    body: |
+      Mouse support landed on main. Clicking a row selects it, a
+      double click opens it. Wheel scrolling follows the terminal's setting.
+
+      Please try it on your terminal and report anything odd.
+
+      Priya
+  - key: astro1
+    account: home
+    from: rosa
+    at: 20
+    list: astro
+    subject: Clear skies forecast for Saturday
+    body: |
+      The forecast looks good for Saturday night: no clouds after 21:00.
+      We meet at the north field. Bring warm clothes.
+
+      Rosa
+  - key: agenda
+    from: ben
+    at: 26
+    subject: Draft agenda for Thursday
+    body: |
+      Sam,
+
+      Here is a draft agenda for Thursday:
+
+        1. Q3 retrospective
+        2. Hiring plan
+        3. Release schedule
+        4. Open floor
+
+      Anything to add?
+
+      Ben
+  - key: agenda2
+    from: me
+    at: 27
+    reply_to: agenda
+    subject: 'Re: Draft agenda for Thursday'
+    body: |
+      Looks good. Could we put the release schedule first? Half the team
+      leaves at 11.
+
+      Sam
+  - key: agenda3
+    from: ben
+    at: 29
+    reply_to: agenda2
+    subject: 'Re: Draft agenda for Thursday'
+    body: |
+      Done, release schedule is first now.
+
+      Ben
+  - key: invoice
+    from: billing
+    at: 33
+    subject: Invoice 2026-1107 for October
+    attach:
+      name: invoice-2026-1107.csv
+      type: text/csv
+      content: |
+        item,hours,rate,amount
+        Consulting,12,80,960.00
+        Support,4,70,280.00
+        Total,,,1240.00
+    body: |
+      Dear customer,
+
+      Your invoice for October is attached.
+
+      Amount due: 1,240.00, by 30 November 2026.
+
+      Northwind Billing
+  - key: tui2
+    from: tom
+    at: 40
+    list: tui
+    reply_to: tui1
+    subject: 'Re: Mouse support in the list view'
+    body: |
+      Works well in kitty and foot. In tmux the double click needs
+      `set -g mouse on`, which we should document.
+
+      Tom
+  - key: ci1
+    from: ci
+    at: 44
+    subject: '[build] main #482 passed'
+    body: |
+      Pipeline #482 on main passed in 6m 12s.
+
+        unit tests    1,904 passed
+        integration      86 passed
+        lint          clean
+  - key: hebrew
+    from: noa
+    at: 49
+    subject: סיכום הפגישה ונקודות פתוחות
+    body: |
+      שלום סאם,
+
+      מצורף סיכום קצר של הפגישה מיום שלישי.
+      נקודות פתוחות: לוח זמנים, תקציב, והזמנת אולם.
+
+      נועה
+  - key: astro2
+    account: home
+    from: owen
+    at: 55
+    list: astro
+    reply_to: astro1
+    subject: 'Re: Clear skies forecast for Saturday'
+    body: |
+      I can bring the 8-inch Dobsonian. Anyone want to try for the
+      Andromeda galaxy?
+
+      Owen
+  - key: paper
+    from: chen
+    at: 61
+    subject: Comments on the draft paper
+    body: |
+      Hi Sam,
+
+      I read the draft. Section 3 is clear; section 4 needs an example
+      before the main lemma. I left notes in the margins of the PDF.
+
+      Chen
+  - key: tui3
+    from: priya
+    at: 68
+    list: tui
+    subject: 'RFC: configurable key bindings'
+    body: |
+      Proposal: a keys.json file that maps action names to keys, per
+      screen. Unknown actions and clashes are errors at startup, so a
+      typo never silently disables a key.
+
+      Comments welcome before Friday.
+
+      Priya
+  - key: dana1
+    from: dana
+    at: 74
+    subject: Lab access next week
+    body: |
+      Sam, the lab is closed Monday for maintenance. Tuesday onward
+      as usual. Your badge has been renewed through next year.
+
+      Dana
+  - key: eli1
+    account: home
+    from: eli
+    at: 80
+    subject: Photos from the field trip
+    body: |
+      Uploaded the photos from the field trip to the shared drive.
+      The heron ones came out best.
+
+      Eli
+  - key: tui4
+    from: tom
+    at: 86
+    list: tui
+    reply_to: tui3
+    subject: 'Re: RFC: configurable key bindings'
+    body: |
+      +1. Could the file also carry a format version, so an older build
+      refuses a newer file instead of misreading it?
+
+      Tom
+  - key: cal1
+    from: cal
+    at: 92
+    subject: 'Reminder: design review tomorrow 14:00'
+    body: |
+      Design review
+      When:  tomorrow, 14:00-15:00
+      Where: room 3B
+
+      Agenda: storage layout, cache manifest.
+  - key: ci2
+    from: ci
+    at: 98
+    subject: '[build] main #487 failed'
+    body: |
+      Pipeline #487 on main failed.
+
+        unit tests    1 failed: TestFolderTreeSearch
+
+      See the job log for details.
+  - key: ci3
+    from: ci
+    at: 101
+    subject: '[build] main #488 passed'
+    body: |
+      Pipeline #488 on main passed in 6m 03s.
+  - key: astro3
+    account: home
+    from: rosa
+    at: 110
+    list: astro
+    subject: 'Meteor shower: best viewing times'
+    body: |
+      The Leonids peak next week. Best viewing is after midnight,
+      looking east. I'll post the meeting point on Friday.
+
+      Rosa
+  - key: ada2
+    from: ada
+    at: 118
+    subject: Budget numbers before Friday
+    body: |
+      Sam, could you send me your team's budget numbers before Friday?
+      A rough estimate is fine for now.
+
+      Thanks,
+      Ada
+  - key: ada3
+    from: me
+    at: 120
+    reply_to: ada2
+    subject: 'Re: Budget numbers before Friday'
+    body: |
+      Ada, rough numbers: 3 people, two conferences, one new server.
+      I'll have the exact figures on Thursday.
+
+      Sam
+  - key: tui5
+    from: priya
+    at: 126
+    list: tui
+    reply_to: tui4
+    subject: 'Re: RFC: configurable key bindings'
+    body: |
+      Good idea, added "format": 1. A newer format is refused with a
+      message naming the file.
+
+      Priya
+  - key: lib2
+    account: home
+    from: library
+    at: 140
+    subject: 'Reminder: item due in 3 days'
+    body: |
+      The following item is due on 23 November:
+
+        A Field Guide to North American Birds
+  - key: noa2
+    from: noa
+    at: 146
+    reply_to: hebrew
+    subject: 'Re: סיכום הפגישה ונקודות פתוחות'
+    body: |
+      עדכון: האולם הוזמן לחמישי הבא.
+
+      נועה
+  - key: chen2
+    from: chen
+    at: 152
+    subject: Seminar talk on Wednesday
+    body: |
+      Reminder that you are giving the seminar talk on Wednesday at 16:00.
+      The projector in room 210 takes HDMI only.
+
+      Chen
+  - key: tui6
+    from: tom
+    at: 160
+    list: tui
+    subject: Release 0.9 checklist
+    body: |
+      Checklist for 0.9:
+
+        [x] changelog
+        [x] help pages regenerated
+        [ ] demo GIF
+        [ ] tag
+
+      Tom
+  - key: eli2
+    account: home
+    from: eli
+    at: 170
+    subject: Bird count on Sunday?
+    body: |
+      Are you joining the bird count on Sunday? We start at 7:00 at
+      the east gate.
+
+      Eli
+  - key: billing2
+    from: billing
+    at: 182
+    subject: Payment received, thank you
+    body: |
+      We received your payment of 1,240.00 for invoice 2026-1107.
+
+      Northwind Billing
+  - key: astro4
+    account: home
+    from: owen
+    at: 190
+    list: astro
+    reply_to: astro3
+    subject: 'Re: Meteor shower: best viewing times'
+    body: |
+      Counted 23 in an hour last year from the north field. Worth the
+      cold.
+
+      Owen
+  - key: dana2
+    from: dana
+    at: 200
+    reply_to: dana1
+    subject: 'Re: Lab access next week'
+    body: |
+      Update: maintenance is done early, the lab is open Monday after all.
+
+      Dana
+  - key: tui7
+    from: priya
+    at: 212
+    list: tui
+    reply_to: tui6
+    subject: 'Re: Release 0.9 checklist'
+    body: |
+      I'll record the demo GIF tonight on a synthetic mailbox, so no real
+      addresses end up in the README.
+
+      Priya
+  - key: ben2
+    from: ben
+    at: 224
+    subject: Notes from Thursday
+    body: |
+      Notes from Thursday's meeting:
+
+        - release moves to the 28th
+        - two open positions approved
+        - next meeting in two weeks
+
+      Ben
+  - key: ci4
+    from: ci
+    at: 236
+    subject: '[build] release-0.9 #12 passed'
+    body: |
+      Pipeline #12 on release-0.9 passed in 7m 41s.
+  - key: chen3
+    from: chen
+    at: 250
+    reply_to: paper
+    subject: 'Re: Comments on the draft paper'
+    body: |
+      Saw the new version. The example before the lemma helps a lot.
+      Ready to submit from my side.
+
+      Chen
+  - key: astro5
+    account: home
+    from: rosa
+    at: 262
+    list: astro
+    subject: 'Saturday: meeting point moved'
+    body: |
+      We meet at the south parking lot instead; the north field is
+      flooded.
+
+      Rosa
+  - key: ada4
+    from: ada
+    at: 274
+    subject: Offsite in December
+    body: |
+      Save the date: team offsite on 10-11 December. Details to follow.
+
+      Ada
+  - key: tui8
+    from: tom
+    at: 282
+    list: tui
+    reply_to: tui7
+    subject: 'Re: Release 0.9 checklist'
+    body: |
+      Tagged. Thanks everyone!
+
+      Tom
+  - key: eli3
+    account: home
+    from: eli
+    at: 290
+    reply_to: eli2
+    subject: 'Re: Bird count on Sunday?'
+    body: |
+      Great, see you at the east gate. I'll bring an extra pair of
+      binoculars.
+
+      Eli

@@ -5,12 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 )
 
 func (m *tuiModel) topBarAccountName() string {
@@ -91,7 +90,20 @@ func (m *tuiModel) topBarPromptBox() (string, lipgloss.Style, bool) {
 		return " Tag Pattern: " + m.tagPatternQuery + "█ ",
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700")).Background(lipgloss.Color("#222222")).Bold(true), true
 	case m.inTagPrefix:
-		return " tag-prefix ; (E:archive d:delete s:move m:read M:unread S:spam) ",
+		return " ; (E:archive d:delete s:move a:to account m:read M:unread S:spam v:save x:mbox) ",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700")).Background(lipgloss.Color("#331133")).Bold(true), true
+	case m.inSaveNamePrompt:
+		label := "Save as saved search: "
+		if m.saveNameKind == saveNameMbox {
+			label = "Export to mbox: "
+		}
+		return " " + label + m.saveNameQuery + "█ ",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700")).Background(lipgloss.Color("#331133")).Bold(true), true
+	case m.inMovePrompt:
+		return fmt.Sprintf(" Move %d to [account:]folder: %s█ ", m.countTagged(), m.moveQuery),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700")).Background(lipgloss.Color("#331133")).Bold(true), true
+	case m.inSnoozePrompt:
+		return " Snooze until (+2h, tomorrow 8am, 2026-12-01 09:00): " + m.snoozeQuery + "█ ",
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#ffd700")).Background(lipgloss.Color("#331133")).Bold(true), true
 	case m.inRemoteSearch:
 		return " Remote: " + m.remoteSearchQuery + "█ ",
@@ -157,6 +169,9 @@ func renderTopBar(m *tuiModel) string {
 
 	left := m.buildTopBarLeft(menuCS, account, folder, unreadStr)
 	helpHint := "h/?: help"
+	if isSearchView(m.currentF) && m.remoteSearchMore {
+		helpHint = m.keyHint(groupList, actLoadMore) + ": more  " + helpHint
+	}
 	if m.mouseOff {
 		helpHint = mouseOffHint + "  " + helpHint
 	}
@@ -164,10 +179,18 @@ func renderTopBar(m *tuiModel) string {
 
 	leftW := left.Width()
 	rightW := right.Width()
+	topBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(t.Get(render.ColorTopBg)))
+
+	// A top bar wider than the screen would wrap; keep the hint and shave
+	// the account, folder and unread segments instead.
+	if m.width < leftW+rightW {
+		left = left.TruncateTo(m.width - rightW)
+		right = right.TruncateTo(m.width)
+		leftW, rightW = left.Width(), right.Width()
+	}
 	leftStr := left.Render(t)
 	rightStr := right.Render(t)
 
-	topBgStyle := lipgloss.NewStyle().Background(lipgloss.Color(t.Get(render.ColorTopBg)))
 	if prompt := m.renderTopBarPrompt(leftStr, rightStr, leftW, rightW, topBgStyle); prompt != "" {
 		return prompt
 	}
@@ -195,7 +218,9 @@ func (m *tuiModel) emailRows(start, end, width, subjWidth int) []string {
 			idxVal = i + 1
 		}
 		ghosted := m.isPending(m.emails[i].ID)
-		row := render.EmailRowTagged(m.emails[i], width, subjWidth, idxVal, t, i == m.eIdx, ghosted, m.isTagged(m.emails[i].ID))
+		row := render.EmailRowStyled(m.emails[i], width, subjWidth, idxVal, render.RowStyle{
+			Highlight: i == m.eIdx, Ghosted: ghosted, Tagged: m.isTagged(m.emails[i].ID),
+		})
 		rows = append(rows, indexZone(i, row.Render(t)))
 	}
 	return rows
@@ -206,14 +231,11 @@ func renderIndex(m *tuiModel) string {
 	if m.menuOpen {
 		width = m.width - 19
 	}
-	headerWidth := 4 + 2 + 8 + 2 + 20 + 2 + 2 + 2 + 5 + 2
+	headerWidth := m.indexHeaderWidth(width)
 	subjWidth := width - headerWidth
 	t := m.theme.Theme()
 
-	numLines := m.height - 2
-	if m.showError {
-		numLines--
-	}
+	numLines := m.height - 2 - m.bannerLines()
 	if numLines <= 0 {
 		numLines = 1
 	}
@@ -244,144 +266,9 @@ func renderIndex(m *tuiModel) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderHelp(m *tuiModel) string {
-	t := m.theme.Theme()
-	borderColor := t.Get(render.ColorBorder)
-	helpBg := lipgloss.Color("#1a1a35")
-
-	if m.mode == modeCompose {
-		return renderComposeHelp(borderColor, helpBg)
-	}
-
-	leftCol := []string{
-		"  j/↓          Move down",
-		"  k/↑          Move up",
-		"  g/G          First / Last email",
-		"  Ctrl+d/u     Page down / up",
-		"  Space        Toggle split preview",
-		"  ←/→          Prev/Next email (split)",
-		"  ↑/↓          Scroll preview (split)",
-		"  e/Enter      Read full email",
-		"  q            Back / Quit",
-		"  F2           Save message as .eml (choose dir)",
-		"  F3           Switch account",
-		"  F4           Summarize email (LLM)",
-		"  F9           Mouse on/off",
-		"  D            Upcoming deadlines",
-	}
-	rightCol := []string{
-		"  c            Compose new email",
-		"  r/g          Reply / Group reply",
-		"  E            Archive email",
-		"  S            Mark as spam",
-		"  B            Block sender (Spam/Trash)",
-		"  U            Unspam / Undo spam",
-		"  d            Delete email",
-		"  L            Lock folder (read-only)",
-		"  F            Toggle folder tree",
-		"  Tab          Expand subtree / Search",
-		"  R            Refresh folder",
-		"  /            Search/filter emails",
-		"  ~/!          Fuzzy search (all/folder)",
-	}
-
-	navCol := []string{
-		"  / (detail)   Search message body",
-		"  m/Alt        Open menu",
-		"  v/a          Manage attachments & parts",
-		"  ? / F1 / h   Toggle this help",
-		"  Esc          Close / Clear filter",
-		"  Ctrl+D       Diagnostics panel",
-		"  Ctrl+C       Quit",
-	}
-
-	var lines []string
-	lines = append(lines, lipgloss.NewStyle().Background(helpBg).Render("  ⚡ KEYBINDINGS  "))
-	lines = append(lines, "")
-	lines = append(lines, renderHelpColumns(leftCol, rightCol, helpColumnWidth(leftCol, rightCol), helpBg)...)
-	lines = appendHelpTail(lines, navCol, helpBg)
-	content := strings.Join(lines, "\n")
-	return renderHelpFrame(content, borderColor, helpBg)
-}
-
-func renderComposeHelp(borderColor string, helpBg lipgloss.Color) string {
-	leftCol := []string{
-		"  y/Enter      Send email",
-		"  t            Edit To recipients",
-		"  c            Edit Cc recipients",
-		"  b            Edit Bcc recipients",
-		"  s            Edit Subject",
-		"  e            Re-edit body ($EDITOR)",
-		"  p            Sign this message (PGP)",
-	}
-	rightCol := []string{
-		"  a            Attach file",
-		"  d            Delete attachment",
-		"  v            View attachment",
-		"  P            Encrypt this message (PGP)",
-		"  F3           Choose sending account",
-		"  F5           Pick recipients from contacts",
-		"  F9           Mouse on/off",
-		"  q/Esc        Save draft & exit",
-		"  x            Discard draft & exit",
-	}
-	navCol := []string{
-		"  j/k, ↑/↓     Scroll preview / select attachment",
-		"  ? / F1 / h   Toggle this help",
-		"  Ctrl+C       Save draft & exit",
-	}
-
-	var lines []string
-	lines = append(lines, lipgloss.NewStyle().Background(helpBg).Render("  ⚡ COMPOSE KEYBINDINGS  "))
-	lines = append(lines, "")
-	lines = append(lines, renderHelpColumns(leftCol, rightCol, helpColumnWidth(leftCol, rightCol), helpBg)...)
-	lines = appendHelpTail(lines, navCol, helpBg)
-	content := strings.Join(lines, "\n")
-	return renderHelpFrame(content, borderColor, helpBg)
-}
-
-// helpColumnWidth is the display width the two-column help layout pads to: the
-// wider of the two columns plus a gap.
-func helpColumnWidth(leftCol, rightCol []string) int {
-	width := 0
-	for _, col := range [][]string{leftCol, rightCol} {
-		for _, s := range col {
-			width = max(width, runewidth.StringWidth(s))
-		}
-	}
-	return width + 4
-}
-
-// renderHelpColumns renders leftCol and rightCol side by side, padding each
-// left entry to colW so the right column starts at a fixed position.
-func renderHelpColumns(leftCol, rightCol []string, colW int, helpBg lipgloss.Color) []string {
-	style := lipgloss.NewStyle().Background(helpBg)
-	var lines []string
-	for i := 0; i < len(leftCol) || i < len(rightCol); i++ {
-		l, r := "", ""
-		if i < len(leftCol) {
-			l = leftCol[i]
-		}
-		if i < len(rightCol) {
-			r = rightCol[i]
-		}
-		pad := max(0, colW-runewidth.StringWidth(l))
-		lines = append(lines, style.Render(l)+style.Render(strings.Repeat(" ", pad))+style.Render(r))
-	}
-	return lines
-}
-
-// appendHelpTail appends a help panel's navigation list, a blank line and the
-// dismiss hint.
-func appendHelpTail(lines, navCol []string, helpBg lipgloss.Color) []string {
-	style := lipgloss.NewStyle().Background(helpBg)
-	lines = append(lines, "")
-	for _, s := range navCol {
-		lines = append(lines, style.Render(s))
-	}
-	lines = append(lines, "")
-	return append(lines, style.Render(markHints("  Press ? / Esc / q to dismiss  ", hint{"Press ? / Esc / q to dismiss", "esc"})))
-}
+// The help overlay lives in tui_help.go (its tree of sections) and
+// tui_help_data.go (the sections themselves). renderHelpFrame draws a help
+// panel with the theme's border.
 
 // renderHelpFrame draws a rendered help panel with the theme's border.
 func renderHelpFrame(content, borderColor string, helpBg lipgloss.Color) string {
@@ -452,7 +339,7 @@ func renderErrorBanner(m *tuiModel) string {
 	if m.err == nil {
 		return ""
 	}
-	errStr := fmt.Sprintf("⚠️ Error: %v | Press R to retry, Esc to dismiss", m.err)
+	errStr := fmt.Sprintf("⚠️ Error: %v | Press %s to retry, Esc to dismiss", m.err, m.keyHint(groupList, "refresh"))
 	if isAuthError(m.err) {
 		// The error itself says to run `account login` from a terminal, which
 		// is right for the CLI; here 'L' does exactly that in place, showing
@@ -469,7 +356,7 @@ func renderErrorBanner(m *tuiModel) string {
 }
 
 func renderUndoSpamBanner(m *tuiModel) string {
-	bannerText := " ↩ Marked as spam. Undo spam marking by pressing 'U' (3s) "
+	bannerText := " ↩ " + m.undoSpamBanner + " "
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Background(lipgloss.Color("#d84315")).
@@ -538,7 +425,7 @@ func renderAttachmentDrawer(m *tuiModel) string {
 	if width >= 70 {
 		listW := min(36, max(26, width/3))
 		leftBox := lipgloss.NewStyle().Width(listW).Render(content)
-		rightBox := renderSelectedAttachmentPreview(m, width-listW-1, len(lines))
+		rightBox := renderSelectedAttachmentPreview(m, width-listW-1)
 		drawerPanel = rule + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 	} else {
 		drawerPanel = rule + "\n" + lipgloss.NewStyle().Width(width).Render(content)

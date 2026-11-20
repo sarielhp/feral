@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli config check'
-parent: 'mail_cli config'
+title: 'feral config check'
+parent: 'feral config'
 ---
 
-# mail\_cli config check
+# feral config check
 
 Validate configurations, account parameters, DNS reachability, and Bogofilter service.
 
 ## Usage
 
 ```
-mail_cli config check [--fix]
+feral config check [--fix]
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli config check [--fix]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -29,9 +29,9 @@ mail_cli config check [--fix]
 
 ## Examples
 
-- `mail_cli config check`
-- `mail_cli config check --fix` — Repair what the check reports
+- `feral config check`
+- `feral config check --fix` — Repair what the check reports
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

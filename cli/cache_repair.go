@@ -1,13 +1,18 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/train"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/train"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -34,6 +39,8 @@ func runCacheRepair(session *Session) error {
 		train.HamPath(account),
 		train.MessageIDPath(session.Config.ConfigDir),
 	})
+
+	repairManifest(w, session, account, fix)
 
 	switch {
 	case !rep.NeedsRewrite():
@@ -82,7 +89,7 @@ func newCacheRepairCmd(session *Session) clihelp.Command {
 			"one current-format record per message, a record for every file, and none for a missing file " +
 			"unless it holds your spam/not-spam decision, which a re-download then gets back. " +
 			"Damaged training ledgers are reported but never rewritten. Only local files are touched.",
-		UsageLine: "mail_cli utils cache repair",
+		UsageLine: "feral utils cache repair",
 		Args:      clihelp.NoArgs,
 		Notes: []clihelp.Note{
 			{Heading: "Reporting only", Text: "With --dry-run or --read-only it reports what it would change and changes nothing."},
@@ -91,8 +98,38 @@ func newCacheRepairCmd(session *Session) clihelp.Command {
 			return runCacheRepair(session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli --dry-run utils cache repair", Description: "Report what a repair would change"},
-			{Line: "mail_cli utils cache repair"},
+			{Line: "feral --dry-run utils cache repair", Description: "Report what a repair would change"},
+			{Line: "feral utils cache repair"},
 		},
 	}
+}
+
+// repairManifest rebuilds a damaged cache manifest from what the cache holds:
+// the guard that refuses a damaged one sends the user here. A manifest that
+// parses is left alone -- a newer build's is not this one's to rewrite.
+func repairManifest(w io.Writer, session *Session, account cachedir.Account, fix bool) {
+	_, _, err := meta.Read(account)
+	if !errors.Is(err, meta.ErrDamaged) {
+		return
+	}
+	acc, lookupErr := cfg_g.Lookup(session.Config.Accounts, string(session.Config.SelectedAccount))
+	if lookupErr != nil {
+		fmt.Fprintf(w, "  the cache manifest is damaged, and the account's type is unknown: %v\n", lookupErr)
+		return
+	}
+	if !fix {
+		fmt.Fprintln(w, "  the cache manifest is damaged; run without --dry-run or --read-only to rebuild it")
+		return
+	}
+	var sample []string
+	msg.ForEachID(account, func(id email.ID) bool {
+		sample = append(sample, string(id))
+		return len(sample) >= 50
+	})
+	m, err := meta.Rebuild(account, acc.Type, app.Version, sample)
+	if err != nil {
+		fmt.Fprintf(w, "  could not rebuild the cache manifest: %v\n", err)
+		return
+	}
+	fmt.Fprintf(w, "  rebuilt the cache manifest: %s cache, %s message IDs\n", m.Backend, m.IDScheme)
 }

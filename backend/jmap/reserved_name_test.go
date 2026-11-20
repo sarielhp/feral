@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 )
 
 // The check runs before any network call, so a zero client is enough: a

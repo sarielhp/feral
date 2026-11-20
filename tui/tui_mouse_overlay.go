@@ -22,11 +22,12 @@ import (
 // that: an overlay drawn over the index leaves the index's rows marked
 // underneath, and they must not take the click.
 
-// Overlay kinds, as tryRenderModalOverlay records them in frameKind.
+// Overlay kinds, as dispatchModalOverlay records them in frameKind.
 const (
 	frameBase      = "base"
 	frameCompose   = "compose"
 	frameHelp      = "help"
+	frameAliases   = "aliases"
 	frameDeadlines = "deadlines"
 	frameFiles     = "files"
 	frameAttList   = "attlist"
@@ -37,10 +38,20 @@ const (
 	frameDiag      = "diag"
 	frameAccount   = "account"
 	frameContacts  = "contacts"
+	frameVirtual   = "virtual"
+	frameRecent    = "recent"
 	frameTree      = "tree"
 	frameBlock     = "block"
+	frameUnsub     = "unsub"
 	frameSpam      = "spam"
 	frameLoading   = "loading"
+	// The sort menu, the quit dialog and the save help have nothing to click
+	// but they must still be recorded: unrecorded, a click was read against
+	// the frame before -- usually the list -- and opened a message hidden
+	// behind the dialog.
+	frameSort     = "sort"
+	frameQuit     = "quit"
+	frameSaveHelp = "savehelp"
 )
 
 // rowZone marks line part (0, 1, ...) of row i of the list in overlay kind. A
@@ -58,7 +69,7 @@ func hintKeyZone(k, rendered string) string { return zone.Mark("hint:"+k, render
 
 // hintKeys are every key a hint stands for, in the order they are looked up.
 var hintKeys = []string{
-	"enter", "esc", "space", "tab", "f4", "f5",
+	"enter", "esc", "space", "tab", "f4", "f5", "f6",
 	"a", "b", "c", "d", "i", "l", "n", "o", "q", "s", "S", "t", "u", "x",
 }
 
@@ -73,7 +84,7 @@ func (m *tuiModel) clickOverlay(kind string, msg tea.MouseMsg) (tea.Model, tea.C
 	}
 	for _, k := range hintKeys {
 		if zone.Get("hint:" + k).InBounds(msg) {
-			return m.handleKey(overlayKeyMsg(k))
+			return m.handleKey(keyMsg(k))
 		}
 	}
 	return m, nil
@@ -90,12 +101,22 @@ func (m *tuiModel) overlayRowCount(kind string) int {
 		return len(m.icsEvents)
 	case frameAccount:
 		return len(m.getAccounts())
+	case frameVirtual:
+		return len(m.virtualMailboxes)
+	case frameRecent:
+		return len(m.recentFolders)
 	case frameSpam:
 		return len(spamMenuItems())
 	case frameContacts:
 		if m.contactPick != nil {
-			return len(m.contactPick.results)
+			return len(m.contactPick.Results)
 		}
+	case frameHelp:
+		if m.showHelp && m.helpSection < 0 && !m.helpFind.active() {
+			return len(helpSections)
+		}
+	case frameAliases:
+		return m.aliasBrowserRowCount()
 	case frameBase:
 		if m.menuOpen {
 			return len(m.menuItems)
@@ -124,12 +145,22 @@ func (m *tuiModel) clickOverlayRow(kind string, i int) (tea.Model, tea.Cmd) {
 		return m, nil
 	case frameAccount:
 		return m.selectOrPress(&m.accountCursor, i, enter)
+	case frameVirtual:
+		return m.selectOrPress(&m.virtualCursor, i, enter)
+	case frameRecent:
+		return m.selectOrPress(&m.recentCursor, i, enter)
 	case frameSpam:
 		return m.selectOrPress(&m.spamMenuCursor, i, enter)
 	case frameContacts:
 		// Space marks and moves on, so that a second click on each of
 		// several contacts picks them all; Enter (its hint) adds them.
-		return m.selectOrPress(&m.contactPick.cursor, i, tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+		return m.selectOrPress(&m.contactPick.Cursor, i, tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	case frameHelp:
+		// A section menu row selects; a second click on the selected row
+		// opens it, as Enter does.
+		return m.selectOrPress(&m.helpCursor, i, enter)
+	case frameAliases:
+		return m.clickAliasRow(i)
 	case frameBase:
 		return m.selectOrPress(&m.menuCursor, i, enter)
 	}
@@ -143,25 +174,6 @@ func (m *tuiModel) selectOrPress(cursor *int, i int, k tea.KeyMsg) (tea.Model, t
 	}
 	*cursor = i
 	return m, nil
-}
-
-// overlayKeyMsg is the key event for a hint's key.
-func overlayKeyMsg(k string) tea.KeyMsg {
-	switch k {
-	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
-	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
-	case "space":
-		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
-	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
-	case "f4":
-		return tea.KeyMsg{Type: tea.KeyF4}
-	case "f5":
-		return tea.KeyMsg{Type: tea.KeyF5}
-	}
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }
 
 // hint is a key hint's label and the key it stands for.

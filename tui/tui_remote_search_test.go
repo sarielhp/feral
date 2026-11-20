@@ -1,16 +1,18 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/tui/render"
 )
 
 func TestRemoteSearchPromptFlow(t *testing.T) {
@@ -103,7 +105,7 @@ func TestRemoteSearchDoneAfterAccountSwitch(t *testing.T) {
 	if tm.currentF != "INBOX" || len(tm.rawEmails) != 1 || tm.rawEmails[0].ID != "p1" {
 		t.Errorf("the active account's view must be left alone, got folder %q rows %v", tm.currentF, tm.rawEmails)
 	}
-	vm, err := virtual.Load(cachedir.At(workDir), "search")
+	vm, err := virtual.Load(cachedir.At(workDir), virtual.NameForQuery("q"))
 	if err != nil || len(vm.MessageIDs) != 1 || vm.MessageIDs[0] != "w1" {
 		t.Errorf("results must be saved to the searched account: %+v %v", vm, err)
 	}
@@ -127,5 +129,70 @@ func TestSearchViewRefusesMoves(t *testing.T) {
 	}
 	if len(m.rawEmails) != 1 || len(cl.MovedEmails) != 0 {
 		t.Errorf("a refused move must leave the row and the server alone")
+	}
+}
+
+// A Ctrl+f search asks for only the newest page of matches, and + in the
+// results view re-runs it with twice the limit, keeping the cursor on the row
+// it was on. Fetching every match made a broad query crawl. R, a key away
+// from r, refreshes the page without growing it.
+func TestRemoteSearchLoadsNewestPageThenMore(t *testing.T) {
+	cl := &mailclient.MockMailClient{
+		Cfg:           &cfg_g.Config{SelectedAccount: "Work"},
+		SearchResults: map[string][]email.ID{},
+		RawMessages:   map[email.ID][]byte{},
+	}
+	for i := range 60 {
+		id := email.ID(fmt.Sprintf("m%02d", i))
+		cl.SearchResults["q"] = append(cl.SearchResults["q"], id)
+		cl.RawMessages[id] = fmt.Appendf(nil, "Message-ID: <%s@x>\r\nSubject: s%d\r\n\r\nbody\r\n", id, i)
+	}
+	m := &tuiModel{mode: modeIndex, client: cl, currentF: "INBOX", inRemoteSearch: true, remoteSearchQuery: "q", theme: render.NewThemeManager(), width: 120}
+
+	run := func(cmd tea.Cmd) remoteSearchDoneMsg {
+		t.Helper()
+		if cmd == nil {
+			t.Fatal("expected a search command")
+		}
+		done, ok := cmd().(remoteSearchDoneMsg)
+		if !ok || done.err != nil {
+			t.Fatalf("search failed: %+v", done)
+		}
+		m.Update(done)
+		return done
+	}
+
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if done := run(cmd); cl.LastSearchLimit != remoteSearchPageSize || !done.more || len(m.rawEmails) != remoteSearchPageSize {
+		t.Fatalf("first search: limit %d, more %v, rows %d", cl.LastSearchLimit, done.more, len(m.rawEmails))
+	}
+	if bar := renderTopBar(m); !strings.Contains(bar, "+: more") {
+		t.Errorf("top bar lacks the + hint while more matches exist: %q", bar)
+	}
+	m.selectSearchRow(m.emails[3].ID)
+	kept := m.selectedID
+
+	_, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	if run(cmd); cl.LastSearchLimit != remoteSearchPageSize || len(m.rawEmails) != remoteSearchPageSize {
+		t.Fatalf("R must refresh the same page: limit %d, rows %d", cl.LastSearchLimit, len(m.rawEmails))
+	}
+
+	_, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")})
+	if done := run(cmd); cl.LastSearchLimit != 2*remoteSearchPageSize || !done.more || len(m.rawEmails) != 2*remoteSearchPageSize {
+		t.Fatalf("load more: limit %d, more %v, rows %d", cl.LastSearchLimit, done.more, len(m.rawEmails))
+	}
+	if m.selectedID != kept {
+		t.Errorf("loading more moved the cursor from %q to %q", kept, m.selectedID)
+	}
+
+	_, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")})
+	if done := run(cmd); done.more || len(m.rawEmails) != 60 {
+		t.Fatalf("last page: more %v, rows %d", done.more, len(m.rawEmails))
+	}
+	if _, cmd = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("+")}); cmd != nil || !strings.Contains(m.saveStatus, "All 60") {
+		t.Errorf("with every match shown, + must not search again; status %q", m.saveStatus)
+	}
+	if bar := renderTopBar(m); strings.Contains(bar, "+: more") {
+		t.Errorf("top bar still offers + with every match shown: %q", bar)
 	}
 }

@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // HandleConfigShow renders the resolved configuration to w: global settings,
@@ -25,7 +25,7 @@ func HandleConfigShow(w io.Writer, config *cfg_g.Config) error {
 	}
 
 	fmt.Fprintf(w, "======================================================================\n")
-	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("                        MAIL_CLI CONFIGURATION"))
+	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("                        FERAL CONFIGURATION"))
 	fmt.Fprintf(w, "======================================================================\n")
 	fmt.Fprintf(w, "  Download/Cache Dir:  %s\n", config.CacheRoot)
 	fmt.Fprintf(w, "  Score Threshold:     %.2f\n", config.ScoreThreshold)
@@ -42,6 +42,8 @@ func HandleConfigShow(w io.Writer, config *cfg_g.Config) error {
 		saveDirDisp = config.AttachmentSaveDir
 	}
 	fmt.Fprintf(w, "  Attachment Save Dir: %s\n", saveDirDisp)
+	fmt.Fprintf(w, "  Save Locations:      %s\n", strings.Join(config.SaveLocationsOrDefault(), ", "))
+	fmt.Fprintf(w, "  My Emails:           %s\n", strings.Join(config.MyEmails, ", "))
 	muttDisp := "[not configured]"
 	if config.MuttAliases != "" {
 		muttDisp = config.MuttAliases
@@ -82,7 +84,7 @@ func HandleConfigShow(w io.Writer, config *cfg_g.Config) error {
 func printLLMConfig(w io.Writer, config *cfg_g.Config) {
 	fmt.Fprintf(w, "%s\n", app.ColorBoldGreen.Sprint("  LOCAL LLM:"))
 	if config.LLM.Endpoint == "" {
-		fmt.Fprintf(w, "      [Not configured] Run 'tools/setup_local_llm' or 'mail_cli config set llm_endpoint <url>'\n")
+		fmt.Fprintf(w, "      [Not configured] Run 'tools/setup_local_llm' or 'feral config set llm_endpoint <url>'\n")
 		return
 	}
 	fmt.Fprintf(w, "      Endpoint:        %s\n", config.LLM.Endpoint)
@@ -108,6 +110,11 @@ func printLLMConfig(w io.Writer, config *cfg_g.Config) {
 		autoSumDisp = "false (disabled)"
 	}
 	fmt.Fprintf(w, "      Auto Summary:    %s\n", autoSumDisp)
+	autoSubjDisp := "true (enabled by default)"
+	if !config.LLM.IsAutoSubjectEnabled() {
+		autoSubjDisp = "false (disabled)"
+	}
+	fmt.Fprintf(w, "      Auto Subject:    %s\n", autoSubjDisp)
 }
 
 // maskAPIKey shows enough of a key to recognize it without printing a secret.
@@ -178,6 +185,11 @@ func validateAccounts(w io.Writer, accounts []cfg_acc.AccountConfig) bool {
 		if !validateAccountHost(w, acc) {
 			hasErrors = true
 		}
+		// A warning, not a failure: the account works, and is fixed by
+		// renaming it rather than by anything the check could repair.
+		if err := cfg_g.ValidateAccountName(acc.Name); err != nil {
+			fmt.Fprintf(w, "%s\n", app.ColorBoldYellow.Sprintf("    [WARN] %v; rename it: feral account rename %s <new_name>", err, acc.Name))
+		}
 	}
 	return !hasErrors
 }
@@ -241,7 +253,7 @@ func PerformConfigValidation(w io.Writer, config *cfg_g.Config) error {
 	}
 
 	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("\n========================================================"))
-	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("              MAIL_CLI CONFIG VALIDATION"))
+	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("              FERAL CONFIG VALIDATION"))
 	fmt.Fprintf(w, "%s\n", app.ColorBoldCyan.Sprint("========================================================"))
 	fmt.Fprintf(w, "Config file path: %s\n\n", resolved.Path)
 
@@ -254,6 +266,9 @@ func PerformConfigValidation(w io.Writer, config *cfg_g.Config) error {
 	var accs []cfg_acc.AccountConfig
 	if resolved.File.Accounts != nil {
 		accs = *resolved.File.Accounts
+	}
+	if cfg_g.DanglingDefault(accs, resolved.File.DefaultAccount) {
+		fmt.Fprintf(w, "%s\n", app.ColorBoldYellow.Sprintf("[WARN] default_account names %q, which is not configured; the first account is used", resolved.File.DefaultAccount))
 	}
 	if !validateAccounts(w, accs) {
 		hasErrors = true
@@ -282,6 +297,16 @@ func PerformConfigValidation(w io.Writer, config *cfg_g.Config) error {
 		return fmt.Errorf("configuration validation failed")
 	}
 	return nil
+}
+
+// parseConfigBool reads a switch the way the llm_* keys always have: anything
+// but an explicit no is on.
+func parseConfigBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "false", "0", "no", "off":
+		return false
+	}
+	return true
 }
 
 func handleConfigSetLLM(w io.Writer, config *cfg_g.Config, fc *cfg_g.FileConfig, configPath, key, value string) (bool, error) {
@@ -332,13 +357,15 @@ func handleConfigSetLLM(w io.Writer, config *cfg_g.Config, fc *cfg_g.FileConfig,
 		config.LLM.ReasoningEffort = effort
 		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated LLM reasoning effort to %q.\n", effort)
 	case "llm_auto_summary", "llm.auto_summary", "llm_background_summary", "llm.background_summary":
-		val := true
-		if strings.EqualFold(value, "false") || value == "0" || strings.EqualFold(value, "no") || strings.EqualFold(value, "off") {
-			val = false
-		}
+		val := parseConfigBool(value)
 		fc.LLM.AutoSummary = &val
 		config.LLM.AutoSummary = &val
 		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated LLM background auto-summary to %t.\n", val)
+	case "llm_auto_subject", "llm.auto_subject":
+		val := parseConfigBool(value)
+		fc.LLM.AutoSubject = &val
+		config.LLM.AutoSubject = &val
+		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated LLM auto-subject to %t.\n", val)
 	default:
 		return false, nil
 	}
@@ -370,7 +397,7 @@ func handleConfigSetAccount(w io.Writer, config *cfg_g.Config, fc *cfg_g.FileCon
 		}
 		accToModify.Username = strings.TrimSpace(value)
 	default:
-		return fmt.Errorf("unsupported config key %q. Supported keys: spam_learn, unspam_learn, badge, username, browser, llm_endpoint, llm_api_key, llm_model, llm_temperature, llm_max_tokens, llm_system_prompt, llm_reasoning_effort", key)
+		return fmt.Errorf("unsupported config key %q. Supported keys: spam_learn, unspam_learn, badge, username, browser, llm_endpoint, llm_api_key, llm_model, llm_temperature, llm_max_tokens, llm_system_prompt, llm_reasoning_effort, llm_auto_summary, llm_auto_subject", key)
 	}
 
 	if err := cfg_g.SaveConfigFile(configPath, fc); err != nil {
@@ -389,8 +416,8 @@ func handleConfigSetAccount(w io.Writer, config *cfg_g.Config, fc *cfg_g.FileCon
 
 // HandleConfigSet writes one configuration key.
 //
-// Which file it lands in is decided by the key, not by the caller: "browser"
-// and "attachment_save_dir" are global, the llm_* keys have their own handler,
+// Which file it lands in is decided by the key, not by the caller: the keys
+// handleConfigSetGlobal knows are global, the llm_* keys have their own handler,
 // and everything else belongs to the account -A selected. There used to be an
 // accountSpecific bool threaded here through three layers, set from an
 // undocumented third positional argument, and read nowhere in this function --
@@ -402,49 +429,8 @@ func HandleConfigSet(w io.Writer, config *cfg_g.Config, key, value string) error
 		return err
 	}
 
-	if key == "browser" {
-		resolved.File.Browser = value
-		if saveErr := cfg_g.SaveConfigFile(resolved.Path, resolved.File); saveErr != nil {
-			return saveErr
-		}
-		config.Browser = value
-		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated %s to %q.\n", key, value)
-		return nil
-	}
-
-	if key == "attachment_save_dir" || key == "save_dir" {
-		resolved.File.AttachmentSaveDir = value
-		if saveErr := cfg_g.SaveConfigFile(resolved.Path, resolved.File); saveErr != nil {
-			return saveErr
-		}
-		config.AttachmentSaveDir = value
-		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated %s to %q.\n", key, value)
-		return nil
-	}
-
-	if key == "mutt_aliases" || key == "mutt_alias_file" || key == "mutt_aliases_file" || key == "mutt_file" || key == "paths.mutt_aliases" || key == "paths.mutt_alias_file" {
-		resolved.File.MuttAliases = value
-		if saveErr := cfg_g.SaveConfigFile(resolved.Path, resolved.File); saveErr != nil {
-			return saveErr
-		}
-		config.MuttAliases = value
-		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated %s to %q.\n", key, value)
-		return nil
-	}
-
-	if key == "default_send_account" || key == "default_send" || key == "send_account" {
-		if resolved.File.Accounts != nil && len(*resolved.File.Accounts) > 0 {
-			if _, lookupErr := cfg_g.Lookup(*resolved.File.Accounts, value); lookupErr != nil {
-				return fmt.Errorf("cannot set %s: %w", key, lookupErr)
-			}
-		}
-		resolved.File.DefaultSendAccount = value
-		if saveErr := cfg_g.SaveConfigFile(resolved.Path, resolved.File); saveErr != nil {
-			return saveErr
-		}
-		config.DefaultSendAccount = value
-		fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated %s to %q.\n", key, value)
-		return nil
+	if handled, globalErr := handleConfigSetGlobal(w, config, resolved, key, value); handled {
+		return globalErr
 	}
 
 	handled, err := handleConfigSetLLM(w, config, resolved.File, resolved.Path, key, value)
@@ -470,12 +456,21 @@ func HandleConfigReset(w io.Writer, config *cfg_g.Config, key string) error {
 	case "attachment_save_dir", "save_dir":
 		resolved.File.AttachmentSaveDir = ""
 		config.AttachmentSaveDir = ""
+	case "save_locations":
+		resolved.File.SaveLocations = nil
+		config.SaveLocations = nil
+	case "my_emails":
+		resolved.File.MyEmails = nil
+		config.MyEmails = nil
 	case "mutt_aliases", "mutt_alias_file", "mutt_aliases_file", "mutt_file", "paths.mutt_aliases", "paths.mutt_alias_file":
 		resolved.File.MuttAliases = ""
 		config.MuttAliases = ""
 	case "default_send_account", "default_send", "send_account":
 		resolved.File.DefaultSendAccount = ""
 		config.DefaultSendAccount = ""
+	case "default_account":
+		resolved.File.DefaultAccount = ""
+		config.DefaultAccount = ""
 	case "llm":
 		resolved.File.LLM = nil
 		config.LLM = cfg_g.LLMConfig{}
@@ -519,8 +514,13 @@ func HandleConfigReset(w io.Writer, config *cfg_g.Config, key string) error {
 			resolved.File.LLM.AutoSummary = nil
 		}
 		config.LLM.AutoSummary = nil
+	case "llm_auto_subject", "llm.auto_subject":
+		if resolved.File.LLM != nil {
+			resolved.File.LLM.AutoSubject = nil
+		}
+		config.LLM.AutoSubject = nil
 	default:
-		return fmt.Errorf("unsupported config reset key %q. Supported keys: browser, attachment_save_dir, default_send_account, mutt_alias_file, mutt_aliases, llm, llm_endpoint, llm_api_key, llm_model, llm_temperature, llm_max_tokens, llm_system_prompt, llm_reasoning_effort, llm_auto_summary", key)
+		return fmt.Errorf("unsupported config reset key %q. Supported keys: browser, attachment_save_dir, save_locations, my_emails, default_send_account, mutt_alias_file, mutt_aliases, llm, llm_endpoint, llm_api_key, llm_model, llm_temperature, llm_max_tokens, llm_system_prompt, llm_reasoning_effort, llm_auto_summary, llm_auto_subject", key)
 	}
 
 	if err := cfg_g.SaveConfigFile(resolved.Path, resolved.File); err != nil {
@@ -550,6 +550,14 @@ func HandleConfigGet(w io.Writer, config *cfg_g.Config, key string) error {
 		return nil
 	case "attachment_save_dir", "save_dir":
 		fmt.Fprintln(w, config.AttachmentSaveDir)
+		return nil
+	case "save_locations":
+		fmt.Fprintln(w, strings.Join(config.SaveLocationsOrDefault(), ", "))
+		return nil
+	case "my_emails":
+		for _, addr := range config.MyEmails {
+			fmt.Fprintln(w, addr)
+		}
 		return nil
 	case "download_dir", "cache_dir":
 		fmt.Fprintln(w, config.CacheRoot)
@@ -596,4 +604,46 @@ func HandleConfigGet(w io.Writer, config *cfg_g.Config, key string) error {
 	default:
 		return fmt.Errorf("unknown configuration key %q", key)
 	}
+}
+
+// handleConfigSetGlobal writes a key that lives at the top of config.json
+// rather than in an account -- browser, attachment_save_dir, save_locations,
+// my_emails, mutt_aliases and default_send_account, with their spellings.
+// handled is false for any other key.
+func handleConfigSetGlobal(w io.Writer, config *cfg_g.Config, resolved cfg_g.Resolved, key, value string) (bool, error) {
+	fc := resolved.File
+	shown := value
+	switch key {
+	case "browser":
+		fc.Browser, config.Browser = value, value
+	case "attachment_save_dir", "save_dir":
+		fc.AttachmentSaveDir, config.AttachmentSaveDir = value, value
+	case "save_locations":
+		locs := cfg_g.ParseSaveLocations(value)
+		fc.SaveLocations, config.SaveLocations = locs, locs
+		shown = strings.Join(locs, ", ")
+	case "my_emails":
+		addrs, err := cfg_g.ParseMyEmails(value)
+		if err != nil {
+			return true, err
+		}
+		fc.MyEmails, config.MyEmails = addrs, addrs
+		shown = strings.Join(addrs, ", ")
+	case "mutt_aliases", "mutt_alias_file", "mutt_aliases_file", "mutt_file", "paths.mutt_aliases", "paths.mutt_alias_file":
+		fc.MuttAliases, config.MuttAliases = value, value
+	case "default_send_account", "default_send", "send_account":
+		if fc.Accounts != nil && len(*fc.Accounts) > 0 {
+			if _, err := cfg_g.Lookup(*fc.Accounts, value); err != nil {
+				return true, fmt.Errorf("cannot set %s: %w", key, err)
+			}
+		}
+		fc.DefaultSendAccount, config.DefaultSendAccount = value, value
+	default:
+		return false, nil
+	}
+	if err := cfg_g.SaveConfigFile(resolved.Path, fc); err != nil {
+		return true, err
+	}
+	fprintfPrefixed(w, app.PrefixSuccess, "Successfully updated %s to %q.\n", key, shown)
+	return true, nil
 }

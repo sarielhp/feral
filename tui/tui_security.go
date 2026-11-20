@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 )
 
 // securityPill is the one-line PGP verdict shown above a message's headers.

@@ -1,13 +1,15 @@
 package app
 
-import "github.com/sarielhp/clihelp"
+import (
+	"errors"
 
-// The global flag values the CLI parses into: FlagAccountName names the
-// account a command targets, the booleans select modes such as --verbose and
-// --dry-run, and CmdExecutionStarted records that a command has begun.
+	"github.com/sarielhp/clihelp"
+)
+
+// The global flag values the CLI parses into: the booleans select modes such
+// as --verbose and --dry-run, and CmdExecutionStarted records that a command
+// has begun. The account a command targets is the CLI's own (cli.flagAccount).
 var (
-	FlagAccountName string
-
 	FlagVerbose   bool
 	FlagVersion   bool
 	FlagLogAppend bool
@@ -22,3 +24,8 @@ var (
 // ErrUsage marks an error as a command-line mistake, which main turns into exit
 // code 2 rather than 1.
 var ErrUsage = clihelp.ErrUsage
+
+// ErrCancelled is a command the user backed out of -- Esc in `contacts
+// pick` -- which main turns into exit code 130 and no message, so a calling
+// program can tell it from a failure.
+var ErrCancelled = errors.New("cancelled")

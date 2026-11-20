@@ -2,27 +2,34 @@ package ui
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/spam"
-	"github.com/sarielhp/mail_cli/terminal"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/spam"
+	"github.com/sarielhp/feral/terminal"
 	"io"
 	"mime"
 	"sort"
 	"strings"
 )
 
-func loadFolderEmail(downloadDir cachedir.Account, id email.ID, _ *mime.WordDecoder, isSpam bool, res *spam.Response) email.Email {
-	em, err := msg.CachedEmail(downloadDir, id)
+func loadFolderEmail(downloadDir cachedir.Account, id email.ID, _ *mime.WordDecoder, isSpam bool, res *spam.Response, authored bool) email.Email {
+	var em *email.Email
+	var err error
+	if authored {
+		em, err = msg.CachedEmailRecipient(downloadDir, id)
+	} else {
+		em, err = msg.CachedEmail(downloadDir, id)
+	}
 	if err != nil {
 		return PlaceholderEmail(id)
 	}
 
 	em.Subject = email.ReverseHebrewRuns(em.Subject)
 	em.IsSpam = isSpam
+	em.IsAuthored = authored
 	if res != nil {
 		if _, hasPoli := res.Symbols["CUSTOM_POLITICAL_BLOCK"]; hasPoli {
 			em.IsPolitical = true
@@ -62,10 +69,7 @@ func emailState(eml email.Email) string {
 }
 
 func renderEmailRow(w io.Writer, eml email.Email, isEven bool, senderWidth, subjectWidth, idWidth int, verbose bool) {
-	senderPlain := email.FormatSender(eml.FromRaw)
-	if verbose {
-		senderPlain = email.FormatSenderVerbose(eml.FromRaw)
-	}
+	senderPlain := eml.SenderColumn(verbose)
 	senderPadded := padOrTruncate(senderPlain, senderWidth)
 	senderState := emailState(eml)
 	senderDisp := getCellStyle(senderState, isEven).Sprint(senderPadded)
@@ -156,7 +160,9 @@ func printFolderSummaryFooter(w io.Writer, totalMessages int, totalCountBeforePa
 // each from the account's cache and sorting them. scanResults supplies cached
 // spam verdicts for the verbose detail, and the footer reports movedCount and,
 // when totalCountBeforePattern is set, how many matched out of the total.
-func FormatFolderSummary(w io.Writer, folderTitle string, _ string, ids []email.ID, spamIDs []email.ID, scanResults map[email.ID]*spam.Response, config *cfg_g.Config, _ string, movedCount int, totalCountBeforePattern int) {
+// authored marks a folder the account's owner wrote (Sent or Drafts), whose
+// rows show the recipient in place of the sender.
+func FormatFolderSummary(w io.Writer, folderTitle string, _ string, ids []email.ID, spamIDs []email.ID, scanResults map[email.ID]*spam.Response, config *cfg_g.Config, _ string, movedCount int, totalCountBeforePattern int, authored bool) {
 	width := terminal.Width()
 	separator := strings.Repeat("=", width)
 
@@ -171,7 +177,7 @@ func FormatFolderSummary(w io.Writer, folderTitle string, _ string, ids []email.
 
 	emails := make([]email.Email, 0, len(ids))
 	for _, id := range ids {
-		emails = append(emails, loadFolderEmail(config.AccountCache, id, dec, isSpamMap[id], scanResults[id]))
+		emails = append(emails, loadFolderEmail(config.AccountCache, id, dec, isSpamMap[id], scanResults[id], authored))
 	}
 
 	sortFolderEmails(emails)

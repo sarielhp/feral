@@ -1,15 +1,15 @@
 ---
-title: 'mail_cli docs'
+title: 'feral docs'
 ---
 
-# mail\_cli docs
+# feral docs
 
 Generate Markdown help pages
 
 ## Usage
 
 ```
-mail_cli docs [flags]
+feral docs [flags]
 ```
 
 ## Flags
@@ -19,7 +19,7 @@ mail_cli docs [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,4 +28,4 @@ mail_cli docs [flags]
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

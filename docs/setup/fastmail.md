@@ -1,6 +1,6 @@
 # Fastmail / JMAP Account Setup
 
-Fastmail is a first-class citizen in `mail_cli` via the modern JMAP (JSON Meta Application Protocol, RFC 8620 / RFC 8621) API standard.
+Fastmail is a first-class citizen in `feral` via the modern JMAP (JSON Meta Application Protocol, RFC 8620 / RFC 8621) API standard.
 
 Setup takes under **1 minute** using an API token.
 
@@ -12,19 +12,19 @@ Setup takes under **1 minute** using an API token.
 2. Navigate to **Settings** (gear icon) -> **Password & Security**.
 3. Under **API Tokens**, click **New API Token**.
 4. Configure the token:
-   - **Name**: `mail_cli`
+   - **Name**: `feral`
    - **Access**: Select **Full access** (or choose custom access ensuring **Mail** is granted read/write permissions).
 5. Click **Generate Token**.
 6. Copy the generated token string (starts with `fmu1-...`).
 
 ---
 
-## 2. Configure `mail_cli`
+## 2. Configure `feral`
 
 Run the guided onboarding wizard:
 
 ```bash
-mail_cli account setup
+feral account setup
 ```
 
 1. Select option **`1`** (Fastmail / JMAP).
@@ -37,24 +37,24 @@ mail_cli account setup
 Alternatively, you can add the account directly via:
 
 ```bash
-mail_cli account add jmap fastmail
+feral account add jmap fastmail
 ```
 
 ---
 
 ## 3. Verify Connection
 
-Test that `mail_cli` can reach Fastmail and list your folders:
+Test that `feral` can reach Fastmail and list your folders:
 
 ```bash
-mail_cli account test fastmail
-mail_cli label list
+feral account test fastmail
+feral label list
 ```
 
-You are now ready to use `mail_cli`:
+You are now ready to use `feral`:
 
 ```bash
-mail_cli tui         # Open interactive terminal mail browser
-mail_cli %           # Scan your Inbox
-mail_cli msg send        # Send an email
+feral tui         # Open interactive terminal mail browser
+feral %           # Scan your Inbox
+feral msg send        # Send an email
 ```

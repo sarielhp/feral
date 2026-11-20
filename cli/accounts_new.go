@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -69,9 +69,39 @@ func promptAccountDetails(acctType, name, mode string) (cfg_acc.AccountConfig, e
 		newAcc.SpamFolder, newAcc.ReceivedFolder, _ = cfg_acc.FolderDefaults(acctType)
 		newAcc.UnspamLearn = "Inbox"
 
+	case "mbox":
+		return promptMboxAccount(newAcc)
+
 	default:
 		return newAcc, ErrInvalidAccountType(acctType)
 	}
+	return newAcc, nil
+}
+
+// promptMboxAccount asks for the file an mbox account reads, unless --path
+// named it, and refuses one that is not there. A new mbox account is
+// read-only: nothing can change the file until the user turns that off.
+func promptMboxAccount(newAcc cfg_acc.AccountConfig) (cfg_acc.AccountConfig, error) {
+	path := flagAccountNewPath
+	if path == "" {
+		var err error
+		if path, err = promptRequired("Path to the mbox file"); err != nil {
+			return newAcc, err
+		}
+	}
+	newAcc.Path = path
+	abs, err := newAcc.MboxPath()
+	if err != nil {
+		return newAcc, err
+	}
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return newAcc, fmt.Errorf("cannot access mbox %q: %w", abs, err)
+	}
+	if fi.IsDir() {
+		return newAcc, fmt.Errorf("%q is a directory, not an mbox file", abs)
+	}
+	newAcc.ReadOnly = true
 	return newAcc, nil
 }
 
@@ -199,6 +229,7 @@ var (
 	flagAccountNewType        string
 	flagAccountNewTest        bool
 	flagAccountNewInteractive bool
+	flagAccountNewPath        string
 )
 
 func accountNewCmd(session *Session) clihelp.Command {
@@ -208,7 +239,7 @@ func accountNewCmd(session *Session) clihelp.Command {
 		Title:           "account add <type> [name]",
 		Description:     "Add a new account template to config.json.",
 		LongDescription: "Prompts for whatever the chosen backend needs and writes the entry to config.json. With --interactive the prompts follow the same guided flow as `account setup`: provider-specific tips, the Gmail credentials.json copy, and a connectivity check before the command returns.",
-		UsageLine:       "mail_cli account add <jmap|gmail|outlook> [name] [flags]",
+		UsageLine:       "feral account add <jmap|gmail|outlook> [name] [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<jmap|gmail|outlook>", Description: "Account backend provider type.", Complete: CompleteAccountProviders},
 			{Name: "[name]", Description: "Unique name for the account."},
@@ -217,12 +248,14 @@ func accountNewCmd(session *Session) clihelp.Command {
 			clihelp.Enum(&flagAccountNewType, "--type <type>", []string{"regular", "test"}, "regular", "Account type: regular or test"),
 			clihelp.Bool(&flagAccountNewTest, "--test", false, "Mark as test account (shortcut for --type test)"),
 			clihelp.Bool(&flagAccountNewInteractive, "--interactive", false, "Guide setup with provider tips and a connection check"),
+			clihelp.String(&flagAccountNewPath, "--path <file>", "", "The mbox file an mbox account reads"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account add gmail personal-gmail"},
-			{Line: "mail_cli account add jmap work-fastmail"},
-			{Line: "mail_cli account add outlook uni-outlook --test"},
-			{Line: "mail_cli account add gmail personal-gmail --interactive", Description: "Guided setup with a connection check"},
+			{Line: "feral account add gmail personal-gmail"},
+			{Line: "feral account add jmap work-fastmail"},
+			{Line: "feral account add outlook uni-outlook --test"},
+			{Line: "feral account add gmail personal-gmail --interactive", Description: "Guided setup with a connection check"},
+			{Line: "feral account add mbox old-mail --path ~/mail/2019.mbox", Description: "Browse a local mbox file as an account"},
 		},
 		Args: clihelp.RangeArgs(1, 2),
 		Run: func(ctx *clihelp.Context) error {
@@ -265,13 +298,12 @@ func accountNewCmd(session *Session) clihelp.Command {
 				empty := []cfg_acc.AccountConfig{}
 				fc.Accounts = &empty
 			}
-			for _, acc := range *fc.Accounts {
-				if strings.EqualFold(acc.Name, name) {
-					return ErrAccountExists(name)
-				}
+			if err = cfg_g.CheckNewAccountName(*fc.Accounts, name, -1); err != nil {
+				return err
 			}
 
-			if flagAccountNewInteractive {
+			// An mbox account has nothing to guide: no provider, no sign-in.
+			if flagAccountNewInteractive && acctType != "mbox" {
 				return addAccountInteractive(session, configPath, fc, acctType, name, acctMode)
 			}
 
@@ -286,13 +318,22 @@ func accountNewCmd(session *Session) clihelp.Command {
 			}
 
 			fmt.Fprintf(session.errOut(), "%s Successfully added new %s account entry %q to config file.\n", app.PrefixSuccess, strings.ToUpper(acctType), name)
-			if acctType == "outlook" || acctType == "gmail" {
-				fmt.Fprintf(session.out(), "Please run: %s account login %s to perform OAuth authentication\n", os.Args[0], name)
-			} else {
-				fmt.Fprintf(session.out(), "Please run: %s account test %s to verify connection\n", os.Args[0], name)
-			}
+			printAccountNextStep(session, acctType, name)
 			return nil
 		},
+	}
+}
+
+// printAccountNextStep says what a new account of acctType needs before it
+// can be used: a sign-in, a connection test, or nothing at all for a file.
+func printAccountNextStep(session *Session, acctType, name string) {
+	switch acctType {
+	case "mbox":
+		fmt.Fprintf(session.out(), "Open it with: %s tui, then pick %q in the account list\n", app.AppName, name)
+	case "outlook", "gmail":
+		fmt.Fprintf(session.out(), "Please run: %s account login %s to perform OAuth authentication\n", app.AppName, name)
+	default:
+		fmt.Fprintf(session.out(), "Please run: %s account test %s to verify connection\n", app.AppName, name)
 	}
 }
 

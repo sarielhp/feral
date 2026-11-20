@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sarielhp/feral/app"
 )
 
 // VerifyDetached checks a detached signature over data, the shape RFC 3156
@@ -23,7 +25,11 @@ import (
 // written on Unix -- otherwise fails as a forgery.
 func VerifyDetached(ctx context.Context, data, signature []byte) (Status, error) {
 	data = canonicalLineEndings(data)
-	dir, err := os.MkdirTemp("", "mail_cli-pgp-")
+	root, err := app.TempRoot()
+	if err != nil {
+		return Status{}, fmt.Errorf("prepare signature check: %w", err)
+	}
+	dir, err := os.MkdirTemp(root, "pgp-")
 	if err != nil {
 		return Status{}, fmt.Errorf("prepare signature check: %w", err)
 	}

@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 )
 
 // doctor is the one diagnostic that writes: it creates a label, inserts a
 // message into INBOX, moves it, and deletes both. It builds its own service
 // from a *Config, so the ReadOnlyMailClient decorator that guards every other
-// mutation never sees it -- `mail_cli --read-only doctor` created a label and
+// mutation never sees it -- `feral --read-only doctor` created a label and
 // inserted a message into a mailbox whose owner had just asked for nothing to
 // change.
 //

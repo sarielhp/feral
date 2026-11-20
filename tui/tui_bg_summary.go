@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/llm"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/llm"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -30,7 +30,9 @@ func (m *tuiModel) startBackgroundSummaryQueue() tea.Cmd {
 	if cfg == nil {
 		cfg = m.cfg
 	}
-	if cfg == nil || !cfg.LLM.IsAutoSummaryEnabled() || cfg.LLM.Endpoint == "" {
+	// A summary sends the message body to the LLM endpoint; a --read-only
+	// session sends nothing anywhere, so it writes no summaries.
+	if cfg == nil || !cfg.LLM.IsAutoSummaryEnabled() || cfg.LLM.Endpoint == "" || m.isAccountReadOnly() {
 		return nil
 	}
 
@@ -79,7 +81,7 @@ func (m *tuiModel) summarizeCurrentEmail() (tea.Model, tea.Cmd) {
 	}
 
 	if cfg == nil || cfg.LLM.Endpoint == "" {
-		m.err = fmt.Errorf("LLM not configured. Run 'tools/setup_local_llm' or 'mail_cli config set llm_endpoint <url>'")
+		m.err = fmt.Errorf("LLM not configured. Run 'tools/setup_local_llm' or 'feral config set llm_endpoint <url>'")
 		m.showError = true
 		return m, nil
 	}
@@ -107,6 +109,14 @@ func (m *tuiModel) summarizeCurrentEmail() (tea.Model, tea.Cmd) {
 		m.summaryEmailID = targetID
 		m.populateSummaryMetadata(targetID)
 		m.setupSummaryViewport()
+		return m, nil
+	}
+
+	// A summary already on disk is shown above; a new one would send the
+	// message to the LLM, which a --read-only session does not do.
+	if m.isAccountReadOnly() {
+		m.err = fmt.Errorf("no summary for this message, and --read-only sends nothing to the LLM")
+		m.showError = true
 		return m, nil
 	}
 

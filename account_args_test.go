@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -64,7 +64,12 @@ func TestAccountIndexSelection(t *testing.T) {
 		{"shortcut", []string{"-2"}, "second", false},
 		{"canonical", []string{"--account-index", "2"}, "second", false},
 		{"repeated", []string{"-2", "-1"}, "first", false},
-		{"mixed", []string{"-2", "-A", "first"}, "", true},
+		// One choice, the last on the line wins: a link's preset names an
+		// account, and whatever the user types after it overrides it.
+		{"name after index", []string{"-2", "-A", "first"}, "first", false},
+		{"index after name", []string{"-A", "first", "-2"}, "second", false},
+		{"name after name", []string{"-A", "first", "-A", "second"}, "second", false},
+		{"long index after name", []string{"--account=second", "--account-index", "1"}, "first", false},
 		{"zero", []string{"--account-index=0"}, "", true},
 		{"negative", []string{"--account-index=-1"}, "", true},
 		{"out of range", []string{"-3"}, "", true},

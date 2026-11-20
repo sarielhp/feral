@@ -4,9 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func twoOutlookAccounts() *cfg_g.Config {
@@ -24,7 +23,7 @@ func twoOutlookAccounts() *cfg_g.Config {
 // picked one of two Outlook accounts and went to the network.
 func TestForEachAccountRejectsAnAmbiguousSpec(t *testing.T) {
 	var visited []string
-	err := ForEachAccount(twoOutlookAccounts(), "%outlook:INBOX", report.Discard(),
+	err := ForEachAccount(twoOutlookAccounts(), "%outlook:INBOX", DefaultSpan,
 		func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
 			visited = append(visited, acc.Name)
 			return false, nil
@@ -41,7 +40,7 @@ func TestForEachAccountRejectsAnAmbiguousSpec(t *testing.T) {
 
 func TestForEachAccountResolvesADisplayName(t *testing.T) {
 	var visited []string
-	err := ForEachAccount(twoOutlookAccounts(), "%Work:INBOX", report.Discard(),
+	err := ForEachAccount(twoOutlookAccounts(), "%Work:INBOX", DefaultSpan,
 		func(acc cfg_acc.AccountConfig, label string) (bool, error) {
 			visited = append(visited, acc.Name+":"+label)
 			return false, nil
@@ -60,7 +59,7 @@ func TestForEachAccountRejectsAnUnknownSelection(t *testing.T) {
 	config.SelectedAccount = "nonesuch"
 
 	var visited []string
-	err := ForEachAccount(config, "", report.Discard(), func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
+	err := ForEachAccount(config, "", DefaultSpan, func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
 		visited = append(visited, acc.Name)
 		return false, nil
 	})
@@ -114,7 +113,24 @@ func TestResolveSendAccount(t *testing.T) {
 		t.Errorf("expected ErrNoSenderAccount, got %v", resolveErr)
 	}
 
-	// Case 4: DefaultSendAccount
+	// Case 3b: default_account is the sender when nothing else names one; a
+	// dangling one is passed over, not reported as an unknown account.
+	multiAcc.DefaultAccount = "work"
+	resolved, err = ResolveSendAccount(multiAcc, "")
+	if err != nil || resolved.Name != "work" {
+		t.Errorf("expected default_account work, got %v (err: %v)", resolved, err)
+	}
+	multiAcc.DefaultAccount = "gone"
+	if _, resolveErr := ResolveSendAccount(multiAcc, ""); !errors.Is(resolveErr, cfg_g.ErrNoSenderAccount) {
+		t.Errorf("a dangling default_account: expected ErrNoSenderAccount, got %v", resolveErr)
+	}
+	soleDangling := *singleAcc
+	soleDangling.DefaultAccount = "gone"
+	if one, resolveErr := ResolveSendAccount(&soleDangling, ""); resolveErr != nil || one.Name != "only" {
+		t.Errorf("a dangling default_account must not stop the sole account sending: %v, %v", one, resolveErr)
+	}
+
+	// Case 4: DefaultSendAccount, which wins over default_account
 	multiAcc.DefaultSendAccount = "default"
 	resolved, err = ResolveSendAccount(multiAcc, "")
 	if err != nil || resolved.Name != "default" {
@@ -137,7 +153,7 @@ func TestResolveSendAccount(t *testing.T) {
 
 func TestForEachAccount_AllSigil(t *testing.T) {
 	var visited []string
-	err := ForEachAccount(twoOutlookAccounts(), "%all:inbox", report.Discard(),
+	err := ForEachAccount(twoOutlookAccounts(), "%all:inbox", DefaultSpan,
 		func(acc cfg_acc.AccountConfig, label string) (bool, error) {
 			visited = append(visited, acc.Name+":"+label)
 			return false, nil
@@ -153,5 +169,38 @@ func TestForEachAccount_AllSigil(t *testing.T) {
 		if visited[i] != exp {
 			t.Errorf("visited[%d] = %q, want %q", i, visited[i], exp)
 		}
+	}
+}
+
+// A reference that names no account covers the default account, unless the
+// caller sweeps every account. `feral %` used to list every inbox.
+func TestForEachAccountUnnamedSpan(t *testing.T) {
+	visit := func(config *cfg_g.Config, spec string, span Span) []string {
+		var visited []string
+		if err := ForEachAccount(config, spec, span, func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
+			visited = append(visited, acc.Name)
+			return false, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return visited
+	}
+	config := twoOutlookAccounts()
+	if got := visit(config, "%inbox", DefaultSpan); len(got) != 1 || got[0] != "default" {
+		t.Errorf("with no default set, an unnamed reference covers the first account, got %v", got)
+	}
+	config.Accounts[1].IsDefault = true
+	if got := visit(config, "%inbox", DefaultSpan); len(got) != 1 || got[0] != "work" {
+		t.Errorf("an unnamed reference must cover the default account, got %v", got)
+	}
+	if got := visit(config, "%inbox", EverySpan); len(got) != 3 {
+		t.Errorf("a sweep must cover every account, got %v", got)
+	}
+	if got := visit(config, "%all:inbox", DefaultSpan); len(got) != 3 {
+		t.Errorf("%%all: must cover every account, got %v", got)
+	}
+	config.SelectedAccount = "test_acct"
+	if got := visit(config, "%inbox", EverySpan); len(got) != 1 || got[0] != "test_acct" {
+		t.Errorf("a selection narrows a sweep to that account, got %v", got)
 	}
 }

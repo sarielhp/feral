@@ -3,17 +3,17 @@ package cli
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // resetSearchFlags clears the package-level flag variables, which persist
@@ -94,7 +94,7 @@ func TestRunSearchSavesResultsOldestFirst(t *testing.T) {
 		}
 	})
 
-	vm, err := virtual.Load(session.Config.AccountCache, "search")
+	vm, err := virtual.Load(session.Config.AccountCache, "anything")
 	if err != nil {
 		t.Fatalf("the result set was not saved: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestRunSearchReverseOrdersNewestFirst(t *testing.T) {
 		}
 	})
 
-	vm, err := virtual.Load(session.Config.AccountCache, "search")
+	vm, err := virtual.Load(session.Config.AccountCache, "anything")
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestRunSearchNoMatchesIsNotAnError(t *testing.T) {
 	})
 
 	// Nothing found means nothing to browse afterwards.
-	if _, err := virtual.Load(session.Config.AccountCache, "search"); err == nil {
+	if _, err := virtual.Load(session.Config.AccountCache, virtual.NameForQuery("nothing matches this")); err == nil {
 		t.Error("an empty search saved a result set")
 	}
 }

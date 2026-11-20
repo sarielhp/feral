@@ -1,13 +1,13 @@
 package spam
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/report"
 )
 
 type mockSpamReporterClient struct {

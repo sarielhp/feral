@@ -3,9 +3,9 @@ package gmail
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
 	"net/url"
 	"strings"
 
@@ -190,6 +190,39 @@ func executeMailtoUnsubscribeREST(srv *gmailapi.Service, _ *Config, mailtoLink s
 	return err
 }
 
+// moveLabelChange is the label edit that moves a message from source to dest.
+// "Archive" is special on either side: an account with no such label archives
+// by removing the source label alone, so as a destination it adds nothing and
+// as a source -- moving archived mail back, as undo does -- it removes nothing.
+// A message is never taken out of SENT.
+func moveLabelChange(resolve func(string) (string, error), source, dest string) (add, remove []string, err error) {
+	sourceID, err := resolveMoveSide(resolve, source)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve source label %q: %w", source, err)
+	}
+	destID, err := resolveMoveSide(resolve, dest)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sourceID != "" && sourceID != destID && !strings.EqualFold(sourceID, "SENT") && !strings.EqualFold(source, "SENT") {
+		remove = []string{sourceID}
+	}
+	if destID != "" {
+		add = []string{destID}
+	}
+	return add, remove, nil
+}
+
+// resolveMoveSide resolves one side of a move, taking a missing "Archive"
+// label as no label at all.
+func resolveMoveSide(resolve func(string) (string, error), name string) (string, error) {
+	id, err := resolve(name)
+	if err != nil && strings.EqualFold(name, "archive") {
+		return "", nil
+	}
+	return id, err
+}
+
 // moveEmailGmailREST moves emails from a source label to a destination label.
 func moveEmailGmailREST(rep report.Reporter, messageIDs []email.ID, config *Config, sourceLabelName string, destLabelName string) error {
 	if len(messageIDs) == 0 {
@@ -207,39 +240,19 @@ func moveEmailGmailREST(rep report.Reporter, messageIDs []email.ID, config *Conf
 		return err
 	}
 
-	// Resolve source label ID
-	sourceLabelID, err := resolveLabelIDByName(srv, config, sourceLabelName)
+	add, remove, err := moveLabelChange(func(name string) (string, error) {
+		return resolveLabelIDByName(srv, config, name)
+	}, sourceLabelName, destLabelName)
 	if err != nil {
-		return fmt.Errorf("failed to resolve source label %q: %w", sourceLabelName, err)
+		return err
 	}
-
-	// Resolve destination label ID
-	destLabelID, err := resolveLabelIDByName(srv, config, destLabelName)
-	if err != nil {
-		if strings.EqualFold(destLabelName, "archive") {
-			// Special case for Gmail: if target is "archive" and it doesn't exist,
-			// we archive by removing the source label (e.g. INBOX) without adding any label.
-			destLabelID = ""
-		} else {
-			return err
-		}
-	}
-
-	removeLabels := []string{}
-	if sourceLabelID != "" && sourceLabelID != destLabelID && !strings.EqualFold(sourceLabelID, "SENT") && !strings.EqualFold(sourceLabelName, "SENT") {
-		removeLabels = append(removeLabels, sourceLabelID)
-	}
-
-	if len(removeLabels) == 0 && destLabelID == "" {
+	if len(add) == 0 && len(remove) == 0 {
 		return nil
 	}
-
 	req := &gmailapi.BatchModifyMessagesRequest{
 		Ids:            email.IDStrings(messageIDs),
-		RemoveLabelIds: removeLabels,
-	}
-	if destLabelID != "" {
-		req.AddLabelIds = []string{destLabelID}
+		AddLabelIds:    add,
+		RemoveLabelIds: remove,
 	}
 
 	err = srv.Users.Messages.BatchModify("me", req).Do()
@@ -283,7 +296,7 @@ func validateSpamDestinationLabel(spamFolder, destLabel string) error {
 	// Never escalate a move into a permanent purge. Reached from "spam learn",
 	// "spam bye" and "spam pol unsub", none of which promise deletion.
 	if strings.EqualFold(spamFolder, destLabel) || strings.EqualFold("SPAM", destLabel) || strings.EqualFold("[Gmail]/Spam", destLabel) {
-		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'mail_cli spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
+		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'feral spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
 	}
 	return nil
 }

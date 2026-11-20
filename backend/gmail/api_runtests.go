@@ -3,7 +3,7 @@ package gmail
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 	"strings"
 	"time"
 
@@ -22,7 +22,7 @@ import (
 // It is therefore refused under --read-only and --dry-run. It used to run
 // regardless: it builds its own service from a *Config rather than going
 // through the client factory, so the ReadOnlyMailClient decorator that guards
-// every other mutation never sees it, and `mail_cli --read-only doctor`
+// every other mutation never sees it, and `feral --read-only doctor`
 // created a label and inserted a message into a mailbox whose owner had just
 // asked for nothing to change.
 func RunRESTTests(rep report.Reporter, config *Config) error {

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 	"strings"
 	"testing"
 )
@@ -190,30 +190,30 @@ func TestPreprocessArgs(t *testing.T) {
 	}{
 		{
 			name:     "no alias",
-			input:    []string{"mail_cli", "scan", "inbox"},
-			expected: []string{"mail_cli", "scan", "inbox"},
+			input:    []string{"feral", "scan", "inbox"},
+			expected: []string{"feral", "scan", "inbox"},
 		},
 		// ss and sb are real hidden commands now, so the pre-pass must leave
 		// them alone rather than rewriting them into a command path.
 		{
 			name:     "ss passes through to the command",
-			input:    []string{"mail_cli", "ss"},
-			expected: []string{"mail_cli", "ss"},
+			input:    []string{"feral", "ss"},
+			expected: []string{"feral", "ss"},
 		},
 		{
 			name:     "sb passes through to the command",
-			input:    []string{"mail_cli", "sb"},
-			expected: []string{"mail_cli", "sb"},
+			input:    []string{"feral", "sb"},
+			expected: []string{"feral", "sb"},
 		},
 		{
 			name:     "__clihelp keeps the wrapped command line",
-			input:    []string{"mail_cli", "__clihelp", "wrapper", "mt", "-2", "tui"},
-			expected: []string{"mail_cli", "__clihelp", "wrapper", "mt", "-2", "tui"},
+			input:    []string{"feral", "__clihelp", "wrapper", "mt", "-2", "tui"},
+			expected: []string{"feral", "__clihelp", "wrapper", "mt", "-2", "tui"},
 		},
 		{
 			name:     "ss keeps its flags",
-			input:    []string{"mail_cli", "ss", "-v"},
-			expected: []string{"mail_cli", "ss", "-v"},
+			input:    []string{"feral", "ss", "-v"},
+			expected: []string{"feral", "ss", "-v"},
 		},
 	}
 

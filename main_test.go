@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -81,8 +81,8 @@ func TestMetadataRequestsDoNotBootstrap(t *testing.T) {
 // The existing version flag exits at the CLI boundary, so exercise it in a
 // child process and inspect the sandbox for unintended bootstrap writes.
 func TestVersionFlagDoesNotBootstrap(t *testing.T) {
-	if os.Getenv("MAIL_CLI_TEST_VERSION") == "1" {
-		os.Args = []string{"mail_cli", "--version"}
+	if os.Getenv("FERAL_TEST_VERSION") == "1" {
+		os.Args = []string{"feral", "--version"}
 		main()
 		return
 	}
@@ -92,8 +92,8 @@ func TestVersionFlagDoesNotBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(executable, "-test.run=^TestVersionFlagDoesNotBootstrap$")
-	cmd.Env = append(os.Environ(), "HOME="+home, "MAIL_CLI_TEST_VERSION=1", "CLIHELP_NO_AUTO_COMPLETION=1")
-	if out, err := cmd.CombinedOutput(); err != nil || !bytes.Contains(out, []byte("mail_cli version")) {
+	cmd.Env = append(os.Environ(), "HOME="+home, "FERAL_TEST_VERSION=1", "CLIHELP_NO_AUTO_COMPLETION=1")
+	if out, err := cmd.CombinedOutput(); err != nil || !bytes.Contains(out, []byte("feral version")) {
 		t.Fatalf("version request: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", app.AppName)); !os.IsNotExist(err) {

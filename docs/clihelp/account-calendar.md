@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account calendar'
-parent: 'mail_cli account'
+title: 'feral account calendar'
+parent: 'feral account'
 ---
 
-# mail\_cli account calendar
+# feral account calendar
 
 Show or set the calendar manager account.
 
 ## Usage
 
 ```
-mail_cli account calendar [account_name]
+feral account calendar [account_name]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli account calendar [account_name]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli account calendar [account_name]
 
 ## Examples
 
-- `mail_cli account calendar`
-- `mail_cli account calendar personal-gmail`
+- `feral account calendar`
+- `feral account calendar personal-gmail`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

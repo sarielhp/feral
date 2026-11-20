@@ -2,13 +2,13 @@ package folderindex
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // TestMigrateSanitizedNames_MovesBaseAndDeltasForward is H4's cache-layout

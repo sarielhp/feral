@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"net/mail"
 	"os/exec"
 	"strings"
@@ -69,7 +69,7 @@ func TestColorQuotedReplyLinesRaw(t *testing.T) {
 // TestHTMLLinkTargetsReachTheDetailPane follows an HTML message the way the
 // detail pane does: w3m's dump, then EmbedOSC8Hyperlinks, then the renderer.
 // The button's target and a long tracking link must both arrive as complete
-// OSC 8 targets, each beside its [n] marker, without overflowing the pane.
+// OSC 8 targets, drawn over their anchor text, without overflowing the pane.
 func TestHTMLLinkTargetsReachTheDetailPane(t *testing.T) {
 	if _, err := exec.LookPath("w3m"); err != nil {
 		t.Skip("w3m not installed")
@@ -101,7 +101,7 @@ func TestHTMLLinkTargetsReachTheDetailPane(t *testing.T) {
 		}
 	}
 	plain := email.StripEscapeSequences(got)
-	for _, want := range []string{"[1]Sign in", "\n[1] https://claude.ai/", "\n[2] https://url8792."} {
+	for _, want := range []string{"Sign in[1]", "Support[2]", "\n[1]: https://claude.ai/", "\n[2]: https://url8792."} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("rendered text lacks %q:\n%s", want, plain)
 		}

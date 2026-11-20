@@ -3,9 +3,9 @@ package cli
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // sessionWithMock builds a Session whose client is the supplied mock.
@@ -62,7 +62,7 @@ func TestSpamLearn_CustomDestLabel(t *testing.T) {
 
 // TestSpamLearnHam_ResolvesLabelRef guards against the regression where --ham
 // handed the backend the raw reference, so "%archive" named no folder while
-// "mail_cli %archive" found it.
+// "feral %archive" found it.
 func TestSpamLearnHam_ResolvesLabelRef(t *testing.T) {
 	mock := &mailclient.MockMailClient{Labels: []string{"Archive", "Archive/2024"}}
 	session := sessionWithMock(mock, &cfg_g.Config{})

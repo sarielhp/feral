@@ -3,15 +3,15 @@ package folderindex
 import (
 	"bufio"
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func idsPath(downloadDir, folder string) string {
@@ -143,7 +143,7 @@ func appendBatchLocked(downloadDir, folder string, msgIDs []email.ID) error {
 }
 
 // Add records msgID under folder. Safe against concurrent callers in this
-// process and against other mail_cli processes sharing downloadDir.
+// process and against other feral processes sharing downloadDir.
 func Add(account cachedir.Account, folder string, msgID email.ID) error {
 	downloadDir := account.Path()
 	defer guard(downloadDir)()

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,6 +46,7 @@ type Model struct {
 	AllowFileSelect bool
 	Done            bool
 	Canceled        bool
+	Locations       []Location // the directories the digit keys jump to
 }
 
 // SelectedMsg reports a chosen file or directory to the caller, as the command
@@ -91,6 +93,7 @@ func New(initialDir, targetFileName string, width, height int) Model {
 		Height:         height,
 		Title:          "SELECT SAVE DIRECTORY",
 	}
+	m.SetLocations(DefaultLocations())
 	m.ReloadEntries()
 	return m
 }
@@ -192,26 +195,29 @@ func (m *Model) ApplyFilter() {
 	}
 }
 
-// Update handles a key message by dispatching to whichever mode the picker is
-// in -- naming a directory, entering a path, searching or navigating -- and
-// returns the updated model and a command. Any non-key message is ignored.
+// Update handles a message by dispatching to whichever mode the picker is
+// in -- naming a directory, entering a path, searching or navigating -- or
+// updating dimensions on a window size message, and returns the updated model
+// and a command.
 func (m *Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.Width = msg.Width
+		m.Height = msg.Height
 		return *m, nil
+	case tea.KeyMsg:
+		if m.CreatingDir {
+			return m.updateCreatingDir(msg)
+		}
+		if m.EnteringPath {
+			return m.updateEnteringPath(msg)
+		}
+		if m.InSearch {
+			return m.updateInSearch(msg)
+		}
+		return m.updateNavigation(msg)
 	}
-
-	if m.CreatingDir {
-		return m.updateCreatingDir(keyMsg)
-	}
-	if m.EnteringPath {
-		return m.updateEnteringPath(keyMsg)
-	}
-	if m.InSearch {
-		return m.updateInSearch(keyMsg)
-	}
-
-	return m.updateNavigation(keyMsg)
+	return *m, nil
 }
 
 func (m *Model) updateCreatingDir(msg tea.KeyMsg) (Model, tea.Cmd) {
@@ -317,26 +323,50 @@ func (m *Model) navigateToPath(rawPath string) bool {
 	return true
 }
 
-func (m *Model) jumpToBookmark(num string) {
+// Location is a directory the picker jumps to on a digit key. Label is what
+// the footer shows; left empty, it is the path with home shortened to "~".
+type Location struct {
+	Label string
+	Path  string
+}
+
+// DefaultLocations are the jumps a picker opens with: Downloads, home,
+// Documents and the temporary directory.
+func DefaultLocations() []Location {
 	home, _ := os.UserHomeDir()
-	var target string
-	switch num {
-	case "1":
-		if home != "" {
-			target = filepath.Join(home, "Downloads")
-		}
-	case "2":
-		target = home
-	case "3":
-		if home != "" {
-			target = filepath.Join(home, "Documents")
-		}
-	case "4":
-		target = os.TempDir()
+	locs := []Location{}
+	if home != "" {
+		locs = append(locs, Location{Path: filepath.Join(home, "Downloads")}, Location{Path: home},
+			Location{Path: filepath.Join(home, "Documents")})
 	}
-	if target != "" {
-		m.navigateToPath(target)
+	return locs
+}
+
+// maxLocations is how many jumps the digit keys 1-9 can reach.
+const maxLocations = 9
+
+// SetLocations replaces the picker's jumps with locs, dropping empty paths
+// and duplicates and keeping the first maxLocations.
+func (m *Model) SetLocations(locs []Location) {
+	seen := map[string]bool{}
+	m.Locations = nil
+	for _, l := range locs {
+		p := filepath.Clean(strings.TrimSpace(l.Path))
+		if l.Path == "" || seen[p] || len(m.Locations) == maxLocations {
+			continue
+		}
+		seen[p] = true
+		m.Locations = append(m.Locations, Location{Label: l.Label, Path: p})
 	}
+}
+
+// jumpToLocation moves to the location the digit names, if there is one.
+func (m *Model) jumpToLocation(digit string) {
+	i, err := strconv.Atoi(digit)
+	if err != nil || i < 1 || i > len(m.Locations) {
+		return
+	}
+	m.navigateToPath(m.Locations[i-1].Path)
 }
 
 func (m *Model) autocompletePath() {
@@ -501,8 +531,8 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.EnteringPath = true
 		m.PathInput = ""
 
-	case "1", "2", "3", "4":
-		m.jumpToBookmark(msg.String())
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		m.jumpToLocation(msg.String())
 
 	case "~":
 		if home, err := os.UserHomeDir(); err == nil {
@@ -526,13 +556,13 @@ func promptInputLine(label, value string) string {
 // ScrollOffset so the cursor stays visible, so rendering is not free of side
 // effects.
 func (m *Model) View() string {
-	boxW := min(m.Width-4, 86)
-	boxH := min(m.Height-6, 24)
-	if boxW < 30 {
-		boxW = 30
+	boxW := min(86, max(20, m.Width-4))
+	if m.Width > 0 && boxW > m.Width {
+		boxW = m.Width
 	}
-	if boxH < 10 {
-		boxH = 10
+	boxH := min(24, max(5, m.Height-6))
+	if m.Height > 0 && boxH > m.Height {
+		boxH = m.Height
 	}
 
 	bg := lipgloss.Color("#16162a")

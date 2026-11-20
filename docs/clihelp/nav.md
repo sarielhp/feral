@@ -1,8 +1,8 @@
 ---
-title: 'mail_cli — Navigation'
+title: 'feral — Navigation'
 ---
 
-# mail\_cli — Navigation
+# feral — Navigation
 
 ## Commands
 
@@ -28,10 +28,15 @@ title: 'mail_cli — Navigation'
   - [pipe](msg-pipe.md) — Pipe message raw RFC822 or body to command.
   - [outbox](msg-outbox.md) — Manage offline outbound email queue.
     - [ls](msg-outbox-ls.md) — List queued messages in outbox.
-    - [flush](msg-outbox-flush.md) — Transmit all queued messages in outbox.
+    - [flush](msg-outbox-flush.md) — Transmit queued messages that are due.
     - [rm](msg-outbox-rm.md) — Delete queued messages from outbox.
   - [archive](msg-archive.md) — Archive one or more messages by ID.
   - [block](msg-block.md) — Block the senders of messages and move them.
+  - [snooze](msg-snooze.md) — Hide messages until a time, then return them.
+  - [unsub](msg-unsub.md) — Leave the mailing list a message came from.
+  - [mute](msg-mute.md) — Archive a thread's new messages on arrival.
+  - [unmute](msg-unmute.md) — Let a muted thread reach the inbox again.
+  - [muted](msg-muted.md) — List the account's muted threads.
 - [label](label.md) — Manage labels: download, upload, sort, move.
   - [list](label-list.md) — List all folders and labels in a tree view.
   - [print](label-print.md) — Print all labels, one per line.
@@ -49,14 +54,16 @@ title: 'mail_cli — Navigation'
   - [sort](label-sort.md) — Organize messages into dated keep/ hierarchy.
     - [examples](label-sort-examples.md) — Show archive mapping patterns and examples.
   - [move](label-move.md) — Move emails matching pattern to target label.
-- [mbox](mbox.md) — Inspect, validate and merge local mbox files.
+- [mbox](mbox.md) — Inspect, merge and import local mbox files.
   - [check](mbox-check.md) — Validate mbox file or directory.
+  - [save](mbox-save.md) — Append a folder to an mbox file.
   - [merge](mbox-merge.md) — Merge mbox file x into y.
   - [info](mbox-info.md) — Display message count and file size.
   - [view](mbox-view.md) — Browse a local mbox or .eml file in the TUI.
+  - [import](mbox-import.md) — Import an mbox file as received mail.
 - [spam](spam.md) — Manage Spam folder and train filters.
   - [empty](spam-empty.md) — Permanently purge all emails in Spam.
-  - [sweep](spam-sweep.md) — Sweep, unsubscribe, train, and purge Spam.
+  - [sweep](spam-sweep.md) — Unsubscribe, train, file Spam to LearnSpam.
   - [learn](spam-learn.md) — Train Bogofilter on Spam messages.
   - [pol](spam-pol.md) — Manage political spam and opt-outs.
     - [audit](spam-pol-audit.md) — Scan Spam for political mail scoring.
@@ -94,6 +101,8 @@ title: 'mail_cli — Navigation'
   - [sync](calendar-sync.md) — Scan inbox and sync all .ics events.
 - [contacts](contacts.md) — Manage contacts and aliases.
   - [list](contacts-list.md) — List stored contacts and aliases.
+  - [tui](contacts-tui.md) — Manage contacts full screen.
+  - [pick](contacts-pick.md) — Choose contacts full screen; print them on stdout.
   - [search](contacts-search.md) — Search contacts by name, email, or note.
   - [suggest](contacts-suggest.md) — Suggest ranked recipients from history.
   - [harvest](contacts-harvest.md) — Build suggestion index from cached mail.
@@ -103,20 +112,32 @@ title: 'mail_cli — Navigation'
 - [account](account.md) — Configure accounts and sign in.
   - [list](account-list.md) — List configured accounts.
   - [add](account-add.md) — Add a new account template to config.json.
-  - [link](account-link.md) — Link program name for auto-selection.
+  - [link](account-link.md) — Add a name -A accepts for an account.
   - [test](account-test.md) — Check an account's config and connection.
   - [calendar](account-calendar.md) — Show or set the calendar manager account.
   - [login](account-login.md) — OAuth login for Gmail or Outlook.
-  - [rename](account-rename.md) — Rename an existing account's display name.
+  - [rename](account-rename.md) — Rename an account and its files.
+  - [display-name](account-display-name.md) — Set the name an account is shown under.
+  - [signature](account-signature.md) — Show or set an account's signature.
+  - [default](account-default.md) — Show or set the default account.
   - [user-name](account-user-name.md) — Set the name shown in outgoing mail.
   - [user-email](account-user-email.md) — Set the address outgoing mail is sent from.
+  - [stale](account-stale.md) — Check relay inboxes for mail left too long.
+  - [inbox-max-age](account-inbox-max-age.md) — Mark an account as a relay to watch.
   - [rm](account-rm.md) — Delete an account and its credentials.
   - [setup](account-setup.md) — Configure an email account interactively.
   - [migrate](account-migrate.md) — Copy config and credentials via SSH.
+- [link](link.md) — Manage other names that run feral.
+  - [add](link-add.md) — Add a name that runs feral with arguments.
+  - [list](link-list.md) — List link names and what each one runs.
+  - [rm](link-rm.md) — Remove a link and its symlink.
 - [config](config.md) — Show or manage configuration options.
   - [show](config-show.md) — Display the active configuration values.
   - [get](config-get.md) — Print a configuration parameter's value.
   - [set](config-set.md) — Set a configuration parameter value.
+  - [add-email](config-add-email.md) — Add addresses that are your own.
+  - [remove-email](config-remove-email.md) — Remove addresses from my_emails.
+  - [emails](config-emails.md) — List the addresses that count as yours.
   - [unset](config-unset.md) — Reset a configuration parameter to default.
   - [check](config-check.md) — Validate config, DNS, and Bogofilter.
   - [llm](config-llm.md) — Test the configured LLM endpoint.
@@ -126,9 +147,11 @@ title: 'mail_cli — Navigation'
     - [prune](utils-cache-prune.md) — Prune cached emails older than N days.
     - [clear](utils-cache-clear.md) — Recreate cache directory and wipe data.
     - [repair](utils-cache-repair.md) — Check and rewrite this account's index.
+    - [outlook-ids](utils-cache-outlook-ids.md) — Key an Outlook cache by stable message IDs.
   - [color](utils-color.md) — Test the terminal's true-color support.
   - [doctor](utils-doctor.md) — Diagnose credentials, connectivity, mail flow.
     - [run](utils-doctor-run.md) — Execute connection and integration tests.
+  - [keys](utils-keys.md) — Print the default TUI keys as keys.json.
   - [completion](utils-completion.md) — Generate or install shell tab-completion scripts
     - [bash](utils-completion-bash.md) — Generate Bash tab-completion script
     - [zsh](utils-completion-zsh.md) — Generate Zsh tab-completion script

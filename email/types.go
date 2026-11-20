@@ -13,21 +13,41 @@ type Email struct {
 	// AccountBadge and AccountIndex are display-only: the tag a listing
 	// that mixes accounts shows for Account, and the account's position in
 	// the configuration, which gives it a stable colour.
-	AccountBadge        string
-	AccountIndex        int
-	Subject             string
-	FromEmail           string
-	FromRaw             string
-	EmailDate           time.Time
-	FormattedDate       string
-	IsSpam              bool
-	IsPolitical         bool
-	IsBlacklisted       bool
-	IsRead              bool
-	IsReplied           bool
-	HasICS              bool
-	HasAttachment       bool
-	MessageID           HeaderID
+	AccountBadge string
+	AccountIndex int
+	Subject      string
+	FromEmail    string
+	FromRaw      string
+	// ToEmail and ToRaw are the recipient header. A listing of a folder the
+	// owner wrote -- Sent or Drafts -- shows these where it would otherwise
+	// show the sender, so the row names who the message went to rather than
+	// the user's own address.
+	ToEmail       string
+	ToRaw         string
+	CcEmail       string
+	CcRaw         string
+	EmailDate     time.Time
+	FormattedDate string
+	DateReceived  time.Time
+	Size          int64
+	IsSpam        bool
+	IsPolitical   bool
+	IsBlacklisted bool
+	// IsAuthored marks a summary loaded from a folder the account's owner
+	// wrote -- Sent or Drafts. It is folder context, not a fact of the
+	// message, so it is never written to the parsed-summary cache: the same
+	// message is authored in Sent and not in INBOX.
+	IsAuthored    bool `json:"-"`
+	IsRead        bool
+	IsReplied     bool
+	HasICS        bool
+	HasAttachment bool
+	MessageID     HeaderID
+	// ListID is the mailing list the message came through, from List-Id
+	// (RFC 2919): the identifier in angle brackets, lower-cased, or "". It
+	// is never omitempty: a stored summary with no ListID key predates it,
+	// and that is how the summary cache knows to parse the message again.
+	ListID              string
 	InReplyTo           string
 	References          string
 	ThreadDepth         int
@@ -35,8 +55,13 @@ type Email struct {
 	ThreadCollapsed     bool
 	ThreadRepliesCount  int
 	ThreadSenderSummary string
+	ThreadCCSummary     string
 	ThreadPrefix        string
 	ThreadIndex         int
+	// ThreadHiddenUnread marks a collapsed thread row whose hidden messages
+	// include an unread one. It is view state, derived when the list is
+	// built, so it is never written to the parsed-summary cache.
+	ThreadHiddenUnread bool `json:"-"`
 }
 
 // ThreadNode is one message in a thread tree, together with its parent and its

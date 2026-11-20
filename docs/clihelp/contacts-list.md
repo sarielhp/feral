@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts list'
-parent: 'mail_cli contacts'
+title: 'feral contacts list'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts list
+# feral contacts list
 
 List stored contacts and aliases with an optional substring filter.
 
 ## Usage
 
 ```
-mail_cli contacts list [filter]
+feral contacts list [filter]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli contacts list [filter]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli contacts list [filter]
 
 ## Examples
 
-- `mail_cli contacts list`
-- `mail_cli contacts list john`
+- `feral contacts list`
+- `feral contacts list john`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

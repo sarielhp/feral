@@ -1,13 +1,16 @@
 package ui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"bytes"
+	"strings"
+
+	"github.com/sarielhp/feral/cache/cachedir"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/spam"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/spam"
 )
 
 const uiRaw = "From: Alice Smith <alice@example.com>\r\n" +
@@ -32,7 +35,7 @@ func seedUIMessage(t *testing.T, id string) string {
 func TestLoadFolderEmail(t *testing.T) {
 	dir := seedUIMessage(t, "m1")
 
-	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, false, nil)
+	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, false, nil, false)
 	if eml.Subject != "quarterly report" {
 		t.Errorf("Subject = %q", eml.Subject)
 	}
@@ -49,7 +52,7 @@ func TestLoadFolderEmail(t *testing.T) {
 // A message that cannot be read becomes a visible error row rather than being
 // dropped, so a listing never silently shortens.
 func TestLoadFolderEmailUnreadableBecomesPlaceholder(t *testing.T) {
-	eml := loadFolderEmail(cachedir.At(t.TempDir()), "absent", nil, false, nil)
+	eml := loadFolderEmail(cachedir.At(t.TempDir()), "absent", nil, false, nil, false)
 
 	if eml.ID != "absent" {
 		t.Errorf("ID = %q, want the requested ID preserved", eml.ID)
@@ -65,7 +68,7 @@ func TestLoadFolderEmailUnreadableBecomesPlaceholder(t *testing.T) {
 func TestLoadFolderEmailAppliesSpamFlag(t *testing.T) {
 	dir := seedUIMessage(t, "m1")
 
-	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, true, nil)
+	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, true, nil, false)
 	if !eml.IsSpam {
 		t.Error("IsSpam was not applied from the caller's verdict")
 	}
@@ -80,7 +83,7 @@ func TestLoadFolderEmailAppliesScanResponse(t *testing.T) {
 		Symbols: map[string]spam.Symbol{"CUSTOM_POLITICAL_BLOCK": {}},
 		Action:  "Blacklisted Sender",
 	}
-	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, false, res)
+	eml := loadFolderEmail(cachedir.At(dir), "m1", nil, false, res, false)
 
 	if !eml.IsPolitical {
 		t.Error("IsPolitical was not taken from the scan response")
@@ -130,5 +133,27 @@ func TestEmailState(t *testing.T) {
 				t.Errorf("emailState = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A Sent-folder row shows the recipient, marked, in the sender column; the
+// same message read from any other folder shows its sender.
+func TestRenderEmailRowShowsRecipientForAuthoredMail(t *testing.T) {
+	var sent, received bytes.Buffer
+	eml := email.Email{ID: "id1", FromRaw: "Me <me@example.com>", ToRaw: "Bob <bob@example.com>", Subject: "the plan"}
+
+	eml.IsAuthored = true
+	renderEmailRow(&sent, eml, true, 20, 40, 8, false)
+	if !strings.Contains(sent.String(), email.RecipientMarker+"Bob") {
+		t.Errorf("authored row %q does not show the marked recipient", sent.String())
+	}
+	if strings.Contains(sent.String(), "Me <me@example.com>") || strings.Contains(sent.String(), "me@example.com") {
+		t.Errorf("authored row %q still shows the sender", sent.String())
+	}
+
+	eml.IsAuthored = false
+	renderEmailRow(&received, eml, true, 20, 40, 8, false)
+	if !strings.Contains(received.String(), "Me") {
+		t.Errorf("received row %q does not show the sender", received.String())
 	}
 }

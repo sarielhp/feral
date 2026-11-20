@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -19,9 +19,9 @@ func SetupCmd(session *Session) clihelp.Command {
 		Name:        "setup",
 		Group:       "Setup",
 		Description: "Configure an email account interactively.",
-		UsageLine:   "mail_cli account setup",
+		UsageLine:   "feral account setup",
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account setup", Description: "Launch guided account setup wizard"},
+			{Line: "feral account setup", Description: "Launch guided account setup wizard"},
 		},
 		Args: clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
@@ -32,9 +32,9 @@ func SetupCmd(session *Session) clihelp.Command {
 
 func runSetup(session *Session) error {
 	fmt.Println("============================================================")
-	fmt.Println("              mail_cli Account Setup Wizard                 ")
+	fmt.Println("              feral Account Setup Wizard                 ")
 	fmt.Println("============================================================")
-	fmt.Println("mail_cli connects directly to your email provider without")
+	fmt.Println("feral connects directly to your email provider without")
 	fmt.Println("requiring external background sync daemons.")
 	fmt.Println()
 
@@ -62,12 +62,12 @@ func runSetup(session *Session) error {
 	}
 
 	// Placeholders are about to be replaced, so their names are free.
+	var others []cfg_acc.AccountConfig
 	if fc.Accounts != nil && !cfg_g.OnlyPlaceholders(*fc.Accounts) {
-		for _, existing := range *fc.Accounts {
-			if strings.EqualFold(existing.Name, name) {
-				return ErrAccountExists(name)
-			}
-		}
+		others = *fc.Accounts
+	}
+	if err = cfg_g.CheckNewAccountName(others, name, -1); err != nil {
+		return err
 	}
 
 	newAcc, err := promptSetupAccountDetails(session, provider, name)
@@ -88,10 +88,10 @@ func runSetup(session *Session) error {
 	fmt.Println("============================================================")
 	fmt.Printf("Setup complete! Account %q is ready.\n", name)
 	fmt.Println("Commands to try:")
-	fmt.Println("  mail_cli tui         - Open interactive terminal email browser")
-	fmt.Println("  mail_cli %           - Scan your inbox")
-	fmt.Println("  mail_cli msg send        - Send an email from the CLI")
-	fmt.Println("  mail_cli write     - Interactively compose an email")
+	fmt.Println("  feral tui         - Open interactive terminal email browser")
+	fmt.Println("  feral %           - Scan your inbox")
+	fmt.Println("  feral msg send        - Send an email from the CLI")
+	fmt.Println("  feral write     - Interactively compose an email")
 	fmt.Println("============================================================")
 
 	return nil
@@ -311,7 +311,7 @@ func verifySetupAccount(session *Session, acc cfg_acc.AccountConfig) error {
 		if promptYesNo(fmt.Sprintf("Perform %s authentication login now?", strings.ToUpper(acc.Type)), true) {
 			if err := runAccountLogin(session, []string{acc.Name}); err != nil {
 				fmt.Fprintf(session.errOut(), "%s Authentication deferred: %v\n", app.PrefixWarn, err)
-				fmt.Fprintf(session.out(), "You can sign in later with: mail_cli account login %s\n", acc.Name)
+				fmt.Fprintf(session.out(), "You can sign in later with: feral account login %s\n", acc.Name)
 			}
 		}
 	}

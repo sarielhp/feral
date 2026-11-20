@@ -1,10 +1,308 @@
 # 📝 Changelog
 
-All notable changes to `mail_cli` are documented in this file.
+All notable changes to feral (called `mail_cli` until 0.7.77) are documented in
+this file.
 
 > **This file was not maintained between 0.2.20 and 0.7.0.** The entries below
 > resume it. The gap is real and is not reconstructed here; `git log` is the
 > record for that stretch.
+
+## [Unreleased]
+
+### Development
+
+- **The test opt-in variables are `FERAL_*`**: `FERAL_LIVE`, `FERAL_INTERACTIVE`,
+  `FERAL_LIVE_MUTATE`, `FERAL_MUTATE_ACCOUNT`, `FERAL_LIVE_ACCOUNT`, `FERAL_LIVE_SEND`,
+  `FERAL_LIVE_MONKEY` and the rest; the Makefile targets set them. A run that sets
+  only a `MAIL_CLI_*` name fails and names the new one, rather than skipping. The
+  `--on-mail` hook still exports `MAIL_CLI_*` beside `FERAL_*`.
+- **The repositories are `sarielhp/feral` and `sarielhp/feral_dev`**; GitHub
+  redirects the old `mail_cli` names.
+
+### Undo in the TUI
+
+- **`z` undoes the last move.** Archive, delete to trash, mark as spam and a
+  move to a folder (`;s`, or `;a` within one account) -- one message or tagged
+  -- report "Archived 3 — z to undo", and `z` moves the messages back to the
+  folder they came from, on the server and in the folder index. The session
+  keeps the last ten; nothing survives a restart. `u` was taken: it unspams.
+- **Undo puts back what the action dropped.** Delete and spam remove the
+  cached copy, and with it the user's spam override; undo downloads the
+  message again and restores the override.
+- **Undoing a spam mark takes back its training.** The mark registers the
+  message with bogofilter until it scores as spam; undo unregisters it once
+  per registration (`bogofilter -S`) and drops it from the trained-message
+  record if the mark put it there. It is not trained as ham: that would be a
+  verdict the user did not give. Tagged spam (`;S`) trains nothing, so there
+  is nothing to take back.
+- **What cannot be undone says so**, and stays on the stack so `z` does not
+  silently reach past it: a sent message, a blocked sender (a rule change),
+  the spam menu's move of every [SPAM] message, a move into another account,
+  and any move in an Outlook account whose cache still keys messages by
+  Graph's default IDs, which change on every move.
+- **Gmail: moving archived mail back works without an "Archive" label.**
+  Archive there removes the inbox label and adds nothing; the move back used
+  to fail resolving "Archive" as its source.
+
+### Leaving a mailing list
+
+- **`msg unsub <id>`** leaves the list a message came from, using its
+  `List-Unsubscribe` header: a one-click unsubscribe (RFC 8058) is a POST
+  through the SSRF-guarded client, a `mailto:` is a short message sent from the
+  account the mail arrived in and shown in full first, and a plain web link is
+  opened in the browser, never fetched. It always shows the plan and asks
+  (`--yes` skips the question); `--read-only` and `--dry-run` only show it.
+  Every attempt goes into `unsubscriptions.json`, the log `spam pol unsub`
+  already keeps.
+- **`X` in the TUI** does the same for the message under the cursor or on
+  screen: a dialog shows the plan (and a mailto message in full), `y` carries
+  it out, `n` or Esc cancels. Under read-only the dialog says so and `y` only
+  reports. (`U` was taken by unspam.)
+
+### Mailing lists
+
+- **A message from a list shows the list's tag** in the TUI's message list:
+  `[linux-kernel]` ahead of the subject, from the message's `List-Id`
+  (RFC 2919). A subject that already carries the tag is not tagged twice.
+  Summaries cached before this release get their list from the message's
+  header on first use, once.
+- **Reply to the list**: `G` in the TUI, beside `r` and `g`, and
+  `msg reply --list` (`-l`) address the list's `List-Post` (RFC 2369) alone.
+  A message from no list, a list whose `List-Post` is `NO` and a list that
+  takes posts only on the web are refused with a message saying which -- the
+  reply never goes to the sender instead. `--list` and `--group` exclude each
+  other.
+- **Filter the list by mailing list**: `=` in the TUI shows only the selected
+  message's list (again, or Esc, to show everything). It is the ordinary list
+  filter with the query `list:<id>`, which can also be typed after `/`; it
+  matches the `List-Id` alone, never a subject.
+- **Mute a thread**: `M` in the TUI (again to unmute), `msg mute <id>`,
+  `msg unmute <id|key>` and `msg muted`. A muted thread's new messages skip
+  the inbox: the watcher -- `feral watch`, or the one the TUI runs --
+  archives them as they arrive and does not announce them. A thread is
+  recognized by the Message-ID at its root (the first `References` entry,
+  else `In-Reply-To`, else the message's own), so a reply naming any message
+  of the thread belongs to it, on every backend alike. The list is kept per
+  account in `muted_threads.json` in the account's settings directory, which
+  `account rename` moves. Muting is refused under `--read-only`, whose
+  watcher could not archive; `--dry-run` reports what it would do. A muted
+  message the watcher cannot archive -- the archive failed, the session is
+  read-only or the account is, the list is damaged -- is announced like any
+  other, never left
+  in the inbox unannounced.
+
+### The program is feral
+
+- **The binary is `feral`.** `tools/install` installs `~/bin/feral` and turns
+  `~/bin/mail_cli` into a symlink to it, so scripts and alias links that run
+  `mail_cli` keep working and get the new build.
+- **The configuration directory is `~/.config/feral`.** The first run that may
+  write moves `~/.config/mail_cli` there and leaves a `mail_cli` symlink, so a
+  build from before the rename still finds the accounts. `--read-only` and
+  `--dry-run` read the old directory where it is. If both exist as real
+  directories, feral refuses rather than choose.
+- **Caches are not moved.** An existing `~/.cache/mail_cli` is still used when
+  config.json names no `download_dir`.
+- **`watch --on-mail` hooks** get `FERAL_ACCOUNT`, `FERAL_FROM`,
+  `FERAL_SUBJECT`, `FERAL_DATE` and `FERAL_ID`, and the same values under the old
+  `MAIL_CLI_*` names.
+- **Account names.** `account rename` renames an account and everything kept
+  under its name; `account display-name` sets only the label; `account default`
+  chooses the account a command acts on when none is named. `default` and `all`
+  are no longer valid account names.
+- **A bare folder reference (`feral %`) reads the default account**, not every
+  account; `%all:` still covers all of them.
+
+### Send later
+
+- **`msg send --at <time>`** builds the message now and queues it in the
+  outbox to be sent at a local time: `"2026-11-20 08:00"`, `"+2h"`, `"+30m"`,
+  `"+1d"`, `"today 17:00"` or `"tomorrow 8am"`. A time already past is refused,
+  and so is `--at` under `--read-only`, as `--queue` is; so is a blank `--at`,
+  which must not mean "now". It works with `--raw`. A message `send` builds is
+  dated at its due time; a `--raw` message keeps its own `Date:`.
+- **What sends it** is the first outbox flush at or after the due time: `feral
+  watch` after each clean poll, or `msg outbox flush` run by hand or from cron.
+  The TUI's own watcher never flushes, so with neither running the message waits.
+- **`outbox ls` shows when each entry goes out**; `outbox flush` sends only what
+  is due, says how many wait and when the next is due, and does not fail because
+  something is scheduled; `--dry-run` names what is not due yet.
+- **Older builds never send a scheduled message early.** A scheduled entry is
+  format 2 and is kept in `outbox/scheduled/`, which builds before this one do
+  not read; an entry to be sent now is written exactly as before. An entry in a
+  newer format still is listed, refused by flush and never rewritten.
+
+### Snooze
+
+- **`msg snooze --until <time> <id>...`** hides messages until a time, read as
+  `msg send --at` reads one. Each moves to a `Snoozed` folder on its own
+  account, created the first time, and is recorded in `snooze.json` in the
+  download directory.
+- **`H` ("hide until") in the TUI**, on the list or an open message, asks until when and
+  snoozes that message the same way; a time it cannot read leaves it in place.
+- **A watcher brings it back**, to the inbox and unread, on its first poll at
+  or after the time: `feral watch`, or the one the TUI runs while it is open.
+  With neither running it waits; `msg snooze --wake` brings back what is due,
+  or the messages named, at once.
+- **`msg snooze`** lists what is snoozed and when each returns; `--forget`
+  drops a record and moves nothing.
+- **Nothing snoozed is lost silently.** A message deleted meanwhile, or one
+  whose account is gone, keeps its record and is reported once by the watcher.
+  A damaged `snooze.json` is an error, never an empty list. The record is
+  written before the move and removed only after the move back.
+- **Refused where it cannot be undone safely**: under `--read-only` (the record
+  would describe a move that did not happen), on an mbox account, and on an
+  Outlook account whose cache still holds default message IDs, which change on
+  a move (`utils cache outlook-ids` converts it). `--dry-run` says what would
+  move. `account rename` renames the account in the record.
+
+### Configuration: groundwork for sync across machines
+
+- **One writer for the shared configuration.** config.json and each account's
+  `account.json`, `whitelist.json`, `blacklist.json` and `rules.json` are
+  written in one place (`cfg_g.writeShared`), which `--dry-run` refuses for
+  every caller, an account rename's in-place edit included. A test fails when
+  new code writes one of them directly.
+- **The shared files have one layout.** Keys sorted at every depth, one
+  array element per line, a final newline, and the lists that are sets
+  (`my_emails`, `allowed_languages`, white and black lists) sorted; rules,
+  accounts and every other list keep their order. The same configuration is
+  now the same bytes, whichever command wrote it, so a diff of config.json
+  shows only what changed. The first save reorders an existing file once.
+- **The configuration export has a format version** (`cfg_g.SyncFormat`,
+  kept in `<sync_dir>/format`), with the check that will refuse to sync with
+  an export a newer feral wrote. Nothing exports yet.
+- **A save no longer reverts another process's change.** Two feral processes
+  that loaded the configuration and both saved used to leave only the second
+  one's copy: a TUI kept open across `account default` in another terminal
+  put the old default back on its next save. A save now holds a lock on
+  config.json, and a file that changed since it was loaded is merged: what
+  this run did not change keeps the value on disk, a list such as the black
+  list keeps both runs' additions and removals, and two runs that each add
+  an account keep both. When both changed the same setting, the later save
+  wins, as before, and the log says so. A run that loaded the configuration
+  before an account was renamed no longer recreates the old name.
+
+### Links: other names for feral
+
+- **`feral link add mt -- -A fastmail tui`** makes `mt` a command that runs
+  `feral -A fastmail tui`: a symlink beside the binary (or in `--dir`) and an
+  entry under `links` in config.json. A link completes with `<Tab>` and
+  explains with Alt-H like feral, and `mt -h` opens with `mt runs: …`.
+  `link list` shows each link and its state; `link rm` removes it and its
+  symlink (only a symlink that is this feral).
+- **A link is stored as it will run**: the account by its name (a display
+  name, alias or `-2` is resolved when the link is added), and a command
+  spelled in full.
+- **`aliases[]` become links.** The first run that may write turns each
+  account alias into a link of the same name, so `~/bin/gmail` keeps
+  selecting the gmail account; after that an alias is only a name `-A`
+  accepts. A name on the command line that is an account's but not a link is
+  refused instead of running against the default account.
+- **The last account named on a line wins.** `-A` and `-N`/`--account-index`
+  are one choice: `feral -A work -2` means account 2 (it used to be an
+  error), so `mt -2` runs the link's command on account 2.
+- `account rename` carries the links that run the account; `account rm`
+  keeps them and lists them with a warning.
+
+### Signatures, per account
+
+- **`account signature <account>`** prints an account's signature;
+  `--file <path>`, `--edit` (the configured editor) and `--clear` set it. It is
+  kept as `signature.txt` in the account's directory, so `account rename`
+  moves it. `--dry-run` refuses to set one; `--read-only` allows it.
+- **It is appended under a `-- ` line** by `write`, `msg reply` (headless or
+  not), `msg send` and the TUI's compose, reply and forward -- above the quoted
+  text of a reply, under the forwarded text of a forward. `msg send --raw` is
+  never signed, nor is a body that already has a `-- ` line, so a resumed
+  draft is not signed twice. The signature is part of the body, so `--sign`
+  and the TUI's PGP signing cover it. `msg send --no-signature` and
+  `msg reply --headless --no-signature` send without it, for scripts.
+- **Changing the sending account while composing swaps the signature**, if
+  the old one is still there unedited.
+- `~/.signature`, which the TUI used to append below the quote, is still used
+  for an account that has no signature of its own; `--clear` turns that off
+  for the account.
+
+### The TUI's keys can be moved
+
+- **`keys.json` beside `config.json` rebinds the message list's and the
+  message view's keys.** Each key runs a named action (`archive`, `reply_all`,
+  `toggle_read`, ...), per group: `{"format": 1, "list": {"archive": "A"},
+  "message": {...}}`. An action left out keeps its defaults; a key or a list
+  of keys replaces them. `feral utils keys` prints every action with its
+  default keys, a file ready to edit.
+- **A broken keys file stops the TUI before it starts**, naming the file, the
+  line and the entry: an unknown group or action, a key that is not a key, a
+  key two actions of one group would share, or a key the screens keep for
+  themselves (q, Esc, Tab, f, F, h, ?, Enter, the arrows, PgUp, PgDn, Home,
+  End, Shift+← and Shift+→, F1-F4, F8, F9, Ctrl+C, Ctrl+D, Ctrl+Q, every Alt
+  chord).
+  No file means the defaults, unchanged.
+- **The help (F1, h, ?) shows the keys in effect**, and so do the hints that
+  name one (the spam undo banner, the attachment badge, "+: more", "Press R
+  to retry").
+- **Alt+F4 to Alt+F7 open the menu in a message**, as they already
+  did on the list: the F-key arms used to be matched by key type ahead of
+  the Alt check there, and a key is now looked up by name.
+
+### Fixed
+
+- **Saving the configuration no longer drops settings it does not know.** A
+  key in config.json or an account.json that the running build does not
+  declare -- written by a newer build, or added by hand -- used to vanish on
+  the next save; it is now kept as it was.
+
+### Command line
+
+- **A mistyped flag gets a suggestion** (clihelp 0.3.63): `--hlep` suggests
+  `--help`, and a flag given to the wrong command says whose it is.
+- **`<Tab>` at the top level offers the global options too.**
+
+## [0.7.66 – 0.7.69] - 2026-11-03
+
+> 0.7.1 to 0.7.65 have no entries; `git log` is the record for them.
+
+Found with a seeded test account, live TUI tests in kitty, a random-key
+monkey and a state machine of the TUI's screens.
+
+### Changed behavior
+
+- **`--read-only` refuses more.** `msg block` and `spam mark` refuse, as their
+  TUI keys do: their blacklist, filter training and override would record a
+  change the server never saw. `send --queue` refuses (the next run would send
+  it). `label rename` no longer saves rules rewritten for a rename that was
+  only simulated. `account migrate` prints what it would copy instead of
+  copying the config and tokens over ssh. Calendar writes are refused (they
+  used to reach Google Calendar). The TUI writes no LLM summaries; F4 still
+  shows one already on disk.
+- **`--dry-run` writes nothing.** No command writes `config.json`;
+  `spam learn --ham`, `spam unmark`, `spam reset`, `cache clear`,
+  `cache prune` and `mbox download` report instead of acting.
+- **Messages opened in the browser load nothing remote** (`w`, `show`, HTML
+  attachments): no remote images, so no tracking pixels, and no scripts.
+- **Busy dialogs are modal.** Under "Unspamming…", "Downloading…" and the like,
+  keys no longer act on the hidden list; Esc, q and Ctrl+C still work.
+- **`account login` keeps the old token** until a new one is written;
+  abandoning a sign-in used to leave the account with none.
+- HTML attachments open in the configured browser, as `w` does.
+
+### Fixed
+
+- A search typed in a message stayed open after Esc and replaced every
+  message body afterwards; it also survived 17 other ways back to the list.
+- `~` (whole-cache) search: Esc kept the cache's rows; `/` or `~` during it lost
+  the folder; a refresh or delete under it was lost or came back.
+- Searches leaked into the next folder, history step or account.
+- Backspace removed a byte, not a character, in all three searches (Hebrew).
+- The folder tree vanished on a search that matched nothing; its search
+  outlived it.
+- Clicks behind the sort menu, the quit dialog or the save help opened a
+  message hidden underneath.
+- `label rm` and `label upload` right after `label create` answered
+  "no label matches" (a cached folder list was kept for a day).
+- Outlook: throttled reads are retried; a failed subfolder listing no longer
+  silently drops part of the folder tree.
 
 ## [0.7.0] - 2026-09-19
 

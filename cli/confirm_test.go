@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 )
 
 func confirmSession(stdin string) (*Session, *bytes.Buffer) {

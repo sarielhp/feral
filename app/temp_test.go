@@ -74,9 +74,11 @@ func TestSanitizeUsername(t *testing.T) {
 }
 
 func TestCleanStaleTempDirs(t *testing.T) {
-	username := resolveUsername()
-	prefix := fmt.Sprintf("%s-%s-", AppName, sanitizeUsername(username))
-	tempBase := os.TempDir()
+	prefix := "tmp-"
+	tempBase, err := TempRoot()
+	if err != nil {
+		t.Fatalf("TempRoot failed: %v", err)
+	}
 
 	// 1. Stale directory (older than 1 hour)
 	staleDir, err := os.MkdirTemp(tempBase, prefix+"stale-*")

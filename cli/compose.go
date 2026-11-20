@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/contacts"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/contacts"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -16,7 +16,7 @@ func ComposeCmd(session *Session) clihelp.Command {
 		Name:        "write",
 		Group:       "Messages",
 		Description: "Write a message in your editor, then review.",
-		UsageLine:   "mail_cli write [flags] [recipient...]",
+		UsageLine:   "feral write [flags] [recipient...]",
 		Parameters: []clihelp.Param{
 			{Name: "[recipient...]", Description: "Optional recipient email addresses or contact aliases.", Variadic: true, Complete: completeRecipients(session)},
 		},
@@ -37,12 +37,13 @@ func ComposeCmd(session *Session) clihelp.Command {
 			return runCompose(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli write`, Description: "Open interactive editor to compose a new message"},
-			{Line: `mail_cli write boss@company.com -s "Status Report"`, Description: "Compose email with pre-filled recipient and subject"},
-			{Line: `mail_cli write -s "Patch review" -a fix.patch dev-list`, Description: "Compose with attachment and contact alias"},
-			{Line: `mail_cli write -i notes.txt colleague@example.com`, Description: "Compose starting with body from file in editor"},
-			{Line: `mail_cli write -a "*.pdf" -a notes.txt boss@company.com`, Description: "Attach every PDF here, quoted so mail_cli expands it, and one more file"},
-			{Line: `mail_cli write --resume 2026/09/30/125`, Description: "Reopen a saved draft on the review screen"},
+			{Line: `feral write`, Description: "Open interactive editor to compose a new message"},
+			{Line: `feral write boss@company.com -s "Status Report"`, Description: "Compose email with pre-filled recipient and subject"},
+			{Line: `feral write -s "Patch review" -a fix.patch dev-list`, Description: "Compose with attachment and contact alias"},
+			{Line: `feral write -i notes.txt colleague@example.com`, Description: "Compose starting with body from file in editor"},
+			{Line: `feral write -a "*.pdf" -a notes.txt boss@company.com`, Description: "Attach every PDF here, quoted so feral expands it, and one more file"},
+			{Line: `feral write boss < notes.txt`, Description: "Start the body from a file redirected to stdin; boss is a contact alias"},
+			{Line: `feral write --resume 2026/09/30/125`, Description: "Reopen a saved draft on the review screen"},
 		},
 	}
 }
@@ -101,11 +102,23 @@ func resolveComposeBody() (string, error) {
 		return flagComposeBody, nil
 	}
 	if flagComposeInclude == "" {
-		return "", nil
+		return composeBodyFromStdin()
 	}
 	bytes, err := os.ReadFile(flagComposeInclude)
 	if err != nil {
 		return "", fmt.Errorf("%w: failed to read included body file %s: %v", app.ErrUsage, flagComposeInclude, err)
 	}
 	return string(bytes), nil
+}
+
+// composeBodyFromStdin is the body redirected or piped into write: `write
+// boss < notes.txt`. The editor and the review screen still get the
+// terminal, since the TUI opens /dev/tty when stdin is not one. A resumed
+// draft has its own body, so stdin is left alone.
+func composeBodyFromStdin() (string, error) {
+	if flagComposeResume != "" {
+		return "", nil
+	}
+	body, _, err := readRedirectedStdin()
+	return body, err
 }

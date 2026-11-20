@@ -98,12 +98,12 @@ func TestReserveIDSurvivesACollidingSequence(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	seqCounter = 0
-	first, err := reserveID(dir, now)
+	first, err := reserveID(dir, filepath.Join(dir, scheduledSubdir), now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	seqCounter = 0 // a second process starting from the same counter
-	second, err := reserveID(dir, now)
+	second, err := reserveID(dir, filepath.Join(dir, scheduledSubdir), now)
 	if err != nil {
 		t.Fatal(err)
 	}

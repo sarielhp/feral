@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 )
 
 // ExportScript writes a Sieve script generated from the resolved account's rules
@@ -46,7 +46,7 @@ func ExportScript(rep report.Reporter, config *cfg_g.Config, outputPath string) 
 func generateSieveScript(rules []cfg_acc.Rule) string {
 	var sb strings.Builder
 
-	sb.WriteString("# mail_cli generated Sieve script\n")
+	sb.WriteString("# feral generated Sieve script\n")
 	sb.WriteString("# Rules exported from local configuration\n")
 	sb.WriteString("# Upload this to FastMail via: Settings > Filters > Manage Sieve Scripts\n")
 	sb.WriteString("#\n")

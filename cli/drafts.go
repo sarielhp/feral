@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/draft"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/draft"
+	"github.com/sarielhp/feral/email"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -26,7 +26,7 @@ func DraftsCmd(session *Session) clihelp.Command {
 		Name:        "drafts",
 		Group:       "Messages",
 		Description: "List or remove locally saved drafts.",
-		UsageLine:   "mail_cli msg drafts <ls | rm <id>... | server ...>",
+		UsageLine:   "feral msg drafts <ls | rm <id>... | server ...>",
 		LongDescription: "Every compose session keeps a local copy of the message under the " +
 			"cache's drafts directory, rewritten on each edit and on exit, beside the copy " +
 			"it uploads to the account's Drafts folder. The listing names each local copy " +
@@ -40,10 +40,10 @@ func DraftsCmd(session *Session) clihelp.Command {
 			draftsServerCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg drafts ls", Description: "List saved drafts, newest first"},
-			{Line: "mail_cli write --resume 2026/09/30/125", Description: "Reopen a draft on the review screen"},
-			{Line: "mail_cli msg drafts rm 2026/09/30/125", Description: "Delete a draft"},
-			{Line: "mail_cli msg drafts server prune --sent", Description: "Trash duplicate and already-sent server drafts"},
+			{Line: "feral msg drafts ls", Description: "List saved drafts, newest first"},
+			{Line: "feral write --resume 2026/09/30/125", Description: "Reopen a draft on the review screen"},
+			{Line: "feral msg drafts rm 2026/09/30/125", Description: "Delete a draft"},
+			{Line: "feral msg drafts server prune --sent", Description: "Trash duplicate and already-sent server drafts"},
 		},
 	}
 }
@@ -52,7 +52,7 @@ func draftsListCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
 		Name:        "ls",
 		Description: "List saved drafts, newest first.",
-		UsageLine:   "mail_cli msg drafts ls",
+		UsageLine:   "feral msg drafts ls",
 		Args:        clihelp.MinimumNArgs(0),
 		Run: func(*clihelp.Context) error {
 			return runDraftsList(session)
@@ -61,7 +61,7 @@ func draftsListCmd(session *Session) clihelp.Command {
 }
 
 func draftsRemoveCmd(session *Session) clihelp.Command {
-	return newRemoveByIDCmd("Delete saved drafts by ID.", "mail_cli msg drafts rm <id>...", func(ids []string) error {
+	return newRemoveByIDCmd("Delete saved drafts by ID.", "feral msg drafts rm <id>...", func(ids []string) error {
 		return runDraftsRemove(session, ids)
 	})
 }

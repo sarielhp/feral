@@ -2,15 +2,19 @@ package cfg_g
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/fileformat"
+
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // ResolveConfigPath returns the config directory and the path to config.json
@@ -42,87 +46,158 @@ func LoadConfigFile(configPath string) (*FileConfig, error) {
 		fc.Accounts = &empty
 	}
 
-	configDir := filepath.Dir(configPath)
-	for i := range *fc.Accounts {
-		loadAccountFromDisk(configDir, &(*fc.Accounts)[i])
+	if err := fileformat.Check(configPath, fc.Format); err != nil {
+		return nil, err
 	}
+	configDir := filepath.Dir(configPath)
+	reads := diskReads{configPath: data}
+	for i := range *fc.Accounts {
+		if err := loadAccountFromDisk(configDir, &(*fc.Accounts)[i], reads); err != nil {
+			return nil, err
+		}
+	}
+	markDefault(*fc.Accounts, fc.DefaultAccount)
+	fc.loaded = newLoadState(configPath, &fc, reads)
 	return &fc, nil
 }
 
-func loadAccountFromDisk(configDir string, acc *cfg_acc.AccountConfig) {
+// loadAccountFromDisk folds an account's own files -- account.json and its
+// white list, black list and rules -- into acc.
+//
+// A file that exists but cannot be read, does not parse, or is in a format a
+// newer build wrote is an error. They used to be read as empty -- or, for
+// account.json, silently replaced by what config.json holds -- and every
+// config save writes each account's files back, so one damaged file and an
+// unrelated command such as `config add-email` erased a black list or an
+// account's settings for good.
+func loadAccountFromDisk(configDir string, acc *cfg_acc.AccountConfig, reads diskReads) error {
 	MigrateDirSanitization(filepath.Join(configDir, "accounts"), acc.Name)
 	sanitizedName := SanitizeLabelForCache(acc.Name)
-	accountsDir := filepath.Join(configDir, "accounts", sanitizedName)
-	accJSONPath := filepath.Join(accountsDir, "account.json")
-
-	if accJSONData, err := os.ReadFile(accJSONPath); err == nil {
-		var diskAcc cfg_acc.AccountConfig
-		if json.Unmarshal(accJSONData, &diskAcc) == nil {
-			name := acc.Name
-			whitelist, blacklist, rules := acc.Whitelist, acc.Blacklist, acc.Rules
-			*acc = diskAcc
-			acc.Name = name
-			acc.Whitelist = whitelist
-			acc.Blacklist = blacklist
-			acc.Rules = rules
-		}
+	accountsDir := AccountDir(configDir, acc.Name)
+	if err := loadAccountJSON(filepath.Join(accountsDir, "account.json"), acc, reads); err != nil {
+		return err
 	}
 
 	if len(acc.Whitelist) == 0 {
-		acc.Whitelist = loadListWithLegacyFallback(
+		list, err := loadListWithLegacyFallback(
 			filepath.Join(accountsDir, "whitelist.json"),
 			filepath.Join(configDir, fmt.Sprintf("%s_whitelist.json", sanitizedName)),
+			reads,
 		)
+		if err != nil {
+			return err
+		}
+		acc.Whitelist = list
 	}
 	if len(acc.Blacklist) == 0 {
-		acc.Blacklist = loadListWithLegacyFallback(
+		list, err := loadListWithLegacyFallback(
 			filepath.Join(accountsDir, "blacklist.json"),
 			filepath.Join(configDir, fmt.Sprintf("%s_blacklist.json", sanitizedName)),
+			reads,
 		)
+		if err != nil {
+			return err
+		}
+		acc.Blacklist = list
 	}
 	if len(acc.Rules) == 0 {
-		rules := loadRulesWithLegacyFallback(
+		rules, err := loadRulesWithLegacyFallback(
 			filepath.Join(accountsDir, "rules.json"),
 			filepath.Join(configDir, fmt.Sprintf("%s_rules.json", sanitizedName)),
+			reads,
 		)
+		if err != nil {
+			return err
+		}
 		if rules != nil {
 			acc.Rules = rules
 		} else if acc.Rules == nil {
 			acc.Rules = []cfg_acc.Rule{}
 		}
 	}
+	return nil
 }
 
-func loadListWithLegacyFallback(primaryPath, legacyPath string) []string {
+// loadAccountJSON lays account.json over acc, keeping the name config.json
+// gives it and the lists, which have files of their own. A missing file is
+// not an error: the account is then described by config.json alone.
+func loadAccountJSON(path string, acc *cfg_acc.AccountConfig, reads diskReads) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		reads.record(path, nil)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	reads.record(path, data)
+	var diskAcc cfg_acc.AccountConfig
+	if err := json.Unmarshal(data, &diskAcc); err != nil {
+		return damagedFile(path, err)
+	}
+	if err := fileformat.Check(path, diskAcc.Format); err != nil {
+		return err
+	}
+	name := acc.Name
+	whitelist, blacklist, rules := acc.Whitelist, acc.Blacklist, acc.Rules
+	*acc = diskAcc
+	acc.Name = name
+	acc.Whitelist = whitelist
+	acc.Blacklist = blacklist
+	acc.Rules = rules
+	return nil
+}
+
+// damagedFile is the refusal for a configuration file that does not parse.
+func damagedFile(path string, err error) error {
+	return fmt.Errorf("%s is damaged (%v): fix it or move it aside; feral will not overwrite it", path, err)
+}
+
+// readListFile reads the newer of primaryPath and the legacy legacyPath, as
+// bytes, refusing one a newer build wrapped. A missing file yields nil.
+// reads records what primaryPath held, the file a save writes: nothing, when
+// the legacy file was read instead.
+func readListFile(primaryPath, legacyPath string, reads diskReads) (string, []byte, error) {
 	target := primaryPath
 	if _, err := os.Stat(primaryPath); os.IsNotExist(err) {
 		target = legacyPath
+		reads.record(primaryPath, nil)
 	}
 	data, err := os.ReadFile(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return target, nil, nil
+	}
 	if err != nil {
-		return []string{}
+		return target, nil, fmt.Errorf("reading %s: %w", target, err)
+	}
+	if target == primaryPath {
+		reads.record(primaryPath, data)
+	}
+	return target, data, fileformat.RefuseWrapped(target, data)
+}
+
+func loadListWithLegacyFallback(primaryPath, legacyPath string, reads diskReads) ([]string, error) {
+	path, data, err := readListFile(primaryPath, legacyPath, reads)
+	if err != nil || data == nil {
+		return []string{}, err
 	}
 	var list []string
 	if err := json.Unmarshal(data, &list); err != nil {
-		return []string{}
+		return nil, damagedFile(path, err)
 	}
-	return list
+	return list, nil
 }
 
-func loadRulesWithLegacyFallback(primaryPath, legacyPath string) []cfg_acc.Rule {
-	target := primaryPath
-	if _, err := os.Stat(primaryPath); os.IsNotExist(err) {
-		target = legacyPath
-	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		return nil
+func loadRulesWithLegacyFallback(primaryPath, legacyPath string, reads diskReads) ([]cfg_acc.Rule, error) {
+	path, data, err := readListFile(primaryPath, legacyPath, reads)
+	if err != nil || data == nil {
+		return nil, err
 	}
 	var rules []cfg_acc.Rule
 	if err := json.Unmarshal(data, &rules); err != nil {
-		return nil
+		return nil, damagedFile(path, err)
 	}
-	return rules
+	return rules, nil
 }
 
 // atomicWriteFile writes data to path via a temporary file in the same
@@ -163,112 +238,19 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// SaveConfigFile writes each account's own files, then config.json with the
-// per-account detail stripped out, creating the directory if it does not exist.
-func SaveConfigFile(configPath string, fc *FileConfig) error {
-	configDir := filepath.Dir(configPath)
-	_ = os.MkdirAll(configDir, 0700)
+// ErrConfigWriteForbidden is SaveConfigFile's refusal while writes are
+// forbidden: a --dry-run run promises to change nothing, config.json included.
+var ErrConfigWriteForbidden = errors.New("config.json not written: --dry-run changes nothing")
 
-	// 1. Save separate files for each account
-	if fc.Accounts != nil {
-		for i := range *fc.Accounts {
-			if err := saveAccountToDisk(configDir, &(*fc.Accounts)[i]); err != nil {
-				return err
-			}
-		}
-	}
+// configWritesForbidden is the process's --dry-run promise as it bears on
+// config.json. It is a switch rather than an argument because some thirty
+// commands save the configuration, and a guard each had to remember is how
+// rule, account and config edits came to be written under --dry-run.
+var configWritesForbidden atomic.Bool
 
-	// 2. Clone FileConfig and strip details before saving main config.json
-	return saveMainConfigFile(configPath, fc)
-}
-
-func saveAccountToDisk(configDir string, acc *cfg_acc.AccountConfig) error {
-	sanitizedName := SanitizeLabelForCache(acc.Name)
-	accountsDir := filepath.Join(configDir, "accounts", sanitizedName)
-	_ = os.MkdirAll(accountsDir, 0700)
-
-	accDisk := *acc
-	accDisk.Whitelist = nil
-	accDisk.Blacklist = nil
-	accDisk.Rules = nil
-	accData, err := json.MarshalIndent(accDisk, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling account %q: %w", acc.Name, err)
-	}
-	if err := atomicWriteFile(filepath.Join(accountsDir, "account.json"), accData, 0600); err != nil {
-		return err
-	}
-
-	if err := saveAccountList(accountsDir, "whitelist.json", acc.Whitelist, fmt.Sprintf("whitelist for account %q", acc.Name)); err != nil {
-		return err
-	}
-	if err := saveAccountList(accountsDir, "blacklist.json", acc.Blacklist, fmt.Sprintf("blacklist for account %q", acc.Name)); err != nil {
-		return err
-	}
-	if err := saveAccountRules(accountsDir, acc.Rules, fmt.Sprintf("rules for account %q", acc.Name)); err != nil {
-		return err
-	}
-
-	_ = os.Remove(filepath.Join(configDir, fmt.Sprintf("%s_whitelist.json", sanitizedName)))
-	_ = os.Remove(filepath.Join(configDir, fmt.Sprintf("%s_blacklist.json", sanitizedName)))
-	_ = os.Remove(filepath.Join(configDir, fmt.Sprintf("%s_rules.json", sanitizedName)))
-	return nil
-}
-
-func saveAccountList(dir, filename string, list []string, label string) error {
-	if list == nil {
-		list = []string{}
-	}
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling %s: %w", label, err)
-	}
-	return atomicWriteFile(filepath.Join(dir, filename), data, 0600)
-}
-
-func saveAccountRules(dir string, rules []cfg_acc.Rule, label string) error {
-	if rules == nil {
-		rules = []cfg_acc.Rule{}
-	}
-	data, err := json.MarshalIndent(rules, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling %s: %w", label, err)
-	}
-	return atomicWriteFile(filepath.Join(dir, "rules.json"), data, 0600)
-}
-
-func saveMainConfigFile(configPath string, fc *FileConfig) error {
-	var fcClone FileConfig
-	cloneData, err := json.Marshal(fc)
-	if err != nil {
-		return fmt.Errorf("failed to clone config: %w", err)
-	}
-	if unmarshalErr := json.Unmarshal(cloneData, &fcClone); unmarshalErr != nil {
-		return fmt.Errorf("failed to restore clone config: %w", unmarshalErr)
-	}
-
-	if fcClone.Accounts != nil {
-		for i := range *fcClone.Accounts {
-			acc := &(*fcClone.Accounts)[i]
-			*acc = cfg_acc.AccountConfig{
-				Name: acc.Name,
-				Type: acc.Type,
-			}
-		}
-	}
-	fcClone.Whitelist = nil
-	fcClone.Blacklist = nil
-	fcClone.Rules = nil
-
-	tBytes, err := json.MarshalIndent(fcClone, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	if err := atomicWriteFile(configPath, tBytes, 0600); err != nil {
-		return fmt.Errorf("failed to write config file %s: %w", configPath, err)
-	}
-	return nil
-}
+// ForbidConfigWrites sets whether SaveConfigFile refuses. The CLI sets it on
+// every run, from --dry-run.
+func ForbidConfigWrites(forbid bool) { configWritesForbidden.Store(forbid) }
 
 // Resolved is the config file, the account a command is acting on, and where
 // that file lives.
@@ -328,6 +310,12 @@ func ValidateAccountParams(acc cfg_acc.AccountConfig) error {
 	if acc.Type == "" {
 		return fmt.Errorf("account type is missing")
 	}
+	// A local mbox file has no server, so no credentials and no folders to
+	// configure: the file is all there is.
+	if acc.IsMbox() {
+		_, err := acc.MboxPath()
+		return err
+	}
 	if acc.Username == "" || acc.Username == "your-email@gmail.com" || acc.Username == "your-email@example.com" {
 		return fmt.Errorf("account username is missing or contains placeholder value")
 	}
@@ -364,7 +352,7 @@ func ValidateAccountParams(acc cfg_acc.AccountConfig) error {
 // created config.json is seeded with.
 //
 // A brand-new install is never literally account-less: loadConfig seeds a
-// "default" gmail account so the older single-account code paths still resolve
+// "gmail" account so the older single-account code paths still resolve
 // one. That seeding is why the TUI's own "no accounts" check never fired and a
 // first launch fell through to a connection attempt against
 // "your-email@gmail.com". This is the check that tells a first run apart from a
@@ -377,7 +365,7 @@ func NeedsOnboarding(config *Config) bool {
 }
 
 // OnlyPlaceholders reports whether accounts holds nothing but unconfigured
-// placeholders -- such as the "default" account loadConfig seeds -- or is
+// placeholders -- such as the "gmail" account loadConfig seeds -- or is
 // empty. Setup replaces such a list rather than appending to it, since keeping
 // the placeholder first left later runs selecting it.
 func OnlyPlaceholders(accounts []cfg_acc.AccountConfig) bool {
@@ -390,6 +378,9 @@ func OnlyPlaceholders(accounts []cfg_acc.AccountConfig) bool {
 }
 
 func isPlaceholderAccount(acc cfg_acc.AccountConfig) bool {
+	if acc.IsMbox() {
+		return strings.TrimSpace(acc.Path) == ""
+	}
 	if acc.Username == "" || acc.Username == "your-email@gmail.com" || acc.Username == "your-email@example.com" {
 		return true
 	}
@@ -523,4 +514,29 @@ func ParseAccountLabelSpec(raw string) (AccountLabelSpec, error) {
 	return AccountLabelSpec{
 		Label: raw,
 	}, nil
+}
+
+// DefaultSaveLocations are the save dialog's fixed jumps when the config
+// names none: Downloads and home.
+var DefaultSaveLocations = []string{"~/Downloads", "~"}
+
+// SaveLocationsOrDefault is the configured save_locations, or the default
+// pair when the key is absent. An explicitly empty list stays empty.
+func (c *Config) SaveLocationsOrDefault() []string {
+	if c.SaveLocations == nil {
+		return DefaultSaveLocations
+	}
+	return c.SaveLocations
+}
+
+// ParseSaveLocations splits a comma-separated list of directories, as
+// `config set save_locations` takes it, dropping blanks.
+func ParseSaveLocations(value string) []string {
+	locs := []string{}
+	for _, p := range strings.Split(value, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			locs = append(locs, p)
+		}
+	}
+	return locs
 }

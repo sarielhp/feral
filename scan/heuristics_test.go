@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 func TestIsRuneAllowed(t *testing.T) {

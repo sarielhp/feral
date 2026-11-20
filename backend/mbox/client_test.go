@@ -3,19 +3,19 @@ package mbox
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func TestIngestMbox_Fixtures(t *testing.T) {
@@ -209,5 +209,32 @@ func TestIngestMbox_EmlRejectsNonMessage(t *testing.T) {
 	}
 	if _, err := IngestMbox(path, cachedir.At(filepath.Join(dir, "cache")), "notes.eml"); err == nil {
 		t.Fatal("expected a non-message .eml to be refused")
+	}
+}
+
+// Search reads bodies through the viewer's extractor, so a base64 body matches
+// on its text and not on its encoding.
+func TestMboxClientSearchesBodies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.mbox")
+	body := "From x@example.com Tue Sep 01 09:00:00 2026\n" +
+		"From: X <x@example.com>\nSubject: hello\nMessage-ID: <b64@example.com>\n" +
+		"Content-Type: text/plain\nContent-Transfer-Encoding: base64\n\n" +
+		"VGhlIHF1YXJ0ZXJseSB6ZXBoeXIgcmVwb3J0Cg==\n\n" +
+		"From y@example.com Tue Sep 01 10:00:00 2026\n" +
+		"From: Y <y@example.com>\nSubject: other\nMessage-ID: <plain@example.com>\n\nnothing here\n"
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &cfg_g.Config{AccountCache: cachedir.At(filepath.Join(dir, "cache"))}
+	client := NewClient(cfg_acc.AccountConfig{Name: "m", Type: "mbox"}, cfg, path)
+	if _, err := client.FetchAndDownloadEmails(label.FromServer("INBOX"), ""); err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]int{"ZEPHYR": 1, "VGhlIHF1": 0, "hello": 1, "y@example": 1, "absent": 0} {
+		ids, err := client.SearchEmails(query, 0)
+		if err != nil || len(ids) != want {
+			t.Errorf("SearchEmails(%q) = %v, %v; want %d match(es)", query, ids, err, want)
+		}
 	}
 }

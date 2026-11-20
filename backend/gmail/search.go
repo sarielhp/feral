@@ -2,7 +2,7 @@ package gmail
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 )

@@ -1,9 +1,9 @@
 package outlook
 
 import (
-	"github.com/sarielhp/mail_cli/backend/paging"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/backend/paging"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 )
 
 // eachSpamBatch hands the spam folder to fn a batch at a time, until empty.

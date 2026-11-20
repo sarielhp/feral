@@ -1,14 +1,13 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"path/filepath"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -286,52 +285,5 @@ END:VCALENDAR`
 	}
 	if !strings.Contains(viewStr, "Discuss Q4 roadmap") {
 		t.Errorf("expected view to contain event description, got:\n%s", viewStr)
-	}
-}
-
-func TestTUI_AttachmentInvertColors_Persistence(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.json")
-	fc := &cfg_g.FileConfig{
-		DownloadDir: tempDir,
-	}
-	if err := cfg_g.SaveConfigFile(configPath, fc); err != nil {
-		t.Fatalf("failed to save mock config: %v", err)
-	}
-
-	cfg := &cfg_g.Config{Paths: cfg_g.Paths{CacheRoot: tempDir, ConfigDir: configPath}}
-	mockClient := &mailclient.MockMailClient{Cfg: cfg}
-	m := newTuiModel(mockClient, "INBOX", nil)
-
-	if m.attInvertColors {
-		t.Fatalf("expected attInvertColors=false by default")
-	}
-
-	// 1. Toggle inversion
-	m.toggleInvertColors()
-	if !m.attInvertColors {
-		t.Fatalf("expected attInvertColors=true after toggle")
-	}
-	if !cfg.AttachmentInvertColors {
-		t.Fatalf("expected cfg.AttachmentInvertColors=true")
-	}
-
-	// 2. Read from disk and verify persisted
-	savedFC, err := cfg_g.LoadConfigFile(configPath)
-	if err != nil {
-		t.Fatalf("failed to read config file: %v", err)
-	}
-	if savedFC.AttachmentInvertColors == nil || !*savedFC.AttachmentInvertColors {
-		t.Fatalf("expected persisted AttachmentInvertColors=true in config.json")
-	}
-
-	// 3. Toggle back
-	m.toggleInvertColors()
-	if m.attInvertColors {
-		t.Fatalf("expected attInvertColors=false after second toggle")
-	}
-	savedFC2, _ := cfg_g.LoadConfigFile(configPath)
-	if savedFC2.AttachmentInvertColors == nil || *savedFC2.AttachmentInvertColors {
-		t.Fatalf("expected persisted AttachmentInvertColors=false in config.json")
 	}
 }

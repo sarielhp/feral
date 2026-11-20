@@ -1,33 +1,36 @@
 package runner
 
 import (
+	"context"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"io"
 	"mime"
 	"os"
 	"path/filepath"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cfghandler"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/last"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/scan"
-	"github.com/sarielhp/mail_cli/show"
-	"github.com/sarielhp/mail_cli/sieve"
-	"github.com/sarielhp/mail_cli/spam"
-	"github.com/sarielhp/mail_cli/tui"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/outlookids"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cfghandler"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/last"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/scan"
+	"github.com/sarielhp/feral/show"
+	"github.com/sarielhp/feral/sieve"
+	"github.com/sarielhp/feral/spam"
+	"github.com/sarielhp/feral/tui"
 )
 
 // The service types below implement the interfaces the CLI declares, one per
@@ -102,6 +105,36 @@ func (s MailService) Last(opts last.Options, config *cfg_g.Config, n int) error 
 // Export writes the message or thread named by opts to an mbox or eml file.
 func (s MailService) Export(config *cfg_g.Config, opts cli.ExportOptions) error {
 	return RunExport(s.out(), config, opts, s.rep())
+}
+
+// SaveFolderToMbox appends every message of the folders matching labelPrefix to
+// the mbox file at path, creating it when it does not exist.
+func (s MailService) SaveFolderToMbox(config *cfg_g.Config, path, labelPrefix string) error {
+	return RunMboxSave(config, path, labelPrefix, s.rep())
+}
+
+// MboxService writes messages to local mbox files.
+type MboxService struct{}
+
+// AppendMessagesToMbox appends every message named by sources to the mbox file
+// at path, creating it when it does not exist. Each source's ids are read
+// through its own client, from the cache first, so a set tagged in a unified
+// inbox is written from every account it spans.
+func (MboxService) AppendMessagesToMbox(path string, sources []tui.MboxSource) (int, error) {
+	var raws [][]byte
+	for _, s := range sources {
+		raws = append(raws, readCachedRaws(sourceCache(s.Client), s.Client, s.IDs)...)
+	}
+	return AppendMboxEntries(path, raws)
+}
+
+// sourceCache is the account cache of a source's client, or the zero Account
+// when the client cannot name one.
+func sourceCache(cl mailclient.MailClient) cachedir.Account {
+	if cl == nil || cl.Config() == nil {
+		return cachedir.Account{}
+	}
+	return cl.Config().AccountCache
 }
 
 // Pipe feeds the message content selected by opts to an external command, with
@@ -311,6 +344,11 @@ func (s OrganizeService) ResolveTrashTarget(client mailclient.MailClient) (label
 	return organize.ResolveTrashTarget(client)
 }
 
+// ResolveSpamTarget names the folder the backend's ReportSpam files mail into.
+func (s OrganizeService) ResolveSpamTarget(client mailclient.MailClient) (label.Folder, error) {
+	return organize.ResolveSpamTarget(client)
+}
+
 // ResolveDraftsTarget names the folder drafts are saved in, from the server's
 // listing or the backend's well-known default.
 func (s OrganizeService) ResolveDraftsTarget(client mailclient.MailClient) (label.Folder, error) {
@@ -397,6 +435,11 @@ func (s TUIService) RunWithClient(config *cfg_g.Config, client mailclient.MailCl
 	return tui.InitTuiWithClient(config, client, labelPrefix, "", NewTuiBackend(config, rep), rep)
 }
 
+// DefaultKeys is the TUI's default keymap as a keys.json (feral utils keys).
+func (s TUIService) DefaultKeys() ([]byte, error) {
+	return tui.DefaultKeysJSON(), nil
+}
+
 // Compose opens the interactive compose screen, resolving the sending account
 // from opts and loading its attachments from disk first.
 func (s TUIService) Compose(config *cfg_g.Config, opts cli.ComposeOptions) error {
@@ -418,6 +461,7 @@ func (s TUIService) Compose(config *cfg_g.Config, opts cli.ComposeOptions) error
 		Bcc:         expandRecipients(config, opts.Bcc),
 		Subject:     opts.Subject,
 		Body:        opts.Body,
+		Quote:       opts.Quote,
 		Attachments: attachments,
 		InReplyTo:   opts.InReplyTo,
 		References:  opts.References,
@@ -515,4 +559,26 @@ func (AccountService) TokenPath(configDir string, acc cfg_acc.AccountConfig) (st
 // OpenMbox builds the read-only, caching client stack over a local mbox file.
 func (AccountService) OpenMbox(config *cfg_g.Config, mboxPath string, cacheDir cachedir.Account) (mailclient.MailClient, error) {
 	return mailops.OpenMbox(config, mboxPath, cacheDir)
+}
+
+// MigrateOutlookIDs rebuilds an Outlook account's cache keyed by immutable
+// message IDs, translating the cached ones through Graph.
+func (AccountService) MigrateOutlookIDs(ctx context.Context, config *cfg_g.Config, acc cfg_acc.AccountConfig) (outlookids.Report, error) {
+	ids, err := mailops.OutlookIDTranslator(acc, config, report.Discard())
+	if err != nil {
+		return outlookids.Report{}, err
+	}
+	return outlookids.Migrate(ctx, outlookids.Options{
+		Account:     ids.Account,
+		AccountName: acc.Name,
+		CacheRoot:   config.CacheRoot,
+		Translate:   ids.Translate,
+		Verify:      ids.Verify,
+		Build:       app.Version,
+	})
+}
+
+// RenameAccount implements cli.AccountOps.
+func (AccountService) RenameAccount(config *cfg_g.Config, ident, to string) (cfg_g.AccountRename, error) {
+	return RenameAccount(config, ident, to)
 }

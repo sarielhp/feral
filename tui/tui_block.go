@@ -3,21 +3,21 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/spam"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/spam"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -97,8 +97,14 @@ func extractSender(e *email.Email) (string, string) {
 }
 
 func renderBlockDialog(m *tuiModel) string {
-	dialogWidth := 54
-	dialogHeight := 9
+	dialogWidth := min(54, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	dialogHeight := min(9, max(5, m.height-2))
+	if m.height > 0 && dialogHeight > m.height {
+		dialogHeight = m.height
+	}
 
 	var content strings.Builder
 	content.WriteString("\n")
@@ -154,6 +160,14 @@ func (m *tuiModel) executeBlock(dest BlockDestination) (tea.Model, tea.Cmd) {
 	if targetID == "" || senderEmail == "" {
 		return m, nil
 	}
+	// Blocking files the message into Spam or Trash, so it names a source
+	// folder like any other move, and a saved set is what names it.
+	src := m.sourceFolderOf(targetID)
+	if src == "" {
+		m.err = errNoSourceFolder
+		m.showError = true
+		return m, nil
+	}
 
 	m.expandWholeThreadForEmail(targetID)
 	m.removeEmailByID(targetID)
@@ -165,9 +179,9 @@ func (m *tuiModel) executeBlock(dest BlockDestination) (tea.Model, tea.Cmd) {
 		m.saveStatus = fmt.Sprintf("Blocked %s (Trash)", senderEmail)
 	}
 	m.saveStatusTime = time.Now()
-	m.mode = modeIndex
+	m.showList()
 
-	return m, m.cmdBlockSender(targetID, senderEmail, dest, m.currentF)
+	return m, m.cmdBlockSender(targetID, senderEmail, dest, src)
 }
 
 func (m *tuiModel) cmdBlockSender(id email.ID, senderEmail string, dest BlockDestination, srcFolder string) tea.Cmd {

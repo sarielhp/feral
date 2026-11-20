@@ -168,3 +168,42 @@ func TestStripEscapeSequences_CoversPrivateCSIAndOSC52AndControlChars(t *testing
 		})
 	}
 }
+
+func TestEmbedReferenceLinksDrawsTheLabel(t *testing.T) {
+	const target = "https://login.example/magic-link#0a3ce7a9:c2FyaWVs"
+	in := "Click below.\n[Sign in][1]\nSee [nowhere][7] and [1]: not a link.\n\nReferences:\n\n[1]: " + target + " \"Sign in\"\n[2]: https://t.example/c"
+	got := EmbedOSC8HyperlinksAlways(in)
+	wantWords := []string{
+		FormatOSC8Link(target, "\x1b[4mSign\x1b[24m"),
+		FormatOSC8Link(target, "\x1b[4min\x1b[24m[1]"),
+	}
+	if !strings.Contains(got, wantWords[0]+" "+wantWords[1]) {
+		t.Errorf("label is not linked word by word:\n%q", got)
+	}
+	if !strings.Contains(got, "See [nowhere][7] and [1]: not a link.") {
+		t.Errorf("a reference without a definition, or a bare number, was changed:\n%q", got)
+	}
+	if !strings.Contains(got, "[1]: "+FormatOSC8Link(target, target)+" \"Sign in\"") {
+		t.Errorf("the definition's own URL is not a link:\n%q", got)
+	}
+	plain := StripEscapeSequences(got)
+	if !strings.Contains(plain, "Click below.\nSign in[1]\n") {
+		t.Errorf("visible text should read as the label and its number:\n%q", plain)
+	}
+}
+
+func TestEmbedReferenceLinksLeavesTextWithoutDefinitions(t *testing.T) {
+	in := "Markdown [text][1] with no list"
+	if got := EmbedOSC8HyperlinksAlways(in); got != in {
+		t.Errorf("changed to %q", got)
+	}
+}
+
+func TestCompactHyperlinksKeepLabeledLinks(t *testing.T) {
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	link := FormatOSC8Link("https://login.example/"+strings.Repeat("x", 100), "\x1b[4mSign\x1b[24m[1]")
+	if got := EmbedCompactOSC8Hyperlinks("Click "+link+" now", 20); got != "Click "+link+" now" {
+		t.Errorf("a labeled link was rewritten: %q", got)
+	}
+}

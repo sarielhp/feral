@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account test'
-parent: 'mail_cli account'
+title: 'feral account test'
+parent: 'feral account'
 ---
 
-# mail\_cli account test
+# feral account test
 
 Check an account's config and connection.
 
 ## Usage
 
 ```
-mail_cli account test [account_name]
+feral account test [account_name]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli account test [account_name]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli account test [account_name]
 
 ## Examples
 
-- `mail_cli account test`
-- `mail_cli account test work-fastmail`
+- `feral account test`
+- `feral account test work-fastmail`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

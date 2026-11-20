@@ -1,24 +1,24 @@
 ---
-title: 'mail_cli account rename'
-parent: 'mail_cli account'
+title: 'feral account rename'
+parent: 'feral account'
 ---
 
-# mail\_cli account rename
+# feral account rename
 
-Rename an existing account's display name.
+Change an account's name -- what -A takes, what %name:label means, and what its files are named after. The account's settings directory, its OAuth token, its cache, the watcher's record of it and any queued outgoing message move to the new name, and default_account, default_send_account and every link that runs it follow it, so nothing is downloaded again and no sign-in is needed. A name is letters, digits, '-' and '_', starting with a letter; "default" and "all" are reserved. Only the name shown in listings is changed by `account display-name`.
 
 ## Usage
 
 ```
-mail_cli account rename <old_name> <new_name>
+feral account rename <account> <new_name>
 ```
 
 ## Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `<old_name>` | The current name of the account to rename. |
-| `<new_name>` | The new name for the account. |
+| `<account>` | The account to rename. |
+| `<new_name>` | Its new name. |
 
 ## Flags
 
@@ -27,7 +27,7 @@ mail_cli account rename <old_name> <new_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,21 @@ mail_cli account rename <old_name> <new_name>
 
 ## Examples
 
-- `mail_cli account rename old-gmail new-gmail`
+- `feral --dry-run account rename default personal` — List what would move
+- `feral account rename default personal`
+
+## Interrupted
+
+The rename writes account_rename.json beside config.json while it runs, and every other command refuses to start until it is gone. Running the same rename again finishes it.
+
+## Other machines
+
+Each machine keeps its own configuration: rename the account on each one. --dry-run lists every file it would move.
+
+## Watchers
+
+Refused while `feral watch` or a TUI's watcher runs; close them first.
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils completion wrap'
-parent: 'mail_cli utils completion'
+title: 'feral utils completion wrap'
+parent: 'feral utils completion'
 ---
 
-# mail\_cli utils completion wrap
+# feral utils completion wrap
 
 Generate a wrapper script with preset arguments
 
 ## Usage
 
 ```
-mail_cli utils completion wrap [--completion-from <path>] <name> [--] [<args>...]
+feral utils completion wrap [--completion-from <path>] <name> [--] [<args>...]
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli utils completion wrap [--completion-from <path>] <name> [--] [<args>...
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,9 +36,9 @@ mail_cli utils completion wrap [--completion-from <path>] <name> [--] [<args>...
 
 ## Examples
 
-- `mail_cli utils completion wrap pd deploy` — Generate wrapper 'pd' for 'mail_cli deploy'
-- `mail_cli utils completion wrap --completion-from ~/bin/mt` — Inspect existing script and generate wrapper
+- `feral utils completion wrap pd deploy` — Generate wrapper 'pd' for 'feral deploy'
+- `feral utils completion wrap --completion-from ~/bin/mt` — Inspect existing script and generate wrapper
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

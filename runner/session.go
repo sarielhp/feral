@@ -1,11 +1,11 @@
 package runner
 
 import (
-	gcal "github.com/sarielhp/mail_cli/calendar/google"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/tui"
+	gcal "github.com/sarielhp/feral/calendar/google"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/tui"
 	"net/http"
 )
 
@@ -28,5 +28,7 @@ func NewTuiBackend(_ *cfg_g.Config, rep report.Reporter) *tui.Backend {
 		Clients:  tuiClientService{ClientService: ClientService{Rep: rep}},
 		Folders:  OrganizeService{},
 		Calendar: CalendarService{Rep: rep},
+		Mbox:     MboxService{},
+		Transfer: TransferService{Rep: rep},
 	}
 }

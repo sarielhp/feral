@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // TestLegacyTokenFileName_UsesLegacySanitizer is a regression for a bug H4

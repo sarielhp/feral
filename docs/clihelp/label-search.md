@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label search'
-parent: 'mail_cli label'
+title: 'feral label search'
+parent: 'feral label'
 ---
 
-# mail\_cli label search
+# feral label search
 
 Search cached labels by one or more substring patterns (all must match).
 
 ## Usage
 
 ```
-mail_cli label search <substring> [additional_substrings...]
+feral label search <substring> [additional_substrings...]
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli label search <substring> [additional_substrings...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,9 +35,9 @@ mail_cli label search <substring> [additional_substrings...]
 
 ## Examples
 
-- `mail_cli label search receipts`
-- `mail_cli label search archive 2026`
+- `feral label search receipts`
+- `feral label search archive 2026`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

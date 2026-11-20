@@ -13,6 +13,9 @@ import (
 var (
 	openedFilesMu sync.Mutex
 	openedFiles   []string
+
+	openedBrowserFilesMu sync.Mutex
+	openedBrowserFiles   []string
 )
 
 func recordOpenedFile(path string) {
@@ -21,12 +24,20 @@ func recordOpenedFile(path string) {
 	openedFiles = append(openedFiles, path)
 }
 
+func recordOpenedBrowserFile(path string, _ string) error {
+	openedBrowserFilesMu.Lock()
+	defer openedBrowserFilesMu.Unlock()
+	openedBrowserFiles = append(openedBrowserFiles, path)
+	return nil
+}
+
 // HOME is redirected as well: anything that still derives a path from it,
 // such as the drafts fallback or the signature file, lands in a scratch
 // directory rather than the developer's.
 func TestMain(m *testing.M) {
 	openSystemFile = recordOpenedFile
-	home, err := os.MkdirTemp("", "mail_cli_tui_home_")
+	openBrowserFile = recordOpenedBrowserFile
+	home, err := os.MkdirTemp(testTempRoot(), "feral_tui_home_")
 	if err != nil {
 		// Running on without the redirect would reach the real HOME.
 		fmt.Fprintln(os.Stderr, "cannot create a scratch HOME:", err)

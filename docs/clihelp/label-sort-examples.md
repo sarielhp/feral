@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label sort examples'
-parent: 'mail_cli label sort'
+title: 'feral label sort examples'
+parent: 'feral label sort'
 ---
 
-# mail\_cli label sort examples
+# feral label sort examples
 
 Display structured examples with detailed explanations showing concrete source to destination label mappings.
 
 ## Usage
 
 ```
-mail_cli splice examples
+feral splice examples
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli splice examples
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,4 +28,4 @@ mail_cli splice examples
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

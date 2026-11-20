@@ -2,7 +2,7 @@ package tui
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"mime"
 	"os"
 	"path/filepath"
@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -253,10 +253,11 @@ func TestHelpInComposeMode(t *testing.T) {
 		t.Fatal("expected showHelp=true after pressing '?' in Compose mode")
 	}
 
-	// Verify renderHelp renders compose keybindings
+	// Verify renderHelp renders the compose page, which is what its screen
+	// opens help on
 	helpView := renderHelp(m)
-	if !strings.Contains(helpView, "COMPOSE KEYBINDINGS") {
-		t.Errorf("expected COMPOSE KEYBINDINGS in compose help, got:\n%s", helpView)
+	if !strings.Contains(helpView, "⚡ Compose — keybindings") {
+		t.Errorf("expected the Compose page in compose help, got:\n%s", helpView)
 	}
 
 	// Dismiss help with 'q'
@@ -441,8 +442,8 @@ func TestHelpGrayoutOverlay(t *testing.T) {
 	if !strings.Contains(viewStr, "Move down") {
 		t.Error("expected help content 'Move down' in view output")
 	}
-	if !strings.Contains(viewStr, "KEYBINDINGS") {
-		t.Error("expected 'KEYBINDINGS' header in view output")
+	if !strings.Contains(viewStr, "keybindings") {
+		t.Error("expected 'keybindings' header in view output")
 	}
 
 	if len(viewLines) != m.height {
@@ -451,7 +452,7 @@ func TestHelpGrayoutOverlay(t *testing.T) {
 
 	firstContentIdx := -1
 	for i, line := range viewLines {
-		if strings.Contains(line, "KEYBINDINGS") {
+		if strings.Contains(line, "keybindings") {
 			firstContentIdx = i
 			break
 		}
@@ -464,7 +465,7 @@ func TestHelpGrayoutOverlay(t *testing.T) {
 
 	lastContentIdx := -1
 	for i := len(viewLines) - 1; i >= 0; i-- {
-		if strings.Contains(viewLines[i], "dismiss") {
+		if strings.Contains(viewLines[i], "close") {
 			lastContentIdx = i
 			break
 		}

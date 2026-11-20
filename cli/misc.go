@@ -3,8 +3,8 @@ package cli
 import (
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/show"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/show"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -12,11 +12,13 @@ import (
 // ScanCmd returns the clihelp.Command for the scan command.
 func ScanCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
-		Name:            "scan",
-		Group:           "Daily",
-		Description:     "Scan folders matching label prefix for spam.",
-		LongDescription: "Scan all folders starting with the given label prefix (case-insensitive) for spam emails using Bogofilter.",
-		UsageLine:       "mail_cli scan <lbl_prefix> [flags]",
+		Name:        "scan",
+		Group:       "Daily",
+		Description: "Scan folders matching label prefix for spam.",
+		LongDescription: "Scan all folders starting with the given label prefix (case-insensitive) for spam emails using Bogofilter. " +
+			"The folders are in the default account (`account default`) unless the prefix names one (`%work:inbox`, or -A); " +
+			"`%all:inbox` scans every account. `feral %` is this command for the inbox.",
+		UsageLine: "feral scan <lbl_prefix> [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<lbl_prefix>", Description: "Label prefix to scan (e.g. inbox)", Complete: CompleteLabelRefs},
 		},
@@ -26,9 +28,9 @@ func ScanCmd(session *Session) clihelp.Command {
 		// shared with the root's bare `%label` form, which runs the same helper.
 		Options: scanOptions(),
 		Examples: []clihelp.Example{
-			{Line: "mail_cli scan inbox"},
-			{Line: "mail_cli scan inbox -m"},
-			{Line: "mail_cli scan receipts --move-from spammer@example.com"},
+			{Line: "feral scan inbox"},
+			{Line: "feral scan inbox -m"},
+			{Line: "feral scan receipts --move-from spammer@example.com"},
 		},
 		Args: clihelp.MaximumNArgs(1),
 		Run: func(ctx *clihelp.Context) error {
@@ -37,7 +39,7 @@ func ScanCmd(session *Session) clihelp.Command {
 				ctx.App.RenderCommand(clihelp.Options{Writer: ctx.Stdout}, "scan")
 				return nil
 			}
-			// The bare form `mail_cli %inbox` runs the same helper, so the two
+			// The bare form `feral %inbox` runs the same helper, so the two
 			// spellings cannot disagree. They did: this copy compared the raw
 			// argument against "inbox" to decide whether the inbox had been
 			// named explicitly, which stopped being true the moment a label
@@ -54,9 +56,9 @@ func ShowCmd(session *Session) clihelp.Command {
 		Name:        "show",
 		Group:       "Daily",
 		Description: "Show emails by label prefix or message ID.",
-		UsageLine:   "mail_cli msg show <lbl_prefix|message-id> [message-id] [flags]",
+		UsageLine:   "feral msg show <lbl_prefix|message-id> [message-id] [flags]",
 		Parameters: []clihelp.Param{
-			{Name: "<lbl_prefix|message-id>", Description: "Folder prefix, or a message ID on its own", Complete: CompleteLabelRefs},
+			{Name: "<lbl_prefix|message-id>", Description: "Folder prefix, message ID, or virtual/<name>", Complete: CompleteLabelRefs},
 			{Name: "[message-id]", Description: "Message ID or prefix within the folder"},
 		},
 		Options: []clihelp.Option{
@@ -64,17 +66,31 @@ func ShowCmd(session *Session) clihelp.Command {
 			clihelp.Bool(&flagShowRaw, "--raw", false, "Output verbatim unformatted RFC822 message to stdout"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg show receipts"},
-			{Line: "mail_cli msg show receipts 1234abcd"},
-			{Line: "mail_cli msg show receipts 1234abcd --web"},
-			{Line: "mail_cli msg show 1234abcd --raw", Description: "Output raw RFC822 message for piping"},
-			{Line: "mail_cli msg show 19f3a8216d52dfc6", Description: "Show a message by ID alone, downloading it if needed"},
+			{Line: "feral msg show receipts"},
+			{Line: "feral msg show receipts 1234abcd"},
+			{Line: "feral msg show receipts 1234abcd --web"},
+			{Line: "feral msg show 1234abcd --raw", Description: "Output raw RFC822 message for piping"},
+			{Line: "feral msg show 19f3a8216d52dfc6", Description: "Show a message by ID alone, downloading it if needed"},
+			{Line: "feral msg show virtual/last", Description: "List a saved result set from the local cache"},
 		},
 		Notes: []clihelp.Note{
 			{
+				Heading: "Saved searches",
+				Text: "A search, `last`, or a contact's latest mail saves its result set " +
+					"under the account that produced it, named after the query. " +
+					"`msg show virtual/<name>` lists one from the local cache -- no such " +
+					"folder exists on the server -- and F7 in the TUI browses them all.",
+			},
+			{
+				Heading: "Which account",
+				Text: "A folder is looked for in the default account (`account default`) unless " +
+					"the reference names one -- `%work:inbox`, or -A -- and in every account " +
+					"with `%all:inbox`. A message ID alone is looked for in every account.",
+			},
+			{
 				Heading: "JSON output",
 				Text: "With --json a folder listing is one JSON array with an element per matched " +
-					"folder in every account -- {account, folder, message_ids, total} -- even when " +
+					"folder in each account covered -- {account, folder, message_ids, total} -- even when " +
 					"only one folder matches, so the output always parses. A message shown by ID " +
 					"is a single JSON object.",
 			},
@@ -103,22 +119,22 @@ func testCmd(session *Session, name string) clihelp.Command {
 		Group:           "Other",
 		Description:     "Run integration tests for credentials.",
 		LongDescription: "Run system and integration self-tests to verify API credentials and mail flow. Creates and deletes a temporary label and message in the account.",
-		UsageLine:       "mail_cli utils " + name + " run",
+		UsageLine:       "feral utils " + name + " run",
 		Run:             runTest,
 		Subcommands: []clihelp.Command{
 			{
 				Name:        "run",
 				Description: "Execute connection and integration tests.",
-				UsageLine:   "mail_cli utils " + name + " run",
+				UsageLine:   "feral utils " + name + " run",
 				Args:        clihelp.NoArgs,
 				Run:         runTest,
 				Examples: []clihelp.Example{
-					{Line: "mail_cli utils " + name + " run"},
+					{Line: "feral utils " + name + " run"},
 				},
 			},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils " + name + " run"},
+			{Line: "feral utils " + name + " run"},
 		},
 	}
 }
@@ -130,7 +146,7 @@ func unmarkCmd(session *Session, name, path string) clihelp.Command {
 		Group:           "Spam",
 		Description:     "Mark email as ham and return to Inbox.",
 		LongDescription: "Mark a message as not being spam: train Bogofilter as ham and move it from Spam back to Inbox on the server.",
-		UsageLine:       "mail_cli " + path + " <message_id...>\n  mail_cli unspam folder <folder_name>",
+		UsageLine:       "feral " + path + " <message_id...>\n  feral unspam folder <folder_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<message_id...>", Description: "One or more message IDs to unspam (short 8-char or full).", Variadic: true},
 		},
@@ -140,22 +156,28 @@ func unmarkCmd(session *Session, name, path string) clihelp.Command {
 				Title:           path + " folder",
 				Description:     "Mark all messages in folder as ham.",
 				LongDescription: "Mark all messages in the specified folder as ham and move them back to Inbox.",
-				UsageLine:       "mail_cli " + path + " folder <folder_name>",
+				UsageLine:       "feral " + path + " folder <folder_name>",
 				Parameters: []clihelp.Param{
 					{Name: "<folder_name>", Description: "Folder name containing emails to unspam.", Complete: CompleteLabelRefs},
 				},
 				Args: clihelp.ExactArgs(1),
 				Run: func(ctx *clihelp.Context) error {
+					if err := refuseLocalWrite(session, path+" folder", false); err != nil {
+						return err
+					}
 					return unspamFolderRef(session, ctx.Args[0])
 				},
 				Examples: []clihelp.Example{
-					{Line: "mail_cli " + path + " folder %spam"},
+					{Line: "feral " + path + " folder %spam"},
 				},
 			},
 		},
 		Args: clihelp.MinimumNArgs(1),
 		Run: func(ctx *clihelp.Context) error {
 			args := ctx.Args
+			if err := refuseLocalWrite(session, path, false); err != nil {
+				return err
+			}
 			// A label carries its sigil, so one argument that has it names a
 			// folder and anything else is a message ID. This used to look the
 			// argument up as a bare folder name first, which a sigil-carrying
@@ -173,8 +195,8 @@ func unmarkCmd(session *Session, name, path string) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " abc123de"},
-			{Line: "mail_cli " + path + " folder %spam"},
+			{Line: "feral " + path + " abc123de"},
+			{Line: "feral " + path + " folder %spam"},
 		},
 	}
 }
@@ -212,13 +234,13 @@ func ScanSpamCmd(session *Session) clihelp.Command {
 		Group:       "Daily",
 		Hidden:      true,
 		Description: "Shortcut for `scan spam`.",
-		UsageLine:   "mail_cli ss",
+		UsageLine:   "feral ss",
 		Args:        clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
 			return scanLabelRef(session, "spam")
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli ss", Description: "Scan the spam folder"},
+			{Line: "feral ss", Description: "Scan the spam folder"},
 		},
 	}
 }

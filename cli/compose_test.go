@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestResolveComposeBody_Inline(t *testing.T) {
@@ -87,5 +89,44 @@ func TestRunCompose_PassesOptionsToTUI(t *testing.T) {
 	}
 	if capturedOpts.Body != "Let's review the specs." {
 		t.Errorf("Body = %q, want 'Let\\'s review the specs.'", capturedOpts.Body)
+	}
+}
+
+// `write boss < notes.txt` starts the message with the file as its body; -i
+// and --body still win, and a resumed draft keeps its own.
+func TestResolveComposeBody_RedirectedStdin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(path, []byte("from stdin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	withStdinFile := func(fn func()) {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		old := os.Stdin
+		defer func() { os.Stdin = old }()
+		os.Stdin = f
+		fn()
+	}
+	cases := []struct {
+		name, body, resume, want string
+	}{
+		{name: "stdin", want: "from stdin\n"},
+		{name: "--body wins", body: "inline", want: "inline"},
+		{name: "--resume ignores stdin", resume: "2026/11/12/1", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			flagComposeBody, flagComposeResume = tc.body, tc.resume
+			defer func() { flagComposeBody, flagComposeResume = "", "" }()
+			withStdinFile(func() {
+				got, err := resolveComposeBody()
+				if err != nil || got != tc.want {
+					t.Fatalf("body = %q, %v; want %q", got, err, tc.want)
+				}
+			})
+		})
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 type exitPanic struct {
@@ -57,7 +57,7 @@ func TestVersionFlag_BareInvocation(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", code)
 	}
 
-	expected := fmt.Sprintf("mail_cli version %s\n", app.Version)
+	expected := fmt.Sprintf("feral version %s\n", app.Version)
 	if !strings.Contains(buf.String(), expected) {
 		t.Errorf("expected stdout to contain %q, got: %q", expected, buf.String())
 	}
@@ -83,7 +83,7 @@ func TestVersionFlag_WithGlobalOption(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", code)
 	}
 
-	expected := fmt.Sprintf("mail_cli version %s\n", app.Version)
+	expected := fmt.Sprintf("feral version %s\n", app.Version)
 	if !strings.Contains(buf.String(), expected) {
 		t.Errorf("expected stdout to contain %q, got: %q", expected, buf.String())
 	}
@@ -116,7 +116,7 @@ func TestVersionFlag_SubcommandTrailing(t *testing.T) {
 		t.Error("precheck must NOT run when --version is specified")
 	}
 
-	expected := fmt.Sprintf("mail_cli version %s\n", app.Version)
+	expected := fmt.Sprintf("feral version %s\n", app.Version)
 	if !strings.Contains(buf.String(), expected) {
 		t.Errorf("expected stdout to contain %q, got: %q", expected, buf.String())
 	}
@@ -146,7 +146,7 @@ func TestVersionFlag_SubcommandLeading(t *testing.T) {
 		t.Error("subcommand must NOT execute when --version is specified leading")
 	}
 
-	expected := fmt.Sprintf("mail_cli version %s\n", app.Version)
+	expected := fmt.Sprintf("feral version %s\n", app.Version)
 	if !strings.Contains(buf.String(), expected) {
 		t.Errorf("expected stdout to contain %q, got: %q", expected, buf.String())
 	}

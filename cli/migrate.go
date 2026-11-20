@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -21,13 +22,13 @@ func MigrateCmd(session *Session) clihelp.Command {
 		Group:           "Setup",
 		Description:     "Copy config and credentials via SSH.",
 		LongDescription: "Copy configuration and credentials to a remote machine via SSH/SCP.",
-		UsageLine:       "mail_cli account migrate [user@]host",
+		UsageLine:       "feral account migrate [user@]host",
 		Parameters: []clihelp.Param{
 			{Name: "[user@]host", Description: "Destination host, as [user@]host"},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account migrate myserver.local"},
-			{Line: "mail_cli account migrate user@myserver.local"},
+			{Line: "feral account migrate myserver.local"},
+			{Line: "feral account migrate user@myserver.local"},
 		},
 		Args: clihelp.ExactArgs(1),
 		Run: func(ctx *clihelp.Context) error {
@@ -100,8 +101,36 @@ func collectMigrationFiles(configDir string) ([]string, error) {
 	return files, nil
 }
 
+// remoteConfigDirScript names the remote's configuration directory, relative
+// to its home, the way cfg_g.ConfigDirIn does locally: feral's when it exists
+// or the old one does not, else mail_cli's. Copying into a new feral directory
+// beside a real mail_cli one would leave the remote with two, which every run
+// there refuses.
+var remoteConfigDirScript = fmt.Sprintf(
+	"if [ -e .config/%[1]s ] || [ ! -d .config/%[2]s ]; then echo .config/%[1]s; else echo .config/%[2]s; fi",
+	app.AppName, cfg_g.LegacyAppName)
+
+// remoteConfigDir asks the remote which configuration directory it uses.
+func remoteConfigDir(sshTarget string) (string, error) {
+	cmd := exec.Command("ssh", "--", sshTarget, remoteConfigDirScript)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("migrate: failed to find the remote config directory: %w", err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir != filepath.Join(".config", app.AppName) && dir != filepath.Join(".config", cfg_g.LegacyAppName) {
+		return "", fmt.Errorf("migrate: unexpected answer from the remote: %q", dir)
+	}
+	return dir, nil
+}
+
 func copyFilesOverSSH(w io.Writer, sshTarget, configDir string, files []string) error {
-	sshCmd := exec.Command("ssh", "--", sshTarget, "mkdir", "-p", filepath.Join(".config", app.AppName))
+	remoteDir, err := remoteConfigDir(sshTarget)
+	if err != nil {
+		return err
+	}
+	sshCmd := exec.Command("ssh", "--", sshTarget, "mkdir", "-p", remoteDir)
 	sshCmd.Stderr = os.Stderr
 	if err := sshCmd.Run(); err != nil {
 		return fmt.Errorf("migrate: failed to create remote config directory: %w", err)
@@ -109,7 +138,7 @@ func copyFilesOverSSH(w io.Writer, sshTarget, configDir string, files []string) 
 
 	for _, src := range files {
 		rel, _ := filepath.Rel(configDir, src)
-		dst := fmt.Sprintf("%s:%s/%s", sshTarget, filepath.Join(".config", app.AppName), rel)
+		dst := fmt.Sprintf("%s:%s/%s", sshTarget, remoteDir, rel)
 
 		scpCmd := exec.Command("scp", "--", src, dst)
 		scpCmd.Stderr = os.Stderr
@@ -147,6 +176,17 @@ func migrateRun(session *Session, target string) error {
 		return fmt.Errorf("migrate: no files found to copy in %s", configDir)
 	}
 
+	// Copying credentials to another machine is the opposite of read-only. It
+	// used to run under --read-only and --dry-run alike.
+	if session.Config.ReadOnly {
+		fmt.Fprintf(session.out(), "[DRY-RUN] would copy %d file(s) to %s:~/.config/%s (or ~/.config/%s where only that exists):\n",
+			len(files), sshTarget, app.AppName, cfg_g.LegacyAppName)
+		for _, src := range files {
+			rel, _ := filepath.Rel(configDir, src)
+			fmt.Fprintf(session.out(), "  %s\n", rel)
+		}
+		return nil
+	}
 	if err := copyFilesOverSSH(session.out(), sshTarget, configDir, files); err != nil {
 		return err
 	}

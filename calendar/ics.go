@@ -13,7 +13,7 @@ import (
 
 	"encoding/base64"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 
 	"github.com/emersion/go-ical"
 )
@@ -53,12 +53,7 @@ type ICSEvent struct {
 }
 
 func cleanTZID(tz string) string {
-	tz = strings.Trim(tz, "\"")
-	tz = strings.TrimPrefix(tz, "/")
-	if idx := strings.Index(tz, "zoneinfo/"); idx != -1 {
-		tz = tz[idx+len("zoneinfo/"):]
-	}
-	return tz
+	return CleanTZID(tz)
 }
 
 // DetectSystemTimeZone detects the host system time zone.
@@ -120,7 +115,12 @@ func parseICSStartTime(startProp *ical.Prop, ev *ICSEvent, defaultCalTz string) 
 	if startTz == "" {
 		startTz = defaultCalTz
 	}
-	ev.StartTimeZone = cleanTZID(startTz)
+	rawTz := cleanTZID(startTz)
+	if resolved := ResolveTimeZone(rawTz); resolved != "" {
+		ev.StartTimeZone = resolved
+	} else {
+		ev.StartTimeZone = rawTz
+	}
 
 	valType := startProp.Params.Get("VALUE")
 	trimmedVal := strings.TrimSpace(startProp.Value)
@@ -170,7 +170,12 @@ func parseICSEndTime(endProp *ical.Prop, ev *ICSEvent) {
 	if endTz == "" {
 		endTz = ev.StartTimeZone
 	}
-	ev.EndTimeZone = cleanTZID(endTz)
+	rawEndTz := cleanTZID(endTz)
+	if resolved := ResolveTimeZone(rawEndTz); resolved != "" {
+		ev.EndTimeZone = resolved
+	} else {
+		ev.EndTimeZone = rawEndTz
+	}
 
 	trimmedEnd := strings.TrimSpace(endProp.Value)
 	if ev.IsAllDay {

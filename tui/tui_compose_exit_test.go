@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

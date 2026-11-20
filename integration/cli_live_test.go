@@ -10,27 +10,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/testenv"
+
+	"github.com/sarielhp/feral/cfg_g"
 )
 
-// cliBinaryPath resolves an executable mail_cli binary.
-// It checks ~/bin/mail_cli first, then builds a temporary test binary if needed.
+// cliBinaryPath resolves an executable feral binary.
+// It checks ~/bin/feral first, then builds a temporary test binary if needed.
 func cliBinaryPath(t *testing.T) string {
 	t.Helper()
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		userBin := filepath.Join(home, "bin", "mail_cli")
+		userBin := filepath.Join(home, "bin", "feral")
 		if _, err := os.Stat(userBin); err == nil {
 			return userBin
 		}
 	}
 
 	tempDir := t.TempDir()
-	binPath := filepath.Join(tempDir, "mail_cli")
+	binPath := filepath.Join(tempDir, "feral")
 	cmd := exec.Command("go", "build", "-o", binPath, "..")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("building mail_cli test binary: %v\n%s", err, string(out))
+		t.Fatalf("building feral test binary: %v\n%s", err, string(out))
 	}
 	return binPath
 }
@@ -38,15 +40,17 @@ func cliBinaryPath(t *testing.T) string {
 func cliTestAccount(t *testing.T) string {
 	t.Helper()
 
-	if os.Getenv(mutateEnvVar) == "" {
+	if testenv.Getenv(t, mutateEnvVar) == "" {
 		t.Skipf("CLI live tests are opt-in; set %s=1 to run them", mutateEnvVar)
 	}
-	name := os.Getenv(mutateAcctVar)
+	name := testenv.Getenv(t, mutateAcctVar)
 	if name == "" {
 		t.Skipf("%s must name the account to mutate; there is deliberately no default", mutateAcctVar)
 	}
 
-	config, err := cfg_g.LoadConfig()
+	// The loader that writes nothing: a test may not move or rewrite the
+	// user's configuration directory.
+	config, err := cfg_g.LoadConfigNoWrite()
 	if err != nil || config == nil {
 		t.Skipf("no usable configuration: %v", err)
 	}
@@ -77,7 +81,7 @@ func TestCLIScanInbox(t *testing.T) {
 
 	stdout, stderr, err := runCLICmd(t, bin, "-A", acct, "%Inbox")
 	if err != nil {
-		t.Fatalf("mail_cli -A %s %%Inbox failed: %v\nStderr: %s\nStdout: %s", acct, err, stderr, stdout)
+		t.Fatalf("feral -A %s %%Inbox failed: %v\nStderr: %s\nStdout: %s", acct, err, stderr, stdout)
 	}
 
 	if !strings.Contains(stdout, "Inbox") && !strings.Contains(stderr, "Inbox") {
@@ -91,7 +95,7 @@ func TestCLISearch(t *testing.T) {
 
 	stdout, stderr, err := runCLICmd(t, bin, "-A", acct, "search", "Fixture", "-n", "3")
 	if err != nil {
-		t.Fatalf("mail_cli search failed: %v\nStderr: %s\nStdout: %s", err, stderr, stdout)
+		t.Fatalf("feral search failed: %v\nStderr: %s\nStdout: %s", err, stderr, stdout)
 	}
 
 	if !strings.Contains(stdout, "SEARCH:") && !strings.Contains(stdout, "match") {
@@ -103,7 +107,7 @@ func TestCLILabelLifecycle(t *testing.T) {
 	acct := cliTestAccount(t)
 	bin := cliBinaryPath(t)
 
-	lbl := fmt.Sprintf("mail_cli_cli_test_%d", time.Now().UnixNano()%10000000)
+	lbl := fmt.Sprintf("feral_cli_test_%d", time.Now().UnixNano()%10000000)
 
 	// Create label
 	stdout, stderr, err := runCLICmd(t, bin, "-A", acct, "label", "create", lbl)

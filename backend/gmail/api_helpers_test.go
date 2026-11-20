@@ -1,8 +1,8 @@
 package gmail_test
 
 import (
-	"github.com/sarielhp/mail_cli/backend/gmail"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/backend/gmail"
+	"github.com/sarielhp/feral/cfg_g"
 	"os"
 	"path/filepath"
 	"testing"

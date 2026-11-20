@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	zone "github.com/lrstanley/bubblezone"
 )
 
 func TestFileBrowser_NavigationAndSelection(t *testing.T) {
@@ -189,10 +190,72 @@ func TestFileBrowser_JumpBookmarks(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := New(tmpDir, "file.txt", 80, 24)
 
-	// Jump to bookmark 4 (/tmp)
+	// The default jumps no longer include the system temporary directory:
+	// the program keeps its own files under /tmp/<user>/feral, not in /tmp.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
-	expectedTmp := filepath.Clean(os.TempDir())
-	if m.CurrentDir != expectedTmp {
-		t.Errorf("expected currentDir '%s', got '%s'", expectedTmp, m.CurrentDir)
+	if m.CurrentDir != filepath.Clean(tmpDir) {
+		t.Errorf("jump 4 moved to '%s'; no such bookmark should exist", m.CurrentDir)
+	}
+}
+
+// A caller's locations replace the defaults: each digit jumps to its
+// location, the footer names them, and a digit past the list does nothing.
+func TestFileBrowser_CallerLocations(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	m := New(first, "file.txt", 100, 30)
+	m.SetLocations([]Location{{Path: second}, {Label: "start", Path: first}, {Path: ""}, {Path: second}})
+	if len(m.Locations) != 2 {
+		t.Fatalf("SetLocations kept %d locations, want 2 (empty and duplicate paths dropped)", len(m.Locations))
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if m.CurrentDir != second {
+		t.Errorf("after 1, CurrentDir = %q, want %q", m.CurrentDir, second)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if m.CurrentDir != first {
+		t.Errorf("after 2, CurrentDir = %q, want %q", m.CurrentDir, first)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	if m.CurrentDir != first {
+		t.Errorf("after 3, which names no location, CurrentDir = %q, want %q unchanged", m.CurrentDir, first)
+	}
+
+	footer := zone.Scan(m.renderFooter())
+	for _, want := range []string{"[1] " + displayDir(second, 28), "[2] start"} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("footer lacks %q:\n%s", want, footer)
+		}
+	}
+	if strings.Contains(footer, "Downloads") {
+		t.Errorf("footer still shows a default jump:\n%s", footer)
+	}
+}
+
+func TestFileBrowser_WindowSizeMsg(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := New(tmpDir, "file.txt", 80, 24)
+
+	m, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if cmd != nil {
+		t.Errorf("expected nil cmd on WindowSizeMsg")
+	}
+	if m.Width != 120 || m.Height != 40 {
+		t.Errorf("expected size (120, 40), got (%d, %d)", m.Width, m.Height)
+	}
+
+	view := m.View()
+	if view == "" {
+		t.Errorf("expected non-empty view after resize")
+	}
+
+	// Shrink to very small size
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 25, Height: 8})
+	if m.Width != 25 || m.Height != 8 {
+		t.Errorf("expected size (25, 8), got (%d, %d)", m.Width, m.Height)
+	}
+	smallView := m.View()
+	if smallView == "" {
+		t.Errorf("expected non-empty view on small terminal")
 	}
 }

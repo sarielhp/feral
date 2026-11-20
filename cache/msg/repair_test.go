@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 )
 
 // A cache whose index has drifted from its files: an update that superseded a

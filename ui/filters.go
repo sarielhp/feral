@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // FormatFilterListing writes a listing of mail rules.

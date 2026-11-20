@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils completion install'
-parent: 'mail_cli utils completion'
+title: 'feral utils completion install'
+parent: 'feral utils completion'
 ---
 
-# mail\_cli utils completion install
+# feral utils completion install
 
 Set up tab completion, the Alt-H key binding and the man page
 
 ## Usage
 
 ```
-mail_cli utils completion install [--completion-no-keys] [--completion-no-man] [<shell>]
+feral utils completion install [--completion-no-keys] [--completion-no-man] [<shell>]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli utils completion install [--completion-no-keys] [--completion-no-man] [
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,8 +36,8 @@ mail_cli utils completion install [--completion-no-keys] [--completion-no-man] [
 
 ## Examples
 
-- `mail_cli utils completion install` — Set up the active shell
-- `mail_cli utils completion install --completion-no-keys zsh` — Set up Zsh completion without the Alt-H binding
+- `feral utils completion install` — Set up the active shell
+- `feral utils completion install --completion-no-keys zsh` — Set up Zsh completion without the Alt-H binding
 
 ## What It Writes
 
@@ -45,4 +45,4 @@ One generated file under this application's configuration directory, one permane
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -15,14 +15,16 @@ package train
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/fileformat"
+
+	"github.com/sarielhp/feral/cache/dirlock"
 )
 
 // Ledger is the set of message IDs trained into one corpus. It is safe for
@@ -68,6 +70,9 @@ func readIDsFromDisk(path string) (map[string]bool, error) {
 	}
 	if len(data) == 0 {
 		return make(map[string]bool), nil
+	}
+	if refuse := fileformat.RefuseWrapped(path, data); refuse != nil {
+		return nil, refuse
 	}
 
 	ids, err := parseIDs(data)

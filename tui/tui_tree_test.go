@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"strings"
 	"testing"
 )

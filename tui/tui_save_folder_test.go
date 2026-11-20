@@ -1,16 +1,17 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"errors"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -201,5 +202,155 @@ func TestTUI_SaveMessageToFolder_DetailMode(t *testing.T) {
 	record := mock.CopiedEmails[0]
 	if record.DestLabel != "Work" || len(record.MessageIDs) != 1 || record.MessageIDs[0] != "msg-2" {
 		t.Fatalf("expected msg-2 copied to Work, got: %+v", record)
+	}
+}
+
+func TestTUI_SaveF2AndF3FlipAndBlockedKeys(t *testing.T) {
+	m, mock := setupTestSaveFolderModel(t)
+	mock.RawMessages = map[email.ID][]byte{"msg-1": []byte("Subject: test\r\n\r\nhello")}
+
+	// 1. Press F2 in Index mode -> opens Save to Disk (returns fetch command)
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF2})
+	m = model.(*tuiModel)
+	if cmd != nil {
+		msg := cmd()
+		model, _ = m.Update(msg)
+		m = model.(*tuiModel)
+	}
+	if !m.fileBrowserOpen || !m.savingMessageToDisk {
+		t.Fatalf("expected fileBrowserOpen and savingMessageToDisk true after F2")
+	}
+
+	// 2. Press blocked keys in save to disk -> should have no effect
+	press(m, "x")
+	if !m.fileBrowserOpen || !m.savingMessageToDisk {
+		t.Fatalf("expected blocked keys to not exit save to disk")
+	}
+
+	// 3. Press F1 -> shows active keys help
+	press(m, "f1")
+	if !m.saveHelpOpen {
+		t.Fatal("expected saveHelpOpen to be true after pressing F1")
+	}
+	press(m, "esc")
+	if m.saveHelpOpen {
+		t.Fatal("expected saveHelpOpen to close after pressing Esc")
+	}
+
+	// 4. Press F3 -> flips to Save to Label!
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyF3})
+	m = model.(*tuiModel)
+	if m.fileBrowserOpen || m.savingMessageToDisk {
+		t.Fatal("expected fileBrowserOpen and savingMessageToDisk false after F3")
+	}
+	if !m.treeOpen || !m.savingMessageToFolder {
+		t.Fatal("expected treeOpen and savingMessageToFolder true after F3")
+	}
+
+	// 5. In Save to Label, press F1 -> shows active keys help
+	press(m, "f1")
+	if !m.saveHelpOpen {
+		t.Fatal("expected saveHelpOpen true in save to label after F1")
+	}
+	press(m, "f1")
+	if m.saveHelpOpen {
+		t.Fatal("expected saveHelpOpen false after pressing F1 again")
+	}
+
+	// 6. In Save to Label, press blocked keys -> no effect
+	press(m, "x")
+	press(m, "5")
+	if !m.treeOpen || !m.savingMessageToFolder {
+		t.Fatal("expected blocked keys to not exit save to label")
+	}
+
+	// 7. Press F3 -> flips back to Save to Disk!
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyF3})
+	m = model.(*tuiModel)
+	if cmd != nil {
+		msg := cmd()
+		model, _ = m.Update(msg)
+		m = model.(*tuiModel)
+	}
+	if !m.fileBrowserOpen || !m.savingMessageToDisk {
+		t.Fatal("expected fileBrowserOpen and savingMessageToDisk true after flip back to disk")
+	}
+
+	// 8. Press F3 -> flips to Save to Label!
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyF3})
+	m = model.(*tuiModel)
+
+	// 9. Press F2 -> saves to selected folder!
+	model, cmd = m.Update(tea.KeyMsg{Type: tea.KeyF2})
+	m = model.(*tuiModel)
+	if m.treeOpen || m.savingMessageToFolder {
+		t.Fatal("expected treeOpen and savingMessageToFolder false after F2 save")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil save cmd after F2")
+	}
+}
+
+func TestTUI_SaveFolderModalViewLook(t *testing.T) {
+	m, mock := setupTestSaveFolderModel(t)
+	mock.RawMessages = map[email.ID][]byte{"msg-1": []byte("Subject: Important Project\r\n\r\nBody")}
+	m.selectedID = "msg-1"
+
+	// Press 's' to enter Save to Label view
+	model, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = model.(*tuiModel)
+
+	if !m.savingMessageToFolder {
+		t.Fatal("expected savingMessageToFolder=true")
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "SELECT SAVE LABEL / FOLDER") {
+		t.Errorf("expected view to contain header 'SELECT SAVE LABEL / FOLDER', got:\n%s", view)
+	}
+	if !strings.Contains(view, "Target Folder:") {
+		t.Errorf("expected view to contain 'Target Folder:', got:\n%s", view)
+	}
+	if !strings.Contains(view, "[Enter/F2] Save to Label") {
+		t.Errorf("expected view to contain '[Enter/F2] Save to Label', got:\n%s", view)
+	}
+	if !strings.Contains(view, "[F3] Save to Disk") {
+		t.Errorf("expected view to contain '[F3] Save to Disk', got:\n%s", view)
+	}
+
+	// Flip to Save to Disk with F3
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF3})
+	m = model.(*tuiModel)
+	if cmd != nil {
+		msg := cmd()
+		model, _ = m.Update(msg)
+		m = model.(*tuiModel)
+	}
+
+	diskView := m.View()
+	if !strings.Contains(diskView, "SELECT SAVE DIRECTORY") {
+		t.Errorf("expected disk view to contain 'SELECT SAVE DIRECTORY', got:\n%s", diskView)
+	}
+
+	// Flip back to Save to Label with F3
+	model, _ = m.Update(tea.KeyMsg{Type: tea.KeyF3})
+	m = model.(*tuiModel)
+	labelView := m.View()
+	if !strings.Contains(labelView, "SELECT SAVE LABEL / FOLDER") {
+		t.Errorf("expected label view after flip back to contain 'SELECT SAVE LABEL / FOLDER', got:\n%s", labelView)
+	}
+}
+
+func TestHandleMessageReadyToSave_FetchFailureClearsSaveState(t *testing.T) {
+	m, _ := setupTestSaveFolderModel(t)
+	m.savingMessageToDisk = true
+	m.savingMessageID = "msg-1"
+
+	m.handleMessageReadyToSave(messageReadyToSaveMsg{err: errors.New("offline")})
+	if m.savingMessageToDisk || m.savingMessageID != "" {
+		t.Errorf("save state left set after a failed fetch: disk=%v id=%q", m.savingMessageToDisk, m.savingMessageID)
+	}
+	if !m.showError {
+		t.Error("the failure was not reported")
 	}
 }

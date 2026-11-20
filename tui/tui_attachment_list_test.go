@@ -1,17 +1,17 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,8 +25,8 @@ func TestAttachmentList_NoAttachmentsNotice(t *testing.T) {
 	m.eIdx = 0
 	m.attachments = nil
 
-	// Press 'a'
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// Press 'v'
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
 	tm := res.(*tuiModel)
 
 	if tm.attachmentListOpen {
@@ -50,7 +50,7 @@ func TestAttachmentList_OpenAndNavigate(t *testing.T) {
 	}
 
 	// Press 'a' to open attachment list
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
 	tm := res.(*tuiModel)
 
 	if !tm.attachmentListOpen {

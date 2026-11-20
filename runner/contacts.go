@@ -8,11 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/contactsui"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/report"
 )
 
 // ContactService implements cli.ContactOps to manage local contacts and aliases.
@@ -65,7 +69,7 @@ func (s ContactService) ImportMutt(config *cfg_g.Config, customPath string) erro
 		targetPath = config.Paths.MuttAliases
 	}
 	if targetPath == "" {
-		return fmt.Errorf("no mutt alias file specified: provide a path or run 'mail_cli config set paths.mutt_aliases <path>'")
+		return fmt.Errorf("no mutt alias file specified: provide a path or run 'feral config set paths.mutt_aliases <path>'")
 	}
 
 	newContacts, err := contacts.ParseMuttFile(targetPath)
@@ -74,13 +78,10 @@ func (s ContactService) ImportMutt(config *cfg_g.Config, customPath string) erro
 	}
 
 	bookPath := contacts.DefaultPath(config)
-	book, err := contacts.LoadBook(bookPath)
-	if err != nil {
-		return err
-	}
-
-	contacts.UpdateSource(book, "mutt", newContacts)
-	if err := contacts.SaveBook(bookPath, book); err != nil {
+	if _, err := contacts.Update(bookPath, func(book *contacts.Book) error {
+		contacts.UpdateSource(book, "mutt", newContacts)
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -115,13 +116,10 @@ func (s ContactService) SyncGoogle(config *cfg_g.Config, accountName string) err
 
 	sourcePrefix := fmt.Sprintf("google:%s", acc.Name)
 	bookPath := contacts.DefaultPath(config)
-	book, err := contacts.LoadBook(bookPath)
-	if err != nil {
-		return err
-	}
-
-	contacts.UpdateSource(book, sourcePrefix, newContacts)
-	if err := contacts.SaveBook(bookPath, book); err != nil {
+	if _, err := contacts.Update(bookPath, func(book *contacts.Book) error {
+		contacts.UpdateSource(book, sourcePrefix, newContacts)
+		return nil
+	}); err != nil {
 		return err
 	}
 
@@ -166,6 +164,9 @@ func (s ContactService) Harvest(config *cfg_g.Config) error {
 	if len(config.Accounts) > 0 {
 		for _, acc := range config.Accounts {
 			accDir := config.AccountCacheFor(acc)
+			if meta.Check(accDir, acc.Type) != nil {
+				continue // a cache this build does not understand
+			}
 			count, err := contacts.HarvestAccountCache(accDir, acc.Name, blacklist, targetMap)
 			if err == nil {
 				totalMsgs += count
@@ -205,8 +206,68 @@ func findAccount(config *cfg_g.Config, name string) *cfg_acc.AccountConfig {
 			return &config.Accounts[i]
 		}
 	}
-	if len(config.Accounts) > 0 && name == "" {
-		return &config.Accounts[0]
+	if name == "" {
+		return cfg_g.DefaultOf(config.Accounts)
 	}
 	return nil
+}
+
+// contactStore is the contacts files of config.
+func contactStore(config *cfg_g.Config) contactsui.FileStore {
+	return contactsui.FileStore{
+		BookPath:    contacts.DefaultPath(config),
+		HistoryPath: contacts.DefaultHistoryPath(config),
+	}
+}
+
+// Pick runs the full-screen picker on the terminal and prints the chosen
+// contacts on stdout. Nothing chosen is app.ErrCancelled, with no output.
+func (s ContactService) Pick(config *cfg_g.Config, opts cli.PickOptions) error {
+	book, history, err := contactStore(config).Load()
+	if err != nil {
+		return err
+	}
+	var blacklist []string
+	if config != nil {
+		blacklist = config.Policy.Blacklist
+	}
+	tty, err := contactsui.OpenTTY()
+	if err != nil {
+		return err
+	}
+	defer tty.Close()
+	picker := contactsui.NewPicker(book, history, contactsui.PickerOptions{
+		Title:     opts.Title,
+		Query:     opts.Query,
+		Preselect: opts.Preselect,
+		Single:    opts.Single,
+		Blacklist: blacklist,
+	})
+	if _, err := contactsui.Run(picker, tty); err != nil {
+		return err
+	}
+	picked, cancelled := picker.Result()
+	if cancelled {
+		return app.ErrCancelled
+	}
+	return contactsui.WriteChoices(s.out(), picked, opts.Format, opts.ExpandGroups, book)
+}
+
+// Manage runs the full-screen contacts manager on the terminal.
+func (s ContactService) Manage(config *cfg_g.Config) error {
+	var opts contactsui.ManagerOptions
+	if config != nil {
+		opts = contactsui.ManagerOptions{ReadOnly: config.ReadOnly, DryRun: config.DryRun}
+	}
+	manager, err := contactsui.NewManager(contactStore(config), opts)
+	if err != nil {
+		return err
+	}
+	tty, err := contactsui.OpenTTY()
+	if err != nil {
+		return err
+	}
+	defer tty.Close()
+	_, err = contactsui.Run(manager, tty)
+	return err
 }

@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/ui"
 )
 
 // StartupOptions carries the parsed CLI choices that runtime initialization
@@ -22,6 +22,9 @@ import (
 type StartupOptions struct {
 	NoConfigWrite bool
 	AppendLogs    bool
+	// FinishRename loads a configuration whose account rename is
+	// unfinished, which only `account rename` may do (cfg_g.LoadConfigForRename).
+	FinishRename bool
 }
 
 // Session carries the runtime configuration, dependency operations, and I/O streams for a CLI command.
@@ -48,7 +51,7 @@ type Session struct {
 
 	// Err is where a command says what it is doing: progress, warnings,
 	// confirmations. Keeping it apart from Out is what makes
-	// `mail_cli rule list > rules.txt` capture the rules and not the chatter.
+	// `feral rule list > rules.txt` capture the rules and not the chatter.
 	Err io.Writer
 
 	// Deps is what this command layer needs from the layers beneath it.
@@ -106,7 +109,7 @@ type FolderTarget struct {
 //
 // Commands used to hand their argument to the backend unparsed, so
 // `spam learn --ham %archive` asked the server for a folder named
-// "%archive" while `mail_cli %archive` found Archive. The services such a
+// "%archive" while `feral %archive` found Archive. The services such a
 // command calls now take a label.Folder, which only resolution produces.
 func (s *Session) ResolveFolder(raw string) (FolderTarget, error) {
 	t, typed, err := s.labelTarget(raw)
@@ -130,17 +133,21 @@ func (s *Session) ResolveDestFolder(raw string) (FolderTarget, error) {
 	if err != nil {
 		return FolderTarget{}, err
 	}
-	name, err := mailclient.ResolveOne(t.Client, typed)
-	var notFound *mailclient.NotFoundError
-	switch {
-	case errors.As(err, &notFound):
-		t.Folder, err = label.ForCreate(typed)
-		return t, err
-	case err != nil:
+	if t.Folder, err = resolveDest(t.Client, typed); err != nil {
 		return FolderTarget{}, err
 	}
-	t.Folder = name
 	return t, nil
+}
+
+// resolveDest resolves typed as a destination on client: an existing folder
+// it names, or, when it names none, the folder to create.
+func resolveDest(client mailclient.MailClient, typed string) (label.Folder, error) {
+	name, err := mailclient.ResolveOne(client, typed)
+	var notFound *mailclient.NotFoundError
+	if errors.As(err, &notFound) {
+		return label.ForCreate(typed)
+	}
+	return name, err
 }
 
 // labelTarget parses a reference and builds the client for its account. The
@@ -189,8 +196,8 @@ func FormatAccountLabel(session *Session, client mailclient.Reader, label string
 			if displayName != "" {
 				return fmt.Sprintf("%s:%s", displayName, label)
 			}
-		} else if len(session.Config.Accounts) > 0 {
-			displayName := session.Config.Accounts[0].GetDisplayName()
+		} else if def := cfg_g.DefaultOf(session.Config.Accounts); def != nil {
+			displayName := def.GetDisplayName()
 			if displayName != "" {
 				return fmt.Sprintf("%s:%s", displayName, label)
 			}

@@ -2,7 +2,7 @@
 //
 // It lived in backend/gmail, where it had nothing to do with Gmail and forced
 // show to import a mail backend in order to display an HTML message body. Like
-// terminal, it is a leaf with no mail_cli imports of its own, which is what lets
+// terminal, it is a leaf with no feral imports of its own, which is what lets
 // any layer reach it.
 //
 // Neither function prints. Which browser was tried, and whether a fallback is

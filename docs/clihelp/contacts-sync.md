@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts sync'
-parent: 'mail_cli contacts'
+title: 'feral contacts sync'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts sync
+# feral contacts sync
 
 Fetch and update contacts from Google People API into local contacts.json.
 
 ## Usage
 
 ```
-mail_cli contacts sync [account]
+feral contacts sync [account]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli contacts sync [account]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli contacts sync [account]
 
 ## Examples
 
-- `mail_cli contacts sync`
-- `mail_cli contacts sync work`
+- `feral contacts sync`
+- `feral contacts sync work`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

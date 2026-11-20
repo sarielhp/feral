@@ -5,18 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/browser"
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/pgp"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/browser"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/pgp"
+	"github.com/sarielhp/feral/ui"
 	"io"
 	"mime"
-	"mime/multipart"
 	"net/mail"
 	"os"
 	"path/filepath"
@@ -24,12 +25,15 @@ import (
 )
 
 // Client is what showing a message needs: labels to resolve a prefix, and
-// message access to retrieve one by ID whether or not it is cached.
+// message access to retrieve one by ID whether or not it is cached. BackendInfo
+// is what tells a Sent folder from any other, so a listing of it shows the
+// recipient in place of the sender.
 type Client interface {
 	mailclient.LabelReader
 	mailclient.EmailFetcher
 	mailclient.MessageAccessor
 	mailclient.ConfigProvider
+	mailclient.BackendInfo
 }
 
 // FolderListing is one matched folder in `show --json` output.
@@ -100,7 +104,8 @@ func Perform(opts Options, w io.Writer, client Client, config *cfg_g.Config, lab
 			fmt.Fprintf(w, "%s No emails found in label %s.\n", app.PrefixInfo, matchedLabel)
 			continue
 		}
-		ui.FormatFolderSummary(w, strings.ToUpper(matchedLabel)+" EMAILS", "", downloadedIDs, nil, nil, config, cacheDirName, 0, 0)
+		authored := organize.IsAuthoredFolder(client, label.FromServer(matchedLabel))
+		ui.FormatFolderSummary(w, strings.ToUpper(matchedLabel)+" EMAILS", "", downloadedIDs, nil, nil, config, cacheDirName, 0, 0, authored)
 	}
 	if targetMsgID != "" {
 		return nil, fmt.Errorf("no email found with ID %q in any label matching %q", targetMsgID, labelPrefix)
@@ -113,6 +118,55 @@ func accountName(config *cfg_g.Config) string {
 		return ""
 	}
 	return string(config.SelectedAccount)
+}
+
+// VirtualPrefix reports whether prefix names a saved result set and returns its
+// mailbox name. Both spellings are accepted: "virtual/<name>", which is what
+// the TUI's saved-search browser shows, and the sigil form "%virtual/<name>",
+// which is what `msg show` requires of an ordinary folder.
+func VirtualPrefix(prefix string) (string, bool) {
+	for _, p := range []string{"virtual/", cfg_g.LabelSigil + "virtual/"} {
+		if strings.HasPrefix(prefix, p) && len(prefix) > len(p) {
+			return strings.TrimPrefix(prefix, p), true
+		}
+	}
+	return "", false
+}
+
+// VirtualMailbox lists a saved result set from the local cache. The set holds
+// its own message IDs, so nothing is fetched from a server folder -- which is
+// what lets `msg show virtual/<name>` work at all, since no such folder
+// exists. A target message is still rendered through the client, so one that
+// was never downloaded is fetched.
+func VirtualMailbox(opts Options, w io.Writer, client Client, config *cfg_g.Config, name, targetMsgID string) ([]FolderListing, error) {
+	if config == nil || config.AccountCache.IsZero() {
+		return nil, fmt.Errorf("no account cache to read saved search %q from", name)
+	}
+	mb, err := virtual.Load(config.AccountCache, name)
+	if err != nil {
+		return nil, fmt.Errorf("no saved search %q: %w", name, err)
+	}
+	if targetMsgID != "" {
+		foundID := findTargetEmailID(mb.MessageIDs, targetMsgID)
+		if foundID == "" {
+			return nil, fmt.Errorf("no email found with ID %q in saved search %q", targetMsgID, name)
+		}
+		return nil, ByID(opts, w, client, config, foundID, name)
+	}
+	if opts.JSON {
+		return []FolderListing{{
+			Account:    accountName(config),
+			Folder:     "virtual/" + name,
+			MessageIDs: append([]string{}, email.IDStrings(mb.MessageIDs)...),
+			Total:      len(mb.MessageIDs),
+		}}, nil
+	}
+	if len(mb.MessageIDs) == 0 {
+		fmt.Fprintf(w, "%s No emails found in saved search %s.\n", app.PrefixInfo, name)
+		return nil, nil
+	}
+	ui.FormatFolderSummary(w, fmt.Sprintf("SAVED SEARCH %q", name), "", mb.MessageIDs, nil, nil, config, "", 0, 0, false)
+	return nil, nil
 }
 
 // findTargetEmailID resolves ref, as the user typed it, against a folder listing.
@@ -267,7 +321,9 @@ func printMessageHeaders(w io.Writer, parsed *mail.Message, msgID email.ID, fold
 	subject := email.DecodeHeader(dec, parsed.Header.Get("Subject"))
 	from := email.DecodeHeader(dec, parsed.Header.Get("From"))
 	date := email.DecodeHeader(dec, parsed.Header.Get("Date"))
-	to := email.DecodeHeader(dec, parsed.Header.Get("To"))
+	to := email.FormatAddressListVerbose(dec, parsed.Header.Get("To"))
+	cc := email.FormatAddressListNames(dec, parsed.Header.Get("Cc"))
+	bcc := email.FormatAddressListNames(dec, parsed.Header.Get("Bcc"))
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, app.ColorBoldCyan.Sprint("======================================================================"))
@@ -280,8 +336,18 @@ func printMessageHeaders(w io.Writer, parsed *mail.Message, msgID email.ID, fold
 	fmt.Fprintln(w, app.ColorBoldCyan.Sprint("======================================================================"))
 	fmt.Fprint(w, app.ColorBoldYellow.Sprintf("From:       "))
 	fmt.Fprintln(w, app.ColorWhite.Sprint(from))
-	fmt.Fprint(w, app.ColorBoldYellow.Sprintf("To:         "))
-	fmt.Fprintln(w, app.ColorWhite.Sprint(to))
+	if to != "" {
+		fmt.Fprint(w, app.ColorBoldYellow.Sprintf("To:         "))
+		fmt.Fprintln(w, app.ColorWhite.Sprint(to))
+	}
+	if cc != "" {
+		fmt.Fprint(w, app.ColorBoldYellow.Sprintf("Cc:         "))
+		fmt.Fprintln(w, app.ColorWhite.Sprint(cc))
+	}
+	if bcc != "" {
+		fmt.Fprint(w, app.ColorBoldYellow.Sprintf("Bcc:        "))
+		fmt.Fprintln(w, app.ColorWhite.Sprint(bcc))
+	}
 	fmt.Fprint(w, app.ColorBoldYellow.Sprintf("Subject:    "))
 	fmt.Fprintln(w, app.ColorBold.Sprint(subject))
 	fmt.Fprint(w, app.ColorBoldYellow.Sprintf("Date:       "))
@@ -290,65 +356,7 @@ func printMessageHeaders(w io.Writer, parsed *mail.Message, msgID email.ID, fold
 }
 
 func extractHTMLBodyText(msg *mail.Message) (string, error) {
-	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
-	if err != nil {
-		bodyBytes, _ := io.ReadAll(msg.Body)
-		return string(bodyBytes), nil
-	}
-
-	encoding := msg.Header.Get("Content-Transfer-Encoding")
-
-	if strings.HasPrefix(mediaType, "multipart/") {
-		mr := multipart.NewReader(msg.Body, params["boundary"])
-		var htmlParts []string
-
-		for {
-			part, partErr := mr.NextPart()
-			if partErr == io.EOF {
-				break
-			}
-			if partErr != nil {
-				return "", partErr
-			}
-
-			partMediaType, _, mediaErr := mime.ParseMediaType(part.Header.Get("Content-Type"))
-			if mediaErr != nil {
-				continue
-			}
-
-			partEncoding := part.Header.Get("Content-Transfer-Encoding")
-			partBytes, decodeErr := email.DecodePartBody(part, partEncoding)
-			if decodeErr != nil {
-				continue
-			}
-
-			if partMediaType == "text/html" {
-				htmlParts = append(htmlParts, string(partBytes))
-			} else if strings.HasPrefix(partMediaType, "multipart/") {
-				_, nestedParams, _ := mime.ParseMediaType(part.Header.Get("Content-Type"))
-				nestedMR := multipart.NewReader(part, nestedParams["boundary"])
-				_, nestedHTML, nestedErr := email.ExtractNestedMultipartParts(nestedMR)
-				if nestedErr == nil {
-					htmlParts = append(htmlParts, nestedHTML...)
-				}
-			}
-		}
-
-		if len(htmlParts) > 0 {
-			return strings.Join(htmlParts, "\n"), nil
-		}
-		return "", nil
-	}
-
-	bodyBytes, err := email.DecodePartBody(msg.Body, encoding)
-	if err != nil {
-		return "", err
-	}
-
-	if mediaType == "text/html" {
-		return string(bodyBytes), nil
-	}
-	return fmt.Sprintf("<html><body><pre>%s</pre></body></html>", string(bodyBytes)), nil
+	return email.ExtractHTMLBodyText(msg)
 }
 
 func openHTMLInBrowser(w io.Writer, html string, config *cfg_g.Config) error {
@@ -357,7 +365,7 @@ func openHTMLInBrowser(w io.Writer, html string, config *cfg_g.Config) error {
 		return fmt.Errorf("failed to create temporary directory: %w", err)
 	}
 	tempPath := filepath.Join(tempDir, "show.html")
-	if err := os.WriteFile(tempPath, []byte(html), 0600); err != nil {
+	if err := os.WriteFile(tempPath, []byte(email.ForBrowser(html)), 0600); err != nil {
 		return fmt.Errorf("failed to write html to temp file: %w", err)
 	}
 

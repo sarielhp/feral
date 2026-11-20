@@ -1,13 +1,18 @@
 package cfg_acc
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 )
 
 // AccountConfig stores configuration for an individual mail account.
 type AccountConfig struct {
+	// Format is account.json's file format (see fileformat); absent means 1.
+	Format          int      `json:"format,omitempty"`
 	Name            string   `json:"name"`
 	DisplayName     string   `json:"display_name,omitempty"`
 	UserName        string   `json:"user_name,omitempty"`
@@ -37,10 +42,48 @@ type AccountConfig struct {
 	// account's rows where several accounts are listed together. Empty means
 	// the first letter of Name.
 	Badge string `json:"badge,omitempty"`
+	// InboxMaxAge marks a relay account: one whose inbox something else
+	// empties on a schedule, such as a fetcher moving its mail into another
+	// account. Mail older than this (a Go duration, e.g. "15m") left in the
+	// inbox means that fetcher has stopped, and the watcher, the TUI and
+	// `account stale` say so. Empty turns the check off.
+	InboxMaxAge string `json:"inbox_max_age,omitempty"`
+	// Path is the mbox file an account of type "mbox" reads: one file, one
+	// INBOX. A leading ~/ is the user's home directory. Other types ignore it.
+	Path string `json:"path,omitempty"`
+
+	// IsDefault marks the account config.json's default_account names, the
+	// one a command that names no account acts on. It is set when the config
+	// is loaded and never stored here: which account is the default is a fact
+	// about the whole configuration, so it lives in config.json alone.
+	IsDefault bool `json:"-"`
+}
+
+// IsMbox reports whether the account is a local mbox file rather than a
+// server.
+func (acc AccountConfig) IsMbox() bool {
+	return strings.EqualFold(acc.Type, "mbox")
+}
+
+// MboxPath is the account's mbox file as an absolute path, with a leading ~/
+// expanded. It refuses an account with no path.
+func (acc AccountConfig) MboxPath() (string, error) {
+	p := strings.TrimSpace(acc.Path)
+	if p == "" {
+		return "", fmt.Errorf("account %s: path is missing (the mbox file this account reads)", acc.Name)
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("account %s: expand %q: %w", acc.Name, p, err)
+		}
+		p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+	}
+	return filepath.Abs(p)
 }
 
 // FolderDefaults is where an account of type accType keeps spam and where
-// `mail_cli` files what it has read, as `account new` sets them. ok is false
+// `feral` files what it has read, as `account new` sets them. ok is false
 // for a type it does not know.
 func FolderDefaults(accType string) (spam, received string, ok bool) {
 	switch strings.ToLower(accType) {

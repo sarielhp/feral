@@ -8,9 +8,14 @@ module ToolSettings
   BUILD_PACKAGES = ['./...'].freeze
   # Declared rather than detected: detection names the binary after the checkout
   # directory, so a clone or worktree called anything else would build
-  # bin/<directory> and then reject bin/mail_cli as "not a declared artifact".
-  ARTIFACTS = { 'bin/mail_cli' => '.' }.freeze
-  INSTALL_TARGETS = { 'bin/mail_cli' => File.expand_path('~/bin/mail_cli') }.freeze
+  # bin/<directory> and then reject bin/feral as "not a declared artifact".
+  ARTIFACTS = { 'bin/feral' => '.' }.freeze
+  INSTALL_TARGETS = { 'bin/feral' => File.expand_path('~/bin/feral') }.freeze
+  # Names installed as symlinks to an installed target, link => target name.
+  # The program was mail_cli; scripts, wrappers, cron jobs and alias links
+  # still run that name, and a binary left under it would be a stale build
+  # that no later install replaces.
+  INSTALL_LINKS = { File.expand_path('~/bin/mail_cli') => 'feral' }.freeze
   VERSION_FILE = 'VERSION'
   # Version is a compiled-in constant (app/constants.go), so a bump re-verifies
   # the whole tree rather than reusing a prior fast gate.
@@ -27,11 +32,12 @@ module ToolSettings
   VERIFICATION_INPUTS = [].freeze # Explicit extra paths/globs for ignored inputs read by project checks.
 
   # tools/publish copies a release to the public repository as one commit per
-  # version; development happens in the private sarielhp/mail_cli_dev. These
+  # version; development happens in the private sarielhp/feral_dev (formerly
+  # mail_cli_dev). These
   # paths are development records and agent configuration, and stay private.
   # Symbolic links are left out as well: the ones here point into
   # ~/prog/standards, which a public checkout does not have.
-  PUBLIC_REMOTE = 'git@github.com:sarielhp/mail_cli.git'
+  PUBLIC_REMOTE = 'git@github.com:sarielhp/feral.git'
   PUBLIC_BRANCH = 'main'
   PUBLISH_EXCLUDE = %w[
     AGENTS.md opencode.json .bwrc .bws .agents
@@ -39,6 +45,10 @@ module ToolSettings
     tools/REVIEW_CYCLE.md tools/review_cycle.json tools/mcp_github_setup
     tools/publish tools/publish-allowed-addresses.txt
   ].freeze
+  # A bump moves the go.mod toolchain line to the latest patch of the Go in
+  # use (go get toolchain@patch) before the full gate, so a release builds with
+  # a patched standard library. false leaves go.mod alone.
+  UPDATE_TOOLCHAIN = true
   # Every address in a published file must be at a domain reserved for
   # examples or listed in this file, so a real one cannot slip out unnoticed.
   PUBLISH_ALLOWED_ADDRESSES = 'tools/publish-allowed-addresses.txt'

@@ -330,7 +330,7 @@ func extractPlainBodyTextFromMsg(header mail.Header, body io.Reader) (string, er
 		if decodeErr != nil {
 			return string(data), nil
 		}
-		return string(decoded), nil
+		return string(TextToUTF8(decoded, header.Get("Content-Type"))), nil
 	}
 
 	if strings.HasPrefix(mediaType, "multipart/") {
@@ -388,9 +388,9 @@ func extractMultipartPlainBody(body io.Reader, boundary string) (string, bool) {
 		if !strings.HasPrefix(partMT, "text/plain") {
 			continue
 		}
-		data, err := io.ReadAll(part)
+		data, err := DecodePartBody(part, partHeader.Get("Content-Transfer-Encoding"))
 		if err == nil {
-			return string(data), true
+			return string(TextToUTF8(data, partHeader.Get("Content-Type"))), true
 		}
 	}
 	return "", false

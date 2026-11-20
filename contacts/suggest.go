@@ -72,7 +72,13 @@ func ingestCurated(book *Book, cleanQuery string, blacklist map[string]bool, mer
 			baseScore += 1000.0
 		}
 
-		merged[primary] = &ScoredContact{
+		// A group is keyed by its ID: keyed by its first member's address it
+		// would replace that member, or be replaced by them.
+		key := primary
+		if c.IsGroup() {
+			key = c.ID
+		}
+		merged[key] = &ScoredContact{
 			Contact: c,
 			Score:   baseScore,
 		}
@@ -149,7 +155,7 @@ func evaluateMatch(c Contact, query string) (bool, bool) {
 	}
 
 	// Exact nickname / alias check
-	for _, n := range c.Nicknames {
+	for _, n := range c.AllAliases() {
 		if strings.EqualFold(n, query) {
 			return true, true
 		}
@@ -237,7 +243,7 @@ func FormatSuggestTable(w io.Writer, suggestions []ScoredContact) error {
 		if email == "" {
 			email = "-"
 		}
-		aliases := strings.Join(sc.Nicknames, ", ")
+		aliases := strings.Join(sc.AllAliases(), ", ")
 		if aliases == "" {
 			aliases = "-"
 		}

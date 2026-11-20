@@ -1,21 +1,19 @@
 package tui
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,13 +29,19 @@ func (m *tuiModel) openAttachmentViewer(att email.Attachment) (tea.Model, tea.Cm
 	m.attPreviewAtt = att
 	m.attPreviewStatus = ""
 
-	boxW := min(90, max(45, m.width-8))
-	contentW := max(20, boxW-6)
-	contentH := min(24, max(8, m.height-10))
+	boxW := min(90, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	contentW := max(16, boxW-6)
+	contentH := min(24, max(5, m.height-10))
+	if m.height > 0 && contentH > m.height {
+		contentH = m.height
+	}
 
 	m.attPreviewVp = viewport.New(contentW, contentH)
 
-	previewText := generateAttachmentPreviewText(att, contentW, contentH, m.attInvertColors)
+	previewText := generateAttachmentPreviewText(att, contentW)
 	m.attPreviewVp.SetContent(previewText)
 
 	return m, nil
@@ -66,44 +70,6 @@ func isPDFAttachment(att email.Attachment) bool {
 	ext := strings.ToLower(filepath.Ext(att.Filename))
 	ct := strings.ToLower(att.ContentType)
 	return ext == ".pdf" || strings.Contains(ct, "pdf") || (len(att.Data) >= 4 && string(att.Data[:4]) == "%PDF")
-}
-
-func extractPDFPreview(data []byte, maxLines int) string {
-	if len(data) == 0 {
-		return "(Empty PDF file)"
-	}
-	tmpFile, err := os.CreateTemp("", cfg_g.AppName+"_preview_*.pdf")
-	if err != nil {
-		return fmt.Sprintf("PDF Document (%d bytes)", len(data))
-	}
-	defer os.Remove(tmpFile.Name())
-	if _, writeErr := tmpFile.Write(data); writeErr != nil {
-		_ = tmpFile.Close()
-		return fmt.Sprintf("PDF Document (%d bytes)", len(data))
-	}
-	_ = tmpFile.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", "-nopgbrk", tmpFile.Name(), "-")
-	out, err := cmd.Output()
-	if err == nil && len(strings.TrimSpace(string(out))) > 0 {
-		lines := strings.Split(string(out), "\n")
-		var result []string
-		for _, l := range lines {
-			if strings.TrimSpace(l) != "" {
-				result = append(result, l)
-				if maxLines > 0 && len(result) >= maxLines {
-					break
-				}
-			}
-		}
-		if len(result) > 0 {
-			return strings.Join(result, "\n")
-		}
-	}
-	return fmt.Sprintf("PDF Document: %d bytes\n(Press 'o' to open in OS default viewer, 'Enter' for full modal view)", len(data))
 }
 
 func isTextAttachment(att email.Attachment) bool {
@@ -164,19 +130,7 @@ func getAttachmentIcon(att email.Attachment) string {
 	}
 }
 
-func generateAttachmentPreviewText(att email.Attachment, contentW int, contentH int, invert bool) string {
-	if isPDFAttachment(att) || isImageAttachment(att) {
-		if graphic, err := renderGraphicAttachmentPreview(att, contentW, max(12, contentH), invert); err == nil && len(strings.TrimSpace(graphic)) > 0 {
-			return graphic
-		}
-		if isPDFAttachment(att) {
-			pdfText := extractPDFPreview(att.Data, 1000)
-			if strings.TrimSpace(pdfText) != "" {
-				return wrapTruncatedLines(pdfText, contentW, 1000)
-			}
-		}
-	}
-
+func generateAttachmentPreviewText(att email.Attachment, contentW int) string {
 	if isTextAttachment(att) {
 		return wrapTruncatedLines(string(att.Data), contentW, 1000)
 	}
@@ -272,16 +226,11 @@ func (m *tuiModel) kAttachmentModal(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.attPreviewVp.HalfPageUp()
 	case "pgdown":
 		m.attPreviewVp.HalfPageDown()
-	case "i":
-		m.toggleInvertColors()
-		previewText := generateAttachmentPreviewText(m.attPreviewAtt, m.attPreviewVp.Width, m.attPreviewVp.Height, m.attInvertColors)
-		m.attPreviewVp.SetContent(previewText)
-		return m, nil
 	case "o", "x", "enter":
 		att := m.attPreviewAtt
 		tmpFile, err := writeTempAttachment(att)
 		if err == nil {
-			go openSystemFile(tmpFile)
+			m.openAttachmentFile(att, tmpFile)
 			m.attPreviewStatus = "Opened in external program: " + att.Filename
 		} else {
 			m.attPreviewStatus = "Error opening: " + err.Error()
@@ -322,13 +271,37 @@ func (m *tuiModel) kAttachmentModal(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *tuiModel) syncAttachmentModalViewport() {
+	boxW := min(90, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	contentW := max(16, boxW-6)
+	contentH := min(24, max(5, m.height-10))
+	if m.height > 0 && contentH > m.height {
+		contentH = m.height
+	}
+	if m.attPreviewVp.Width != contentW || m.attPreviewVp.Height != contentH {
+		m.attPreviewVp.Width = contentW
+		m.attPreviewVp.Height = contentH
+		if m.attPreviewAtt.Data != nil {
+			previewText := generateAttachmentPreviewText(m.attPreviewAtt, contentW)
+			m.attPreviewVp.SetContent(previewText)
+		}
+	}
+}
+
 func renderAttachmentModalOverlay(m *tuiModel) string {
 	t := m.theme.Theme()
 	bg := lipgloss.Color("#1a1a35")
 	borderColor := t.Get(render.ColorBorder)
 	titleColor := t.Get(render.ColorHighlightFg)
 
-	boxW := min(90, max(45, m.width-8))
+	boxW := min(90, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	m.syncAttachmentModalViewport()
 	att := m.attPreviewAtt
 
 	titleStyle := lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color(titleColor)).Bold(true)
@@ -358,16 +331,13 @@ func renderAttachmentModalOverlay(m *tuiModel) string {
 	if len(m.attachments) > 1 {
 		footerParts = append(footerParts, keyStyle.Render("[Tab/n] Next"))
 	}
-	if isPDFAttachment(att) || isImageAttachment(att) {
-		footerParts = append(footerParts, keyStyle.Render("[i] Invert"))
-	}
 	footerParts = append(footerParts, keyStyle.Render("[s] Quick Save"))
 	footerParts = append(footerParts, keyStyle.Render("[S] Browse Save"))
 	footerParts = append(footerParts, keyStyle.Render("[o] Open External"))
 	footerParts = append(footerParts, dimStyle.Render("[Esc/q] Close"))
 
 	lines = append(lines, markHints(fitHints(boxW-4, "  ", footerParts),
-		hint{"[Tab/n] Next", "tab"}, hint{"[i] Invert", "i"}, hint{"[s] Quick Save", "s"},
+		hint{"[Tab/n] Next", "tab"}, hint{"[s] Quick Save", "s"},
 		hint{"[S] Browse Save", "S"}, hint{"[o] Open External", "o"}, hint{"[Esc/q] Close", "esc"}))
 
 	content := strings.Join(lines, "\n")
@@ -382,7 +352,7 @@ func renderAttachmentModalOverlay(m *tuiModel) string {
 	return renderDimmedOverlay(m.width, m.height, m.renderBaseScreen(), box)
 }
 
-func renderSelectedAttachmentPreview(m *tuiModel, width int, height int) string {
+func renderSelectedAttachmentPreview(m *tuiModel, width int) string {
 	if m.attCursor < 0 || m.attCursor >= len(m.attachments) {
 		return ""
 	}
@@ -396,24 +366,8 @@ func renderSelectedAttachmentPreview(m *tuiModel, width int, height int) string 
 	var lines []string
 	switch {
 	case isPDFAttachment(att) || isImageAttachment(att):
-		typeName := "📕 PDF"
-		if isImageAttachment(att) {
-			typeName = "🖼️ Image"
-		}
-		lines = append(lines, titleStyle.Render(typeName+": ")+valStyle.Bold(true).Render(att.Filename))
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("Size: %s | 'i': invert | 'o': OS app", formatFileSize(len(att.Data)))))
-
-		if graphic, err := renderGraphicAttachmentPreview(att, width-4, max(6, height), m.attInvertColors); err == nil && len(strings.TrimSpace(graphic)) > 0 {
-			lines = append(lines, "")
-			lines = append(lines, graphic)
-		} else if isPDFAttachment(att) {
-			lines = append(lines, "")
-			preview := extractPDFPreview(att.Data, 6)
-			for _, pl := range strings.Split(preview, "\n") {
-				wrapped := email.WrapText(pl, width-4)
-				lines = append(lines, valStyle.Render(wrapped))
-			}
-		}
+		lines = append(lines, titleStyle.Render(getAttachmentIcon(att)+" ")+valStyle.Bold(true).Render(att.Filename))
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("Size: %s | 'o': open in the OS viewer", formatFileSize(len(att.Data)))))
 	case email.IsICSAttachment(att):
 		lines = append(lines, titleStyle.Render("⏰ Calendar Event: ")+valStyle.Bold(true).Render(att.Filename))
 		if events, err := calendar.ParseAllICSEventsData(att.Data); err == nil && len(events) > 0 {

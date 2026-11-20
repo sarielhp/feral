@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label list'
-parent: 'mail_cli label'
+title: 'feral label list'
+parent: 'feral label'
 ---
 
-# mail\_cli label list
+# feral label list
 
 List all folders and labels in a hierarchical tree view. Pass --full to show full paths, --ext to show unread and total message counts, --nozero to omit empty folders, or --real to query the server in real-time.
 
 ## Usage
 
 ```
-mail_cli label list [flags]
+feral label list [flags]
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli label list [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -33,11 +33,11 @@ mail_cli label list [flags]
 
 ## Examples
 
-- `mail_cli label list`
-- `mail_cli label list --ext`
-- `mail_cli label list --full --ext`
-- `mail_cli label list --nozero`
+- `feral label list`
+- `feral label list --ext`
+- `feral label list --full --ext`
+- `feral label list --nozero`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

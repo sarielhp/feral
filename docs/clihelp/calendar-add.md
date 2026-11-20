@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli calendar add'
-parent: 'mail_cli calendar'
+title: 'feral calendar add'
+parent: 'feral calendar'
 ---
 
-# mail\_cli calendar add
+# feral calendar add
 
 Add a calendar event from an .ics attachment in a specific email.
 
 ## Usage
 
 ```
-mail_cli calendar add [label_prefix] <message_id>
+feral calendar add [label_prefix] <message_id>
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli calendar add [label_prefix] <message_id>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,9 +35,9 @@ mail_cli calendar add [label_prefix] <message_id>
 
 ## Examples
 
-- `mail_cli calendar add 1234abcd`
-- `mail_cli calendar add %receipts 5678efgh`
+- `feral calendar add 1234abcd`
+- `feral calendar add %receipts 5678efgh`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

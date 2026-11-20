@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 
 	"git.sr.ht/~rockorager/go-jmap"
 	"git.sr.ht/~rockorager/go-jmap/mail/mailbox"

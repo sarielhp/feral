@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/llm"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/llm"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,13 +15,13 @@ import (
 )
 
 func (m *tuiModel) setupSummaryViewport() {
-	boxW := min(m.width-4, 88)
-	boxH := min(m.height-12, 18)
-	if boxW < 20 {
-		boxW = 20
+	boxW := min(88, max(20, m.width-4))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
 	}
-	if boxH < 4 {
-		boxH = 4
+	boxH := min(18, max(4, m.height-12))
+	if m.height > 0 && boxH > m.height {
+		boxH = m.height
 	}
 
 	contentW := max(16, boxW-4)
@@ -73,9 +73,9 @@ func renderSummaryOverlay(m *tuiModel) string {
 	bg := lipgloss.Color("#16162a")
 	borderColor := t.Get(render.ColorBorder)
 
-	boxW := min(m.width-4, 88)
-	if boxW < 20 {
-		boxW = 20
+	boxW := min(88, max(20, m.width-4))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
 	}
 
 	m.setupSummaryViewport()

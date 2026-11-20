@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts path'
-parent: 'mail_cli contacts'
+title: 'feral contacts path'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts path
+# feral contacts path
 
 Print the file path to local contacts store.
 
 ## Usage
 
 ```
-mail_cli contacts path
+feral contacts path
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli contacts path
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,4 +28,4 @@ mail_cli contacts path
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

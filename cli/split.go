@@ -3,17 +3,19 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/label"
 	"io"
 	"mime"
 	"net/mail"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/transfer"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -90,7 +92,7 @@ func displaySplitDryRun(w io.Writer, downloadDir cachedir.Account, matchedMsgs [
 
 func executeSplitMove(session *Session, srcClient mailclient.MailClient, targetClient mailclient.MailClient, matchedMsgs []email.ID, sourceUnique label.Folder, targetUnique label.Folder, downloadDir cachedir.Account, srcDisplay string, targetDisplay string) error {
 	fmt.Fprintf(session.errOut(), "%s Moving/removing %d message(s) from %s to %s on server...\n", app.PrefixInfo, len(matchedMsgs), srcDisplay, targetDisplay)
-	if isSameAccount(srcClient, targetClient) {
+	if transfer.SameAccount(srcClient, targetClient) {
 		// No manual folderindex.MoveBatch/msg.ClearClassification here:
 		// srcClient, resolved through the normal client factory, is always
 		// a *mailclient.CheckingMailClient, whose own MoveEmail already
@@ -190,7 +192,7 @@ func splitCmd(session *Session, name, path string) clihelp.Command {
 		Name:        name,
 		Group:       "Folders",
 		Description: "Move emails matching pattern to target label.",
-		UsageLine:   "mail_cli " + path + " <source_label> <pattern> <target_label> [--do]",
+		UsageLine:   "feral " + path + " <source_label> <pattern> <target_label> [--do]",
 		Parameters: []clihelp.Param{
 			{Name: "<source_label>", Description: "Source folder/label containing messages to split.", Complete: CompleteLabelRefs},
 			{Name: "<pattern>", Description: "Subject pattern with wildcards (*, ?) to match."},
@@ -200,8 +202,8 @@ func splitCmd(session *Session, name, path string) clihelp.Command {
 			clihelp.Bool(&flagSplitDo, "--do", false, "Perform the actual move operations"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + ` Inbox "*invoice*" Receipts`},
-			{Line: "mail_cli " + path + ` Inbox "*invoice*" Receipts --do`},
+			{Line: "feral " + path + ` Inbox "*invoice*" Receipts`},
+			{Line: "feral " + path + ` Inbox "*invoice*" Receipts --do`},
 		},
 		Args: clihelp.ExactArgs(3),
 		Run: func(ctx *clihelp.Context) error {

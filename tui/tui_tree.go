@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 )
 
 func transferExpandedStates(oldNodes, newNodes []*label.TreeNode) {
@@ -78,7 +78,7 @@ func (m *tuiModel) buildEntries() {
 	}
 }
 
-func sortThreadRoots(roots []*email.ThreadNode) {
+func (m *tuiModel) sortThreadRoots(roots []*email.ThreadNode) {
 	isBadNode := func(n *email.ThreadNode) bool {
 		return n.Email.IsSpam || n.Email.IsPolitical || n.Email.IsBlacklisted
 	}
@@ -86,10 +86,16 @@ func sortThreadRoots(roots []*email.ThreadNode) {
 		badI := isBadNode(roots[i])
 		badJ := isBadNode(roots[j])
 		if badI != badJ {
+			if m.sortReverse {
+				return badI
+			}
 			return !badI
 		}
 		dateI := email.GetThreadNewestDate(roots[i])
 		dateJ := email.GetThreadNewestDate(roots[j])
+		if m.sortReverse {
+			return dateI.After(dateJ)
+		}
 		return dateI.Before(dateJ)
 	})
 }
@@ -144,7 +150,7 @@ func collectThreadSenders(n *email.ThreadNode) string {
 	seen := make(map[string]bool)
 	var collect func(node *email.ThreadNode)
 	collect = func(node *email.ThreadNode) {
-		name := email.FormatSender(node.Email.FromRaw)
+		name := node.Email.SenderColumn(false)
 		if !seen[name] {
 			seen[name] = true
 			senders = append(senders, name)
@@ -157,6 +163,50 @@ func collectThreadSenders(n *email.ThreadNode) string {
 	return strings.Join(senders, ", ")
 }
 
+func collectThreadCCs(n *email.ThreadNode) string {
+	var parts []string
+	seen := make(map[string]bool)
+	var collect func(node *email.ThreadNode)
+	collect = func(node *email.ThreadNode) {
+		if node.Email == nil {
+			return
+		}
+		for _, item := range []string{
+			node.Email.CcRaw,
+			node.Email.CcEmail,
+			node.Email.ToRaw,
+			node.Email.ToEmail,
+			node.Email.FromRaw,
+			node.Email.FromEmail,
+		} {
+			if item != "" && !seen[item] {
+				seen[item] = true
+				parts = append(parts, item)
+			}
+		}
+		for _, child := range node.Children {
+			collect(child)
+		}
+	}
+	collect(n)
+	return strings.Join(parts, " ")
+}
+
+func emailMatchesQuery(em *email.Email, lowerQuery string) bool {
+	if matched, isList := matchesListFilter(em, lowerQuery); isList {
+		return matched
+	}
+	return strings.Contains(strings.ToLower(em.Subject), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.FromRaw), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.FromEmail), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.ToRaw), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.ToEmail), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.CcRaw), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.CcEmail), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.ThreadSenderSummary), lowerQuery) ||
+		strings.Contains(strings.ToLower(em.ThreadCCSummary), lowerQuery)
+}
+
 func filterVisibleEmails(emails []email.Email, query string, fuzzy bool) []email.Email {
 	if query == "" {
 		return emails
@@ -167,9 +217,7 @@ func filterVisibleEmails(emails []email.Email, query string, fuzzy bool) []email
 	var filtered []email.Email
 	lowerQuery := strings.ToLower(query)
 	for _, em := range emails {
-		if strings.Contains(strings.ToLower(em.Subject), lowerQuery) ||
-			strings.Contains(strings.ToLower(em.FromRaw), lowerQuery) ||
-			strings.Contains(strings.ToLower(em.FromEmail), lowerQuery) {
+		if emailMatchesQuery(&em, lowerQuery) {
 			filtered = append(filtered, em)
 		}
 	}
@@ -181,8 +229,34 @@ func (m *tuiModel) rebuildVisibleEmails() {
 		m.emails = nil
 		return
 	}
+	m.markOwnMail()
+	m.applySessionFlags()
+	if m.sortOption != SortThreads {
+		m.rebuildFlatEmails()
+		return
+	}
+	m.rebuildThreadedEmails()
+}
+
+func (m *tuiModel) rebuildFlatEmails() {
+	flat := make([]email.Email, len(m.rawEmails))
+	copy(flat, m.rawEmails)
+	sortEmailsFlat(flat, m.sortOption, m.sortReverse)
+	for i := range flat {
+		flat[i].ThreadDepth = 0
+		flat[i].ThreadPrefix = ""
+		flat[i].ThreadHasReplies = false
+		flat[i].ThreadRepliesCount = 0
+		flat[i].ThreadCollapsed = false
+		flat[i].ThreadHiddenUnread = false
+		flat[i].ThreadIndex = i + 1
+	}
+	m.emails = filterVisibleEmails(flat, m.searchQuery, m.fuzzySearch)
+}
+
+func (m *tuiModel) rebuildThreadedEmails() {
 	roots := email.BuildThreadTree(m.rawEmails)
-	sortThreadRoots(roots)
+	m.sortThreadRoots(roots)
 	idToNumber := buildThreadIDOrder(roots)
 
 	var visible []email.Email
@@ -202,8 +276,10 @@ func (m *tuiModel) rebuildVisibleEmails() {
 		isCollapsed := !m.expandedThreads[threadKeyOf(&em)]
 		em.ThreadCollapsed = isCollapsed
 		em.ThreadPrefix = computeThreadPrefix(depth, isLastSlice, em.ThreadHasReplies, isCollapsed)
+		em.ThreadHiddenUnread = isCollapsed && hasUnreadReply(n)
 		if em.ThreadHasReplies {
 			em.ThreadSenderSummary = collectThreadSenders(n)
+			em.ThreadCCSummary = collectThreadCCs(n)
 		}
 		visible = append(visible, em)
 		for i, child := range n.Children {
@@ -214,6 +290,91 @@ func (m *tuiModel) rebuildVisibleEmails() {
 		flatten(root, 0, false, []bool{})
 	}
 	m.emails = filterVisibleEmails(visible, m.searchQuery, m.fuzzySearch)
+}
+
+// applySessionFlags writes the read and replied state the session holds onto
+// rawEmails, which every rebuild of the list starts from. The key handlers
+// mark the visible row and the maps; without this, the next rebuild -- a
+// delete, a sort, a search, expanding a thread -- copied the stale row back
+// and an opened message showed N again. Only IDs the maps know are touched:
+// in the unified inbox the maps are the active account's, and a row from
+// another account keeps what its own loader set.
+func (m *tuiModel) applySessionFlags() {
+	for i := range m.rawEmails {
+		id := m.rawEmails[i].ID
+		if v, ok := m.isRead[id]; ok {
+			m.rawEmails[i].IsRead = v
+		}
+		if v, ok := m.isReplied[id]; ok {
+			m.rawEmails[i].IsReplied = v
+		}
+	}
+}
+
+// flagEdit is a read or replied mark made in this session, stamped with the
+// model's flagGen when it was made.
+type flagEdit struct {
+	gen      uint64
+	setsRead bool
+	read     bool
+	replied  bool
+}
+
+// noteRead records a read mark the user made: in the session's map, and as an
+// edit a folder load already in flight must not undo.
+func (m *tuiModel) noteRead(id email.ID, read bool) {
+	m.isRead[id] = read
+	e := m.nextFlagEdit(id)
+	e.setsRead, e.read = true, read
+	m.flagEdits[id] = e
+}
+
+// noteReplied records that the user replied to id. See noteRead.
+func (m *tuiModel) noteReplied(id email.ID) {
+	m.isReplied[id] = true
+	e := m.nextFlagEdit(id)
+	e.replied = true
+	m.flagEdits[id] = e
+}
+
+func (m *tuiModel) nextFlagEdit(id email.ID) flagEdit {
+	if m.flagEdits == nil {
+		m.flagEdits = make(map[email.ID]flagEdit)
+	}
+	m.flagGen++
+	e := m.flagEdits[id]
+	e.gen = m.flagGen
+	return e
+}
+
+// reapplyFlagEdits lays the marks made since a load was dispatched over the
+// maps it brought. The load read the read state before they reached the disk,
+// and replacing the maps with its snapshot showed an opened message as N
+// again. Marks the load came after are dropped: they are on disk, and the
+// pending-reads ledger kept the sync from undoing them.
+func (m *tuiModel) reapplyFlagEdits(loadGen uint64) {
+	for id, e := range m.flagEdits {
+		if e.gen <= loadGen {
+			delete(m.flagEdits, id)
+			continue
+		}
+		if e.setsRead {
+			m.isRead[id] = e.read
+		}
+		if e.replied {
+			m.isReplied[id] = true
+		}
+	}
+}
+
+// hasUnreadReply reports whether any message below n is unread.
+func hasUnreadReply(n *email.ThreadNode) bool {
+	for _, child := range n.Children {
+		if !child.Email.IsRead || hasUnreadReply(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *tuiModel) expandRecursively(emailID email.ID) {
@@ -387,6 +548,56 @@ func expandThreadSubtreeToDepth(n *email.ThreadNode, expanded map[threadKey]bool
 	}
 }
 
+// threadExpandBudget is how many rows one Tab may open below the current
+// message: enough to show a conversation's shape at once, not enough to push
+// the rest of the folder off the screen.
+const threadExpandBudget = 10
+
+// visibleThreadRows counts the rows the expansion state shows below n.
+func visibleThreadRows(n *email.ThreadNode, expanded map[threadKey]bool) int {
+	if !expanded[threadNodeKey(n)] {
+		return 0
+	}
+	rows := 0
+	for _, child := range n.Children {
+		rows += 1 + visibleThreadRows(child, expanded)
+	}
+	return rows
+}
+
+// expandThreadBreadthFirst opens the replies under target one message at a
+// time in breadth-first order, nearest replies first, and stops before the
+// message whose replies would show more than budget rows below target. It
+// reports whether it opened anything.
+func expandThreadBreadthFirst(target *email.ThreadNode, expanded map[threadKey]bool, budget int) bool {
+	opened := false
+	queue := []*email.ThreadNode{target}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		if len(n.Children) == 0 {
+			continue
+		}
+		key := threadNodeKey(n)
+		if !expanded[key] {
+			expanded[key] = true
+			if visibleThreadRows(target, expanded) > budget {
+				delete(expanded, key)
+				return opened
+			}
+			opened = true
+		}
+		queue = append(queue, n.Children...)
+	}
+	return opened
+}
+
+// cycleEmailThreadSubtreeExpansion is what Tab does on a message with
+// replies: it opens the subtree breadth-first within threadExpandBudget
+// rows; when the next message alone would exceed the budget it opens one
+// more level across the subtree instead, so a wide thread still unfolds;
+// and once every reply is showing it folds the subtree. The view then
+// scrolls so that as much of the opened subtree as fits is on screen.
 func (m *tuiModel) cycleEmailThreadSubtreeExpansion(emailID email.ID) {
 	roots := email.BuildThreadTree(m.rawEmails)
 	target := findThreadNode(roots, emailID)
@@ -397,9 +608,10 @@ func (m *tuiModel) cycleEmailThreadSubtreeExpansion(emailID email.ID) {
 	minUnexpandedDepth := -1
 	findShallowestUnexpandedDepth(target, m.expandedThreads, 0, &minUnexpandedDepth)
 
-	if minUnexpandedDepth == -1 {
+	switch {
+	case minUnexpandedDepth == -1:
 		collapseThreadSubtree(target, m.expandedThreads)
-	} else {
+	case !expandThreadBreadthFirst(target, m.expandedThreads, threadExpandBudget):
 		expandThreadSubtreeToDepth(target, m.expandedThreads, 0, minUnexpandedDepth)
 	}
 
@@ -408,6 +620,47 @@ func (m *tuiModel) cycleEmailThreadSubtreeExpansion(emailID email.ID) {
 		if e.ID == emailID {
 			m.eIdx = i
 			break
+		}
+	}
+	m.revealThreadBelow()
+}
+
+// revealThreadBelow scrolls the index so that as much as possible of the
+// subtree under the current message is on screen, moving the current message
+// up to the top line when the subtree needs the whole page. It never scrolls
+// down past the current message.
+func (m *tuiModel) revealThreadBelow() {
+	if m.eIdx < 0 || m.eIdx >= len(m.emails) {
+		return
+	}
+	depth := m.emails[m.eIdx].ThreadDepth
+	last := m.eIdx
+	for last+1 < len(m.emails) && m.emails[last+1].ThreadDepth > depth {
+		last++
+	}
+	want := min(m.eIdx, last-m.indexLines()+1)
+	if want > m.indexStart {
+		m.indexStart = want
+	}
+}
+
+// markOwnMail marks every message whose sender is one of the user's own
+// addresses (my_emails and the accounts' user_email) as authored, wherever it
+// is filed: its row then shows the recipient, as a Sent folder's do, and a
+// reply to it goes to that recipient rather than back to the user. It only
+// ever sets the mark; a row a Sent folder marked keeps it.
+func (m *tuiModel) markOwnMail() {
+	own := m.cfg.OwnAddresses()
+	if len(own) == 0 {
+		return
+	}
+	for i := range m.rawEmails {
+		e := &m.rawEmails[i]
+		if e.IsAuthored || e.FromRaw == "" {
+			continue
+		}
+		if _, addr := email.ParseSenderInfo(e.FromRaw); own[addr] {
+			e.IsAuthored = true
 		}
 	}
 }

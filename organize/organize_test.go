@@ -1,17 +1,18 @@
 package organize_test
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
 )
 
 func TestResolveArchiveTarget(t *testing.T) {
@@ -236,5 +237,85 @@ func TestResolveSentTarget(t *testing.T) {
 	gotGmail, err := organize.ResolveSentTarget(gmailClient)
 	if err != nil || gotGmail.String() != "SENT" {
 		t.Errorf("expected 'SENT', got %q, err %v", gotGmail, err)
+	}
+}
+
+func TestIsAuthoredFolder(t *testing.T) {
+	// A backend where GetMatchingLabels fails with network error.
+	failingClient := &mailclient.MockMailClient{
+		FailOn:         map[string]error{"GetMatchingLabels": errors.New("network error")},
+		BackendTypeVal: "jmap",
+	}
+
+	// Inbox, Spam, Trash must never query labels and return false immediately.
+	for _, folder := range []string{"INBOX", "inbox", "Spam", "SPAM", "Trash", "trash"} {
+		if organize.IsAuthoredFolder(failingClient, label.FromServer(folder)) {
+			t.Errorf("IsAuthoredFolder(%q) = true, want false", folder)
+		}
+	}
+
+	// Gmail must not query labels and return true for SENT and DRAFTS.
+	gmailClient := &mailclient.MockMailClient{
+		FailOn:         map[string]error{"GetMatchingLabels": errors.New("network error")},
+		BackendTypeVal: "gmail",
+	}
+	for _, folder := range []string{"SENT", "sent", "DRAFT", "draft", "DRAFTS", "drafts",
+		"Sent Mail", "[Gmail]/Sent Mail", "[Gmail]/Drafts", "[Google Mail]/Sent Mail", "[Google Mail]/Drafts"} {
+		if !organize.IsAuthoredFolder(gmailClient, label.FromServer(folder)) {
+			t.Errorf("Gmail IsAuthoredFolder(%q) = false, want true", folder)
+		}
+	}
+	for _, folder := range []string{"[Gmail]/Trash", "[Gmail]/Spam", "[Gmail]/All Mail", "Sent Items"} {
+		if organize.IsAuthoredFolder(gmailClient, label.FromServer(folder)) {
+			t.Errorf("Gmail IsAuthoredFolder(%q) = true, want false", folder)
+		}
+	}
+	if organize.IsAuthoredFolder(gmailClient, label.FromServer("INBOX")) {
+		t.Error("Gmail IsAuthoredFolder(INBOX) = true, want false")
+	}
+	if organize.IsAuthoredFolder(gmailClient, label.FromServer("Work")) {
+		t.Error("Gmail IsAuthoredFolder(Work) = true, want false")
+	}
+
+	// Normal client matching sent and drafts.
+	normalClient := &mailclient.MockMailClient{
+		Labels:         []string{"INBOX", "Sent", "Drafts", "Archive"},
+		BackendTypeVal: "jmap",
+	}
+	if !organize.IsAuthoredFolder(normalClient, label.FromServer("Sent")) {
+		t.Error("IsAuthoredFolder(Sent) = false, want true")
+	}
+	if !organize.IsAuthoredFolder(normalClient, label.FromServer("Drafts")) {
+		t.Error("IsAuthoredFolder(Drafts) = false, want true")
+	}
+	if organize.IsAuthoredFolder(normalClient, label.FromServer("Archive")) {
+		t.Error("IsAuthoredFolder(Archive) = true, want false")
+	}
+}
+
+// ResolveSpamTarget names the folder each backend's ReportSpam files into, so
+// a move out of it can be named: Gmail's label, Outlook's fixed folder, the
+// configured folder elsewhere.
+func TestResolveSpamTarget(t *testing.T) {
+	tests := []struct {
+		backend, configured, want string
+		wantErr                   bool
+	}{
+		{backend: "gmail", configured: "[Gmail]/Spam", want: "SPAM"},
+		{backend: "outlook", configured: "Junk", want: "Junk Email"},
+		{backend: "jmap", configured: "Junk Mail", want: "Junk Mail"},
+		{backend: "jmap", want: "Spam"},
+		{backend: "mbox", wantErr: true},
+	}
+	for _, tt := range tests {
+		client := &mailclient.MockMailClient{BackendTypeVal: tt.backend,
+			Cfg: &cfg_g.Config{Policy: cfg_g.Policy{SpamFolder: tt.configured}}}
+		got, err := organize.ResolveSpamTarget(client)
+		if (err != nil) != tt.wantErr {
+			t.Fatalf("%s: err = %v, want error %v", tt.backend, err, tt.wantErr)
+		}
+		if got.String() != tt.want {
+			t.Errorf("%s (%q): got %q, want %q", tt.backend, tt.configured, got, tt.want)
+		}
 	}
 }

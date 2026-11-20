@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/label"
 )
 
 type graphFolder struct {
@@ -64,15 +65,18 @@ func (c *client) fetchFoldersRecursive(parentID string, parentPath string) ([]cf
 		idMap[strings.ToLower(fullName)] = f.ID
 		idMap[strings.ToLower(f.DisplayName)] = f.ID
 
-		if f.ChildFolderCount > 0 {
-			childItems, childMap, err := c.fetchFoldersRecursive(f.ID, fullName)
-			if err == nil {
-				items = append(items, childItems...)
-				for k, v := range childMap {
-					idMap[k] = v
-				}
-			}
+		if f.ChildFolderCount == 0 {
+			continue
 		}
+		// A subtree that cannot be listed fails the listing. It used to be
+		// skipped, and the partial tree was cached as the whole one, so a
+		// throttled request made folders vanish until the next refresh.
+		childItems, childMap, err := c.fetchFoldersRecursive(f.ID, fullName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("listing the folders in %q: %w", fullName, err)
+		}
+		items = append(items, childItems...)
+		maps.Copy(idMap, childMap)
 	}
 
 	return items, idMap, nil

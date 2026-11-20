@@ -2,16 +2,16 @@ package runner
 
 import (
 	"bytes"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/show"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/show"
 )
 
 const refTestRaw = "From: a@example.com\r\nSubject: Hello\r\n\r\nbody\r\n"
@@ -75,5 +75,19 @@ func TestRunShowOnAccounts_BareIDIsNotALabel(t *testing.T) {
 	err := RunShowOnAccounts(show.Options{}, &bytes.Buffer{}, &cfg_g.Config{}, "1234ABCD", "", nil)
 	if err != nil && strings.Contains(err.Error(), "not a label reference") {
 		t.Errorf("a message ID was parsed as a label: %v", err)
+	}
+}
+
+// "virtual/<name>" is a saved result set: not a message ID, and not a server
+// folder, so it must reach neither parser.
+func TestRunShowOnAccounts_VirtualPrefixIsNeitherIDNorLabel(t *testing.T) {
+	err := RunShowOnAccounts(show.Options{}, &bytes.Buffer{}, &cfg_g.Config{}, "virtual/last", "", nil)
+	if err == nil {
+		t.Fatal("an unconfigured account must fail")
+	}
+	for _, wrong := range []string{"no message with ID", "not a label reference"} {
+		if strings.Contains(err.Error(), wrong) {
+			t.Errorf("a saved-set reference was misparsed (%q): %v", wrong, err)
+		}
 	}
 }

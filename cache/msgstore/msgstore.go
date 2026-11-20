@@ -19,13 +19,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
 )
 
 // DefaultWorkers bounds concurrent downloads when a backend has no batch API.

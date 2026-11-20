@@ -5,10 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -335,5 +337,165 @@ func TestHandleErrorKey_InteractiveAuthKeys(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected non-nil tea.Cmd for 'l' on auth error")
+	}
+}
+
+func TestHandleErrorKey_InteractiveAuthKeys_Gmail(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{
+		{Name: "personal", DisplayName: "Personal Gmail", Type: "gmail"},
+	}
+	m := newTestMultiAccountModel(accs, "personal")
+
+	m.showError = true
+	m.err = mailclient.ErrInteractiveAuthRequired
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = res.(*tuiModel)
+	if m.showError {
+		t.Error("expected showError=false after pressing 'l'")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd for 'l' on auth error")
+	}
+}
+
+func TestAccountSwitch_ShowLoadAndDismiss(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{
+		{Name: "acc1", DisplayName: "Account 1", Type: "gmail"},
+		{Name: "acc2", DisplayName: "Account 2", Type: "jmap"},
+	}
+	m := newTestMultiAccountModel(accs, "acc1")
+	m.emails = nil
+	m.showLoad = "Downloading..."
+
+	// A background poll finishing must not clear another operation's indicator.
+	res, _ := m.Update(bgCheckDoneMsg{folder: "INBOX"})
+	m = res.(*tuiModel)
+	if m.showLoad != "Downloading..." {
+		t.Errorf("background bgCheckDoneMsg cleared showLoad, got %q", m.showLoad)
+	}
+
+	// A foreground load returning clears showLoad.
+	res, _ = m.Update(bgCheckDoneMsg{folder: "INBOX", foreground: true})
+	m = res.(*tuiModel)
+	if m.showLoad != "" {
+		t.Errorf("expected showLoad to be empty after bgCheckDoneMsg, got %q", m.showLoad)
+	}
+
+	// Esc dismisses showLoad
+	m.showLoad = "Downloading..."
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = res.(*tuiModel)
+	if m.showLoad != "" {
+		t.Errorf("expected showLoad to be cleared after Esc, got %q", m.showLoad)
+	}
+
+	// q dismisses showLoad
+	m.showLoad = "Downloading..."
+	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = res.(*tuiModel)
+	if m.showLoad != "" {
+		t.Errorf("expected showLoad to be cleared after q, got %q", m.showLoad)
+	}
+	if m.done {
+		t.Error("expected q to dismiss showLoad rather than quitting immediately")
+	}
+}
+
+// A load that changes the server cannot be recalled, so Esc and q must not hide
+// it: the dialog stays, and says why, until the result arrives.
+func TestShowLoad_EscDoesNotHideServerChange(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{{Name: "acc1", DisplayName: "Account 1", Type: "gmail"}}
+	for _, load := range []string{loadUnspamming, loadMovingSpam} {
+		for _, k := range []tea.KeyMsg{{Type: tea.KeyEsc}, {Type: tea.KeyRunes, Runes: []rune{'q'}}} {
+			m := newTestMultiAccountModel(accs, "acc1")
+			m.showLoad = load
+			res, _ := m.Update(k)
+			m = res.(*tuiModel)
+			if m.showLoad != load || m.done {
+				t.Fatalf("%q during %q: showLoad=%q done=%v; want the load kept", k.String(), load, m.showLoad, m.done)
+			}
+			if view := m.renderLoadingOverlay(); !strings.Contains(view, "cannot be canceled") {
+				t.Errorf("%q during %q: the dialog does not say it cannot be canceled:\n%s", k.String(), load, view)
+			}
+		}
+	}
+}
+
+// A busy notice that covers the list keeps keys off it. They used to pass
+// through: "d" under "Unspamming..." deleted whichever message the hidden
+// cursor was on. While a folder downloads, the keys that lead elsewhere --
+// f for the folder tree -- still work.
+func TestShowLoad_KeysDoNotActUnderIt(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{{Name: "acc1", DisplayName: "Account 1", Type: "gmail"}}
+	m := newTestMultiAccountModel(accs, "acc1")
+	m.currentF = "INBOX"
+	m.rawEmails = []email.Email{{ID: "a", Subject: "a"}, {ID: "b", Subject: "b"}}
+	m.rebuildVisibleEmails()
+	m.eIdx, m.selectedID = 0, "a"
+	m.showLoad = loadUnspamming
+
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyRunes, Runes: []rune{'d'}}} {
+		res, _ := m.Update(k)
+		m = res.(*tuiModel)
+	}
+	if m.eIdx != 0 || len(m.pendingEmails) != 0 || len(m.emails) != 2 {
+		t.Errorf("keys acted under %q: eIdx=%d pending=%v rows=%d", loadUnspamming, m.eIdx, m.pendingEmails, len(m.emails))
+	}
+
+	m.showLoad = "Downloading..."
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if m = res.(*tuiModel); !m.treeOpen {
+		t.Error("f did not open the folder tree while a folder was downloading")
+	}
+}
+
+// Under --read-only the menu's "Move to Spam" and the tagged bulk move are
+// refused where they start, as their keys are. The menu path used to remove
+// the row and mark it, which also trains the filter and records an override:
+// local records of a move that never happened.
+func TestReadOnly_MenuSpamAndBulkMoveRefused(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{{Name: "acc1", DisplayName: "Account 1", Type: "gmail"}}
+	setup := func() *tuiModel {
+		m := newTestMultiAccountModel(accs, "acc1")
+		m.cfg.ReadOnly = true
+		m.currentF = "INBOX"
+		m.rawEmails = []email.Email{{ID: "a", Subject: "a"}, {ID: "b", Subject: "b"}}
+		m.rebuildVisibleEmails()
+		m.eIdx, m.selectedID = 0, "a"
+		return m
+	}
+
+	m := setup()
+	m.menuOpen = true
+	m.menuItems = []string{"Move to Spam"}
+	m.menuCursor = 0
+	m.handleMenuSelection()
+	if len(m.emails) != 2 || len(m.pendingEmails) != 0 || !m.showError {
+		t.Errorf("menu spam under --read-only: rows=%d pending=%v error=%v", len(m.emails), m.pendingEmails, m.showError)
+	}
+
+	m = setup()
+	m.taggedIDs = map[email.ID]bool{"a": true, "b": true}
+	m.executeBulkMoveToFolder(label.FromServer("Archive"))
+	if len(m.emails) != 2 || len(m.pendingEmails) != 0 || !m.showError {
+		t.Errorf("bulk move under --read-only: rows=%d pending=%v error=%v", len(m.emails), m.pendingEmails, m.showError)
+	}
+}
+
+// The sign-in the TUI starts carries --read-only on, so the child does not
+// load the configuration as a writer.
+func TestLoginArgsCarryReadOnly(t *testing.T) {
+	accs := []cfg_acc.AccountConfig{{Name: "acc1", Type: "outlook"}}
+	m := newTestMultiAccountModel(accs, "acc1")
+	if got := strings.Join(m.loginArgs("acc1"), " "); got != "account login acc1" {
+		t.Errorf("plain session: %q", got)
+	}
+	m.cfg.ReadOnly = true
+	if got := strings.Join(m.loginArgs("acc1"), " "); got != "--read-only account login acc1" {
+		t.Errorf("read-only session: %q", got)
+	}
+	m.cfg.DryRun = true
+	if got := strings.Join(m.loginArgs("acc1"), " "); got != "--dry-run account login acc1" {
+		t.Errorf("dry-run session: %q", got)
 	}
 }

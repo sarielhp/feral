@@ -5,9 +5,10 @@ import (
 	"strings"
 )
 
-// reReferenceLine matches an entry of the link list w3m appends under
-// References ("[3] https://..."): one link per line, never joined.
-var reReferenceLine = regexp.MustCompile(`^\[\d+\](\s|$)`)
+// reReferenceLine matches an entry of the link list under References, in
+// the form w3m writes ("[3] https://...") or the titled form labelLinks
+// makes of it (`[3]: https://... "Help"`): one link per line, never joined.
+var reReferenceLine = regexp.MustCompile(`^\[\d+\]:?(\s|$)`)
 
 func isBulletOrHeader(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")

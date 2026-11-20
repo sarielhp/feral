@@ -2,11 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -18,12 +17,13 @@ func ReplyCmd(session *Session) clihelp.Command {
 		Group:           "Messages",
 		Description:     "Reply to an email preserving thread headers.",
 		LongDescription: "Reply to an email with auto-quoting, Re: subject, and threading headers.",
-		UsageLine:       "mail_cli msg reply [flags] <message-id>",
+		UsageLine:       "feral msg reply [flags] <message-id>",
 		Parameters: []clihelp.Param{
 			{Name: "<message-id>", Description: "Message ID or prefix hash of the email to reply to."},
 		},
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagReplyGroup, "-g, --group", false, "Group reply (reply to all recipients)."),
+			clihelp.Bool(&flagReplyList, "-l, --list", false, "Reply to the mailing list (List-Post) alone."),
 			clihelp.String(&flagReplySubject, "-s, --subject <text>", "", "Override reply subject line."),
 			clihelp.String(&flagReplyCc, "-c, --cc <address>", "", "Additional Cc recipient address (comma-separated)."),
 			clihelp.String(&flagReplyBcc, "-b, --bcc <address>", "", "Bcc recipient (comma-separated)."),
@@ -31,22 +31,24 @@ func ReplyCmd(session *Session) clihelp.Command {
 			clihelp.String(&flagReplyInclude, "-i, --include <path>", "", "Path to file containing reply body."),
 			clihelp.String(&flagReplyBody, "--body <text>", "", "Inline reply body text."),
 			clihelp.Bool(&flagReplyNoQuote, "--no-quote", false, "Omit quoted text from original email."),
+			clihelp.Bool(&flagReplyNoSig, "--no-signature", false, "With --headless, send without the signature."),
 			clihelp.Bool(&flagReplyHeadless, "--headless", false, "Send directly without interactive editor or TUI review."),
 		},
 		Args: clihelp.ExactArgs(1),
 		OptionsValidator: clihelp.ValidateOptions(
 			clihelp.MutuallyExclusive("body", "include"),
+			clihelp.MutuallyExclusive("group", "list"),
 		),
 		Run: func(ctx *clihelp.Context) error {
 			return runReply(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli msg reply 18fb1234abcd`, Description: "Reply interactively to message in editor and review screen"},
-			{Line: `mail_cli msg reply -g 18fb1234abcd`, Description: "Group reply (reply-all) interactively to all recipients"},
-			{Line: `mail_cli msg reply --headless --body "Thanks, received!" 18fb1234abcd`, Description: "Send reply non-interactively with inline body"},
-			{Line: `mail_cli msg reply --headless -i reply.txt 18fb1234abcd`, Description: "Send reply non-interactively reading body from file"},
-			{Line: `mail_cli msg reply --headless 18fb1234abcd < reply.txt`, Description: "Send reply non-interactively reading body from stdin pipe"},
-			{Line: `mail_cli msg reply --no-quote -s "New topic" 18fb1234abcd`, Description: "Reply without quoting original message with custom subject"},
+			{Line: `feral msg reply 18fb1234abcd`, Description: "Reply interactively to message in editor and review screen"},
+			{Line: `feral msg reply -g 18fb1234abcd`, Description: "Group reply (reply-all) interactively to all recipients"},
+			{Line: `feral msg reply --headless --body "Thanks, received!" 18fb1234abcd`, Description: "Send reply non-interactively with inline body"},
+			{Line: `feral msg reply --headless -i reply.txt 18fb1234abcd`, Description: "Send reply non-interactively reading body from file"},
+			{Line: `feral msg reply --headless 18fb1234abcd < reply.txt`, Description: "Send reply non-interactively reading body from stdin pipe"},
+			{Line: `feral msg reply --no-quote -s "New topic" 18fb1234abcd`, Description: "Reply without quoting original message with custom subject"},
 		},
 	}
 }
@@ -76,6 +78,7 @@ func runReply(session *Session, args []string) error {
 		MessageID:   msgID,
 		Account:     selectedAcc,
 		Group:       flagReplyGroup,
+		List:        flagReplyList,
 		Subject:     flagReplySubject,
 		Cc:          splitCommaList(flagReplyCc),
 		Bcc:         splitCommaList(flagReplyBcc),
@@ -85,6 +88,7 @@ func runReply(session *Session, args []string) error {
 		Headless:    flagReplyHeadless,
 		NoQuote:     flagReplyNoQuote,
 		DryRun:      dryRun,
+		NoSignature: flagReplyNoSig,
 	}
 
 	return session.send().Reply(session.Config, opts)
@@ -102,13 +106,8 @@ func resolveReplyBody(headless bool) (string, error) {
 		return string(bytes), nil
 	}
 
-	stat, err := os.Stdin.Stat()
-	if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-		bytes, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", fmt.Errorf("reading reply body from stdin: %w", err)
-		}
-		return string(bytes), nil
+	if body, ok, err := readRedirectedStdin(); ok || err != nil {
+		return body, err
 	}
 
 	if headless {

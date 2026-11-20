@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 )
 
 func storeOne(t *testing.T, dir string, id email.ID) cachedir.Account {

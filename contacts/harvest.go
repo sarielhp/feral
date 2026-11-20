@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
 	"io"
 	"net/mail"
 	"os"
@@ -13,10 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // HistoryBook stores harvested communication history with interaction frequency and recency.
@@ -41,12 +41,11 @@ func DefaultHistoryPath(config *cfg_g.Config) string {
 	if config != nil && config.CacheRoot != "" {
 		return filepath.Join(filepath.Clean(config.CacheRoot), "suggested_contacts.json")
 	}
-	cacheDir, err := os.UserCacheDir()
+	cacheDir, err := cfg_g.UserCacheDir()
 	if err != nil {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".cache", app.AppName, "suggested_contacts.json")
+		return "suggested_contacts.json"
 	}
-	return filepath.Join(cacheDir, app.AppName, "suggested_contacts.json")
+	return filepath.Join(cacheDir, "suggested_contacts.json")
 }
 
 // LoadHistory reads suggested_contacts.json, returning an empty HistoryBook if not found.

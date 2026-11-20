@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // mockMailClient implementing MailClient just for GetMatchingLabels
@@ -429,7 +429,7 @@ func TestRuleCmd_ExamplesUseCanonicalSubcommands(t *testing.T) {
 
 	for _, ex := range ruleCmd.Examples {
 		parts := strings.Fields(ex.Line)
-		if len(parts) >= 3 && parts[0] == "mail_cli" && parts[1] == "rule" {
+		if len(parts) >= 3 && parts[0] == "feral" && parts[1] == "rule" {
 			sub := parts[2]
 			if !subcmdMap[sub] {
 				t.Errorf("example %q uses non-existent or invalid subcommand %q", ex.Line, sub)

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule remote list'
-parent: 'mail_cli rule remote'
+title: 'feral rule remote list'
+parent: 'feral rule remote'
 ---
 
-# mail\_cli rule remote list
+# feral rule remote list
 
 List server-side filters for this account.
 
 ## Usage
 
 ```
-mail_cli rule remote list
+feral rule remote list
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli rule remote list
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli rule remote list
 
 ## Examples
 
-- `mail_cli rule remote list`
+- `feral rule remote list`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

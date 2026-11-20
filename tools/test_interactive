@@ -1,0 +1,37 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# test_interactive -- the whole interactive suite in one run.
+#
+# The interactive tests drive the real binary in kitty: against a fake server
+# (make interactive), against the seeded test account (make interactive-live),
+# and with random keys from every screen (make interactive-monkey). In the
+# session that wrote them they found a bug on nearly every run, which no unit
+# test had caught. They take about seven minutes and need kitty, Xvfb and the
+# seeded test account, so they belong to neither the gate nor a release: run
+# them by hand every so often, and after a change to the TUI.
+#
+#   tools/test_interactive        (or: make interactive-check)
+#
+# A step that cannot run -- no kitty, no test account -- fails rather than
+# passing by testing nothing.
+
+STEPS = [
+  ['fake-server interactive tests', %w[make interactive]],
+  ['live TUI tests against the test account', %w[make interactive-live]],
+  ['random keys from every screen', %w[make interactive-monkey MONKEY_KEYS=1900]]
+].freeze
+
+def run_step(name, cmd)
+  puts "[interactive] #{name}: #{cmd.join(' ')}"
+  started = Time.now
+  ok = system(*cmd)
+  elapsed = (Time.now - started).round
+  abort "[interactive] FAILED: #{name} (#{elapsed}s)" unless ok
+  puts "[interactive] passed: #{name} (#{elapsed}s)"
+end
+
+abort 'usage: tools/test_interactive' unless ARGV.empty?
+
+STEPS.each { |name, cmd| run_step(name, cmd) }
+puts '[interactive] all passed'

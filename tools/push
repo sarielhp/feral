@@ -3,6 +3,21 @@
 
 require 'open3'
 
+HELP = <<~TEXT
+  Usage: tools/push [remote] [branch] [git push options...]
+
+  Push the current branch to <remote> (default origin) as <branch> (default
+  the current branch's name). Extra arguments go to git push.
+
+  Options:
+    -h, --help  Show this help; nothing is run.
+TEXT
+
+if ARGV.intersect?(%w[-h --help])
+  puts HELP
+  exit
+end
+
 root_dir = File.expand_path('..', __dir__)
 Dir.chdir(root_dir)
 

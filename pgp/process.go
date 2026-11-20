@@ -5,7 +5,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 // Options is what the caller asked the PGP layer to do. Both default to off so

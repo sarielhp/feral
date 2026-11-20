@@ -2,18 +2,18 @@ package tui
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -339,5 +339,38 @@ func TestRenderMarkdownSummary_HidesLegacyClassification(t *testing.T) {
 	}
 	if !strings.Contains(out, "Talk on Friday") {
 		t.Errorf("TL;DR lost:\n%s", out)
+	}
+}
+
+// A --read-only session writes no summaries: one sends the message body to
+// the LLM endpoint. Neither the background queue nor F4 contacts it; F4 still
+// shows a summary already on disk.
+func TestTUI_NoSummariesUnderReadOnly(t *testing.T) {
+	cacheDir := t.TempDir()
+	account := cachedir.At(cacheDir)
+	_ = msg.Store(account, "e1", []byte("From: a@b.com\r\nSubject: Email 1\r\n\r\nContent 1"), time.Now())
+	_ = msg.Store(account, "e2", []byte("From: a@b.com\r\nSubject: Email 2\r\n\r\nContent 2"), time.Now())
+	_ = msg.StoreSummary(account, "e2", "**TL;DR**: Written before.")
+	server := newSummaryServer(t, "**TL;DR**: Should not be asked for.")
+	cfg := &cfg_g.Config{ReadOnly: true, LLM: cfg_g.LLMConfig{Endpoint: server.URL, APIKey: "sk-test"},
+		Paths: cfg_g.Paths{CacheRoot: cacheDir}, AccountCache: account}
+	m := newTuiModel(&mailclient.MockMailClient{Cfg: cfg}, "INBOX", nil)
+	m.cfg = cfg
+	m.width, m.height = 80, 24
+	m.rawEmails = []email.Email{{ID: "e1", Subject: "Email 1"}, {ID: "e2", Subject: "Email 2"}}
+	m.emails = m.rawEmails
+
+	if cmd := m.startBackgroundSummaryQueue(); cmd != nil || m.summaryInFlight {
+		t.Fatal("the background queue started under --read-only")
+	}
+	m.eIdx, m.selectedID = 0, "e1"
+	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF4}); cmd != nil || !m.showError {
+		t.Errorf("F4 on an unsummarized message under --read-only: cmd=%v error=%v", cmd != nil, m.showError)
+	}
+	m.showError = false
+	m.eIdx, m.selectedID = 1, "e2"
+	m.Update(tea.KeyMsg{Type: tea.KeyF4})
+	if !m.showSummary || !strings.Contains(m.summaryContent, "Written before") {
+		t.Errorf("F4 did not show the summary already on disk: show=%v content=%q", m.showSummary, m.summaryContent)
 	}
 }

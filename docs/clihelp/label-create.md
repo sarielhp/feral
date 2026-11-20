@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label create'
-parent: 'mail_cli label'
+title: 'feral label create'
+parent: 'feral label'
 ---
 
-# mail\_cli label create
+# feral label create
 
 Create a label or folder on the server.
 
 ## Usage
 
 ```
-mail_cli label create <lbl_name>
+feral label create <lbl_name>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli label create <lbl_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,8 +34,8 @@ mail_cli label create <lbl_name>
 
 ## Examples
 
-- `mail_cli labels create "Work/Projects"`
+- `feral labels create "Work/Projects"`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -12,15 +12,15 @@ func ArcCmd(session *Session) clihelp.Command {
 		Aliases:     []string{"arc"},
 		Hidden:      true,
 		Description: "Archive messages by ID or folder prefix.",
-		UsageLine:   "mail_cli archive <all [label] | message-id...>",
+		UsageLine:   "feral archive <all [label] | message-id...>",
 		Parameters: []clihelp.Param{
 			{Name: "all [label]", Description: "Archive all emails in the Inbox or specified label prefix."},
 			{Name: "<message-id...>", Description: "One or more message IDs to archive (short 8-char or full).", Variadic: true},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli archive abc123de"},
-			{Line: "mail_cli archive all"},
-			{Line: "mail_cli archive all receipts"},
+			{Line: "feral archive abc123de"},
+			{Line: "feral archive all"},
+			{Line: "feral archive all receipts"},
 		},
 		Args: clihelp.MinimumNArgs(1),
 		Run: func(ctx *clihelp.Context) error {

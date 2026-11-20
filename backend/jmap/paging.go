@@ -1,7 +1,7 @@
 package jmap
 
 import (
-	"github.com/sarielhp/mail_cli/backend/paging"
+	"github.com/sarielhp/feral/backend/paging"
 
 	"git.sr.ht/~rockorager/go-jmap"
 	"git.sr.ht/~rockorager/go-jmap/mail/email"

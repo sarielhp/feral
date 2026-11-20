@@ -3,26 +3,97 @@ package tui
 import (
 	"errors"
 	"strings"
+	"time"
 
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m *tuiModel) handleComposeModeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.fileBrowserOpen {
-		return m.kFileBrowser(k)
+// quitKey leaves the program from anywhere in it.
+const quitKey = "ctrl+q"
+
+// handleKey gives a key to the screen on top: the first open layer of the
+// table in screen_layers.go, which is also what view draws. A few keys act
+// whatever is open beneath a given depth, as the table's groups say: Ctrl+Q
+// and Ctrl+C quit, F9 lets the mouse go, l signs in after an expired sign-in,
+// F1 opens help and Ctrl+D the diagnostics.
+func (m *tuiModel) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := k.String()
+	from := 0
+	if s == quitKey {
+		// Ctrl+q quits from every screen and prompt, the way Ctrl+c does
+		// outside them: a message being written is kept as a draft.
+		s, from = "ctrl+c", firstLayerAfter(groupPrompt)
 	}
-	if m.attModalOpen {
-		return m.kAttachmentModal(k)
+	i, top := m.topLayer(from)
+	switch {
+	case top.group == groupPrompt:
+		return top.key(m, k)
+	case top.group == groupExiting:
+		return m.handleKeyWhileExiting(s)
+	case s == "ctrl+c":
+		if m.mode == modeCompose && m.compose != nil {
+			return m.ctrlCInCompose()
+		}
+		m.done = true
+		return m, tea.Quit
+	case top.group == groupQuit:
+		return m.kQuitConfirm(s)
+	case s == mouseToggleKey:
+		return m.toggleMouse()
+	case top.group == groupHelp:
+		return m.kHelp(k)
 	}
-	if m.accountOverlayOpen {
-		return m.kAccountOverlay(k)
+	if model, cmd, handled := m.handleAuthErrorLogin(s); handled {
+		return model, cmd
 	}
-	if m.contactPick != nil {
-		return m.kContactPicker(k)
+	return m.dispatchLayer(i, k)
+}
+
+// dispatchLayer gives the key to layer i or, past a busy notice that lets
+// it through, to the one beneath; F1 and Ctrl+D act from the depth the
+// table gives them.
+func (m *tuiModel) dispatchLayer(i int, k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := k.String()
+	for {
+		var top *layer
+		i, top = m.topLayer(i)
+		if top.id == scrLoading {
+			if m.busyBlocks(s) {
+				return m, nil
+			}
+			i++
+			continue
+		}
+		if top.group >= groupOverlay && s == "f1" {
+			m.openHelp()
+			m.showDiag = false
+			m.menuOpen = false
+			m.spamMenuOpen = false
+			m.showError = false
+			return m, nil
+		}
+		if top.group >= groupBase && s == "ctrl+d" {
+			m.showDiag = true
+			m.closeHelp()
+			m.closeTree()
+			m.accountOverlayOpen = false
+			m.diagVp.GotoBottom()
+			return m, nil
+		}
+		return top.key(m, k)
 	}
-	return m.handleComposeKey(k)
+}
+
+// firstLayerAfter is the index of the first layer below group g.
+func firstLayerAfter(g layerGroup) int {
+	for i, l := range screenLayers {
+		if l.group > g {
+			return i
+		}
+	}
+	return len(screenLayers) - 1
 }
 
 // handleKeyWhileExiting runs while the program waits for a draft upload
@@ -53,6 +124,7 @@ func (m *tuiModel) ctrlCInCompose() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.contactPick = nil
+	m.aliasView = nil
 	m.commitComposeField()
 	m.fileBrowserOpen = false
 	m.attModalOpen = false
@@ -62,142 +134,26 @@ func (m *tuiModel) ctrlCInCompose() (tea.Model, tea.Cmd) {
 	return m.saveDraftAndLeave(true)
 }
 
-func (m *tuiModel) handleModalOverlayKey(k tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
-	switch {
-	case m.menuOpen:
-		model, cmd := m.kMenu(k)
-		return model, cmd, true
-	case m.spamMenuOpen:
-		model, cmd := m.kSpamMenu(k)
-		return model, cmd, true
-	case m.showDiag:
-		model, cmd := m.kDiag(k)
-		return model, cmd, true
-	case m.showSummary:
-		model, cmd := m.kSummary(k)
-		return model, cmd, true
-	case m.showDeadlinesAgenda:
-		model, cmd := m.kDeadlinesAgenda(k)
-		return model, cmd, true
-	case m.blockModalOpen:
-		model, cmd := m.kBlockModal(k)
-		return model, cmd, true
-	case m.accountOverlayOpen:
-		model, cmd := m.kAccountOverlay(k)
-		return model, cmd, true
-	default:
-		return m, nil, false
-	}
-}
-
-func (m *tuiModel) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.inPipePrompt {
-		return m.kPipePrompt(k)
-	}
-	if m.inTagPatternPrompt {
-		return m.kTagPattern(k)
-	}
-	if m.inTagPrefix {
-		return m.kTagPrefix(k)
-	}
-	if m.inRemoteSearch {
-		return m.kRemoteSearchPrompt(k)
-	}
-	s := k.String()
-	if m.exitPending {
-		return m.handleKeyWhileExiting(s)
-	}
-	if s == "ctrl+c" {
-		if m.mode == modeCompose && m.compose != nil {
-			return m.ctrlCInCompose()
-		}
-		m.done = true
-		return m, tea.Quit
-	}
-	if s == mouseToggleKey {
-		return m.toggleMouse()
-	}
-	if m.showHelp {
-		if s == "f1" || s == "esc" || s == "q" || s == "?" || s == "h" || k.Type == tea.KeyEsc {
-			m.showHelp = false
-			return m, nil
-		}
-		return m, nil
-	}
-	if model, cmd, handled := m.handleAuthErrorLogin(s); handled {
-		return model, cmd
-	}
-	if m.mode == modeCompose {
-		return m.handleComposeModeKey(k)
-	}
-	if model, cmd, ok := m.handleAttachmentOverlayKey(k, s); ok {
-		return model, cmd
-	}
-	if s == "f1" {
-		m.showHelp = !m.showHelp
-		m.showDiag = false
-		m.accountOverlayOpen = false
-		m.treeOpen = false
-		m.menuOpen = false
-		m.spamMenuOpen = false
-		m.showError = false
-		return m, nil
-	}
-	if model, cmd, handled := m.handleModalOverlayKey(k); handled {
-		return model, cmd
-	}
-	if s == "ctrl+d" {
-		m.showDiag = true
-		m.showHelp = false
-		m.treeOpen = false
-		m.accountOverlayOpen = false
-		m.diagVp.GotoBottom()
-		return m, nil
-	}
-	if m.inSearch {
-		return m.kSearch(k)
-	}
-	if m.treeOpen && m.inFolderSearch {
-		return m.kFolder(k)
-	}
-	if m.mode == modeDetail && m.rightPaneFocus {
-		return m.kRightPane(k)
-	}
-	return m.kGlobalKey(k)
-}
-
-func (m *tuiModel) handleAttachmentOverlayKey(k tea.KeyMsg, s string) (tea.Model, tea.Cmd, bool) {
-	if m.fileBrowserOpen {
-		model, cmd := m.kFileBrowser(k)
-		return model, cmd, true
-	}
-	if m.attachmentListOpen {
-		model, cmd := m.handleAttachmentListKey(k)
-		return model, cmd, true
-	}
-	if m.icsModalOpen {
-		model, cmd := m.handleICSModalKey(k)
-		return model, cmd, true
-	}
-	if m.attModalOpen {
-		model, cmd := m.kAttachmentModal(k)
-		return model, cmd, true
-	}
-	if m.attachmentHelpOpen {
-		if s == "f1" || s == "esc" || s == "q" || k.Type == tea.KeyEsc {
-			m.attachmentHelpOpen = false
-		}
-		return m, nil, true
-	}
-	if m.attachmentDrawer {
-		model, cmd := m.kAttachmentDrawer(k)
-		return model, cmd, true
-	}
-	return nil, nil, false
-}
-
 func (m *tuiModel) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return m.handleKey(k)
+	now := time.Now()
+	wasIdle := !m.lastActivityTime.IsZero() && now.Sub(m.lastActivityTime) >= idleActivityThreshold
+	m.lastActivityTime = now
+
+	model, cmd := m.handleKey(k)
+	tm, ok := model.(*tuiModel)
+	if !ok || !wasIdle || !tm.canCheckNewMail() {
+		return model, cmd
+	}
+	if time.Since(tm.lastCheckTime) < minRefreshInterval {
+		return model, cmd
+	}
+	tm.lastCheckTime = now
+	tm.bgCheckingMail = true
+	bgCmd := tm.bgCheckNewMailCmd(tm.currentF)
+	if cmd == nil {
+		return model, bgCmd
+	}
+	return model, tea.Batch(cmd, bgCmd)
 }
 
 func (m *tuiModel) kDiag(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -222,12 +178,16 @@ func (m *tuiModel) kDiag(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *tuiModel) handleGlobalQuit() (tea.Model, tea.Cmd) {
+	if m.showLoad != "" {
+		m.dismissLoad()
+		return m, nil
+	}
 	if m.treeOpen {
-		m.treeOpen = false
+		m.closeTree()
 		return m, nil
 	}
 	if m.mode == modeDetail {
-		m.mode = modeIndex
+		m.showList()
 		return m, nil
 	}
 	if m.mode == modeIndex && m.splitPreview {
@@ -254,26 +214,24 @@ func (m *tuiModel) handleDetailEsc() (tea.Model, tea.Cmd) {
 		m.detailVpDirty = true
 		return m, nil
 	}
-	m.mode = modeIndex
+	if m.detailSearch != "" {
+		m.endDetailFilter()
+		return m, nil
+	}
+	m.showList()
 	return m, nil
 }
 
 func (m *tuiModel) handleIndexEsc() (tea.Model, tea.Cmd) {
-	if m.searchQuery != "" {
-		m.searchQuery = ""
-		m.rebuildVisibleEmails()
-		if len(m.emails) > 0 {
-			m.eIdx = min(m.eIdx, len(m.emails)-1)
-			m.selectedID = m.emails[m.eIdx].ID
-		}
+	if m.searchQuery != "" || m.fuzzySearch {
+		m.endListFilter()
 		return m, nil
 	}
 	if m.splitPreview {
 		m.splitPreview = false
 		return m, nil
 	}
-	m.done = true
-	return m, tea.Quit
+	return m.escBack()
 }
 
 func (m *tuiModel) handleGlobalEsc() (tea.Model, tea.Cmd) {
@@ -295,7 +253,7 @@ func (m *tuiModel) handleGlobalEsc() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.showHelp {
-		m.showHelp = false
+		m.closeHelp()
 		return m, nil
 	}
 	if m.blockModalOpen {
@@ -306,8 +264,12 @@ func (m *tuiModel) handleGlobalEsc() (tea.Model, tea.Cmd) {
 		m.accountOverlayOpen = false
 		return m, nil
 	}
+	if m.showLoad != "" {
+		m.dismissLoad()
+		return m, nil
+	}
 	if m.treeOpen {
-		m.treeOpen = false
+		m.closeTree()
 		m.savingMessageToFolder = false
 		m.bulkMovingToFolder = false
 		m.savingMessageID = ""
@@ -332,7 +294,7 @@ func (m *tuiModel) handleGlobalTab(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rightPaneFocus = !m.rightPaneFocus
 			return m, nil
 		}
-		m.mode = modeIndex
+		m.showList()
 		return m, nil
 	}
 	if m.mode == modeIndex {
@@ -364,12 +326,18 @@ func (m *tuiModel) kGlobalKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "f4", "F4":
 		return m.summarizeCurrentEmail()
+	case keyRecentFolders, "F8":
+		// Leaving the folder would abandon a message being written.
+		if m.mode == modeCompose {
+			return m.kCompose(k)
+		}
+		return m.openRecentFolders()
 	case "f2", "F2":
-		return m.saveCurrentMessage()
+		return m.startSaveMessage()
 	case "f", "F":
 		if m.currentF != "" {
 			if m.treeOpen {
-				m.treeOpen = false
+				m.closeTree()
 			} else {
 				m.treeOpen = true
 				m.showGlobalTree = true
@@ -378,12 +346,13 @@ func (m *tuiModel) kGlobalKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "h", "?":
-		m.showHelp = !m.showHelp
-		return m, nil
+		return m.toggleHelp()
 	case "tab":
 		return m.handleGlobalTab(k)
 	case "esc":
 		return m.handleGlobalEsc()
+	case keyBack, keyForward:
+		return m.historyKey(s)
 	default:
 		if m.showHelp {
 			return m, nil
@@ -428,7 +397,7 @@ func (m *tuiModel) openPreviewCurrentEmail() tea.Cmd {
 	var cmds []tea.Cmd
 	if !m.emails[m.eIdx].IsRead {
 		m.emails[m.eIdx].IsRead = true
-		m.isRead[m.emails[m.eIdx].ID] = true
+		m.noteRead(m.emails[m.eIdx].ID, true)
 		if cmd := m.markAsReadCmd(m.emails[m.eIdx].ID); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -466,6 +435,7 @@ func (m *tuiModel) toggleSplitPreview() (tea.Model, tea.Cmd) {
 func (m *tuiModel) kIndex(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.folderJustChanged = false
 	s := k.String()
+	a := m.keyAction(groupList, k)
 	switch {
 	case m.splitPreview && (k.Type == tea.KeyUp || s == "up"):
 		m.vp.ScrollUp(1)
@@ -475,13 +445,13 @@ func (m *tuiModel) kIndex(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vp.ScrollUp(m.vp.Height)
 	case m.splitPreview && (s == "pagedown" || s == "pgdown" || s == "pgdn"):
 		m.vp.ScrollDown(m.vp.Height)
-	case m.splitPreview && (k.Type == tea.KeyLeft || s == "left" || s == "k"):
+	case m.splitPreview && (k.Type == tea.KeyLeft || s == "left" || a == actUp):
 		return m.navigateIndexPreview(-1)
-	case m.splitPreview && (k.Type == tea.KeyRight || s == "right" || s == "j"):
+	case m.splitPreview && (k.Type == tea.KeyRight || s == "right" || a == actDown):
 		return m.navigateIndexPreview(1)
-	case !m.splitPreview && (k.Type == tea.KeyUp || s == "k" || s == "up"):
+	case !m.splitPreview && (k.Type == tea.KeyUp || a == actUp || s == "up"):
 		m.moveIndexSelection(-1)
-	case !m.splitPreview && (k.Type == tea.KeyDown || s == "j" || s == "down"):
+	case !m.splitPreview && (k.Type == tea.KeyDown || a == actDown || s == "down"):
 		m.moveIndexSelection(1)
 	case !m.splitPreview && (s == "pageup" || s == "pgup"):
 		m.moveIndexSelection(-m.pageStep())
@@ -503,10 +473,14 @@ func (m *tuiModel) kIndex(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.splitPreview {
 			m.vp.GotoBottom()
 		}
-	case k.Type == tea.KeyEnter || s == "e":
+	case k.Type == tea.KeyEnter || a == actOpen:
 		return m.kIndexOpenDetail(k)
-	case s == " ":
+	case a == actSplit:
 		return m.toggleSplitPreview()
+	case a == actSort:
+		return m.openSortMenu(false)
+	case a == actSortReverse:
+		return m.openSortMenu(true)
 	default:
 		return m.kIndexActions(k)
 	}

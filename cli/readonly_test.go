@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/scan"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/scan"
 )
 
 func TestReadOnlyFlag_Setting(t *testing.T) {
@@ -76,7 +76,7 @@ func TestReadOnly_SpamDelBlocked(t *testing.T) {
 }
 
 // TestBareInvocationDoesNotScan guards against the regression where running
-// mail_cli with no arguments performed a full inbox scan across every
+// feral with no arguments performed a full inbox scan across every
 // configured account -- applying routing rules and moving mail server-side.
 func TestBareInvocationDoesNotScan(t *testing.T) {
 	rec := &sessionRecorder{}

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 )
 
 // A label reference is written `%[account:]label`.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 )
 
 func TestLoadTrainedSpamMap(t *testing.T) {

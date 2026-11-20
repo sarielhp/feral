@@ -3,7 +3,7 @@ package runner
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"io"
 	"net/mail"
 	"os"
@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 type exportItem struct {
@@ -31,7 +31,7 @@ type exportItem struct {
 
 // RunExport exports an email or conversation thread into mbox or eml format.
 func RunExport(out io.Writer, config *cfg_g.Config, opts cli.ExportOptions, rep report.Reporter) error {
-	client, acc, targetID, rawBytes, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, rep)
+	client, acc, targetID, rawBytes, _, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, rep)
 	if err != nil {
 		return err
 	}
@@ -187,18 +187,7 @@ func writeMBox(out io.Writer, items []exportItem, outputPath string, rep report.
 	}
 
 	for _, item := range items {
-		sender := extractSenderEmail(item.From)
-		dateStr := item.Date.Format(time.ANSIC)
-		if item.Date.IsZero() {
-			dateStr = time.Now().UTC().Format(time.ANSIC)
-		}
-		if _, err := fmt.Fprintf(dest, "From %s %s\n", sender, dateStr); err != nil {
-			return err
-		}
-		if err := writeMboxRDEscaped(dest, item.Raw); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(dest); err != nil {
+		if err := writeMboxEntry(dest, item); err != nil {
 			return err
 		}
 	}
@@ -207,6 +196,24 @@ func writeMBox(out io.Writer, items []exportItem, outputPath string, rep report.
 		rep.Successf("Exported %d message(s) to %s", len(items), outputPath)
 	}
 	return nil
+}
+
+// writeMboxEntry writes one message as an RFC 4155 entry: the "From " envelope
+// line, the RD-escaped message, and the blank line that separates entries.
+func writeMboxEntry(dest io.Writer, item exportItem) error {
+	sender := extractSenderEmail(item.From)
+	dateStr := item.Date.Format(time.ANSIC)
+	if item.Date.IsZero() {
+		dateStr = time.Now().UTC().Format(time.ANSIC)
+	}
+	if _, err := fmt.Fprintf(dest, "From %s %s\n", sender, dateStr); err != nil {
+		return err
+	}
+	if err := writeMboxRDEscaped(dest, item.Raw); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintln(dest)
+	return err
 }
 
 func writeMboxRDEscaped(w io.Writer, raw []byte) error {
@@ -247,6 +254,70 @@ func extractSenderEmail(fromRaw string) string {
 		return trimmed
 	}
 	return "MAILER-DAEMON"
+}
+
+// AppendMboxEntries appends raw RFC 822 messages to the mbox file at path,
+// creating it when it does not exist, and returns how many were written.
+//
+// It appends rather than replaces, so repeated exports accumulate into one
+// corpus; `feral mbox merge` is what deduplicates. Each entry's envelope
+// needs a sender and a date, which are read back out of the message itself.
+func AppendMboxEntries(path string, raws [][]byte) (int, error) {
+	if len(raws) == 0 {
+		return 0, nil
+	}
+	// O_RDWR, not O_WRONLY: separateFromExistingTail reads the last byte.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("opening mbox file %q: %w", path, err)
+	}
+	defer f.Close()
+
+	if err := separateFromExistingTail(f); err != nil {
+		return 0, fmt.Errorf("appending to mbox file %q: %w", path, err)
+	}
+
+	for i, raw := range raws {
+		if err := writeMboxEntry(f, exportItemFromRaw(raw)); err != nil {
+			return i, fmt.Errorf("writing to mbox file %q: %w", path, err)
+		}
+	}
+	return len(raws), nil
+}
+
+// separateFromExistingTail ends the last line of a file that does not end in a
+// newline, so an appended entry begins on a line of its own. Every file this
+// writer has produced already ends in one.
+func separateFromExistingTail(f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if fi.Size() == 0 {
+		return nil
+	}
+	last := make([]byte, 1)
+	if _, readErr := f.ReadAt(last, fi.Size()-1); readErr != nil {
+		return readErr
+	}
+	if last[0] == '\n' {
+		return nil
+	}
+	_, err = f.Write([]byte("\n"))
+	return err
+}
+
+// exportItemFromRaw builds the envelope data an mbox entry needs out of the
+// message itself. A message that will not parse is still written, with the
+// fallback sender and the current time.
+func exportItemFromRaw(raw []byte) exportItem {
+	item := exportItem{Raw: raw}
+	if em := email.ParseReader(bytes.NewReader(raw), "", ""); em != nil {
+		item.Subject = em.Subject
+		item.From = em.FromRaw
+		item.Date = em.EmailDate
+	}
+	return item
 }
 
 func writeEML(out io.Writer, items []exportItem, outputDir string, rep report.Reporter) error {

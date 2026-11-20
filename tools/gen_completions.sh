@@ -18,16 +18,17 @@ out="completions"
 mkdir -p "$out"
 
 # Build to a scratch directory so the generator binary never lands in the repo
-# root (where it would collide with the `mail_cli` entry in .gitignore) and is
+# root (where it would collide with the `feral` entry in .gitignore) and is
 # removed on every exit path.
-scratch="$(mktemp -d)"
+mkdir -p "/tmp/$USER/feral"
+scratch="$(mktemp -d "/tmp/$USER/feral/completions.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
-bin="$scratch/mail_cli"
+bin="$scratch/feral"
 
 go build -o "$bin" .
 
-"$bin" completion bash > "$out/mail_cli.bash"
-"$bin" completion zsh  > "$out/_mail_cli"
-"$bin" completion fish > "$out/mail_cli.fish"
+"$bin" completion bash > "$out/feral.bash"
+"$bin" completion zsh  > "$out/_feral"
+"$bin" completion fish > "$out/feral.fish"
 
 echo "wrote shell completions to $out/"

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 const validSummaryReply = `{"choices":[{"message":{"role":"assistant","content":"` +

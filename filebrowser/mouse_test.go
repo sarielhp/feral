@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/filebrowser/zonetest"
+	"github.com/sarielhp/feral/filebrowser/zonetest"
 
 	tea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
@@ -145,7 +145,7 @@ func TestFooterFitsTheBox(t *testing.T) {
 					t.Errorf("width %d: footer row is %d columns, box has %d: %q", w, n, m.contentWidth(), row)
 				}
 			}
-			for _, it := range append(m.footerItems(), jumpItems...) {
+			for _, it := range append(m.footerItems(), m.jumpItems()...) {
 				if !strings.Contains(plain, it.label) {
 					t.Errorf("width %d: %q is missing", w, it.label)
 				}

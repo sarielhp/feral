@@ -3,7 +3,6 @@ package tui
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,13 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/testenv"
+
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -32,7 +34,7 @@ func TestTUI_ReadOnly_LiveOrSimulated(t *testing.T) {
 	// accounts, reach their servers or rewrite their config.
 	var realConfig *cfg_g.Config
 	var err error
-	if os.Getenv("MAIL_CLI_LIVE") == "1" {
+	if testenv.Getenv(t, "FERAL_LIVE") == "1" {
 		realConfig, err = cfg_g.LoadConfigNoWrite()
 	}
 	hasLiveAccount := false

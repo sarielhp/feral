@@ -1,19 +1,23 @@
 package jmap
 
 import (
-	mailemail "github.com/sarielhp/mail_cli/email"
+	"context"
+	"errors"
+	"fmt"
+	mailemail "github.com/sarielhp/feral/email"
 	"log/slog"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 
 	"git.sr.ht/~rockorager/go-jmap"
 	"git.sr.ht/~rockorager/go-jmap/mail/email"
 )
 
-func (c *client) queryLatestEmailIDs(limit int) ([]jmap.ID, error) {
-	req := &jmap.Request{}
+func (c *client) queryLatestEmailIDs(ctx context.Context, filter *email.FilterCondition, limit int) ([]jmap.ID, error) {
+	req := &jmap.Request{Context: ctx}
 	req.Invoke(&email.Query{
 		Account: c.accID,
+		Filter:  filter,
 		Sort: []*email.SortComparator{
 			{
 				Property:    "receivedAt",
@@ -29,11 +33,36 @@ func (c *client) queryLatestEmailIDs(limit int) ([]jmap.ID, error) {
 	}
 
 	for _, inv := range resp.Responses {
-		if qr, ok := inv.Args.(*email.QueryResponse); ok {
-			return qr.IDs, nil
+		switch r := inv.Args.(type) {
+		case *email.QueryResponse:
+			return r.IDs, nil
+		case *jmap.MethodError:
+			return nil, fmt.Errorf("email/query: %s", r.Error())
 		}
 	}
-	return nil, nil
+	// No answer is not an empty inbox: the watcher and the relay check would
+	// both read it as "nothing there".
+	return nil, errors.New("email/query: the server sent no query response")
+}
+
+// LatestInboxIDs is one Email/query: the inbox, newest first, IDs only.
+func (c *client) LatestInboxIDs(ctx context.Context, limit int) ([]mailemail.ID, error) {
+	if err := c.initContext(ctx); err != nil {
+		return nil, err
+	}
+	inbox, err := c.getMailboxID(c.inboxName())
+	if err != nil {
+		return nil, err
+	}
+	ids, err := c.queryLatestEmailIDs(ctx, &email.FilterCondition{InMailbox: inbox}, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mailemail.ID, len(ids))
+	for i, id := range ids {
+		out[i] = mailemail.ID(id)
+	}
+	return out, nil
 }
 
 func buildAccountFolderRefs(list []*email.Email, idToName map[jmap.ID]string) []cfg_acc.MessageFolderRef {
@@ -69,7 +98,7 @@ func (c *client) FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageFolderRef
 		idToName[id] = name
 	}
 
-	ids, err := c.queryLatestEmailIDs(limit)
+	ids, err := c.queryLatestEmailIDs(context.Background(), nil, limit)
 	if err != nil {
 		return nil, err
 	}

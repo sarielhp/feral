@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/message_info"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/message_info"
 )
 
 // RepairReport is what Repair found in an account's index, and -- when it was

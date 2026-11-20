@@ -1,18 +1,18 @@
 ---
-title: 'mail_cli spam unmark'
+title: 'feral spam unmark'
 has_children: true
-parent: 'mail_cli spam'
+parent: 'feral spam'
 ---
 
-# mail\_cli spam unmark
+# feral spam unmark
 
 Mark a message as not being spam: train Bogofilter as ham and move it from Spam back to Inbox on the server.
 
 ## Usage
 
 ```
-mail_cli spam unmark <message_id...>
-  mail_cli unspam folder <folder_name>
+feral spam unmark <message_id...>
+  feral unspam folder <folder_name>
 ```
 
 ## Subcommands
@@ -34,7 +34,7 @@ mail_cli spam unmark <message_id...>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -42,9 +42,9 @@ mail_cli spam unmark <message_id...>
 
 ## Examples
 
-- `mail_cli spam unmark abc123de`
-- `mail_cli spam unmark folder %spam`
+- `feral spam unmark abc123de`
+- `feral spam unmark folder %spam`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

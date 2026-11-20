@@ -75,8 +75,12 @@ func TestFindOriginalMessageEnd_StillSplitsRealQuoteBlock(t *testing.T) {
 }
 
 func TestReflowParagraphs_KeepsReferenceLines(t *testing.T) {
-	in := "References:\n\n[1] https://a.example/x\n[2] https://b.example/y\n[10] https://c.example/z"
-	if got := ReflowParagraphs(in); got != in {
-		t.Errorf("reference lines were joined:\n%s", got)
+	for _, in := range []string{
+		"References:\n\n[1] https://a.example/x\n[2] https://b.example/y\n[10] https://c.example/z",
+		"References:\n\n[1]: https://a.example/x \"Sign in\"\n[2]: https://b.example/y\n[10]: https://c.example/z \"Help\"",
+	} {
+		if got := ReflowParagraphs(in); got != in {
+			t.Errorf("reference lines were joined:\n%s", got)
+		}
 	}
 }

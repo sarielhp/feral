@@ -3,7 +3,6 @@ package draft
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -12,8 +11,18 @@ func TestRootFollowsCacheRoot(t *testing.T) {
 	if got := Root("/x/cache"); got != filepath.Join("/x/cache", "drafts") {
 		t.Errorf("Root = %q", got)
 	}
-	if got := Root(""); !strings.HasSuffix(got, filepath.Join(".cache", "mail_cli", "drafts")) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got := Root(""); got != filepath.Join(home, ".cache", "feral", "drafts") {
 		t.Errorf("fallback Root = %q", got)
+	}
+	// A cache from before the rename is still where drafts are: a cache is
+	// never moved, and its drafts cannot be downloaded again.
+	if err := os.MkdirAll(filepath.Join(home, ".cache", "mail_cli"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := Root(""); got != filepath.Join(home, ".cache", "mail_cli", "drafts") {
+		t.Errorf("fallback Root with an old cache = %q", got)
 	}
 }
 

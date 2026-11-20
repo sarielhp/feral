@@ -17,8 +17,11 @@ var (
 )
 
 // TestEmlLinksOpenOnClick opens a .eml from the command line, reads the HTML
-// message, and clicks each entry of its References list. w3m once dropped
-// every href, and then reported them as file:///<cwd>/https://...; the
+// message, and clicks its links where a reader looks for them: on the
+// button's own text, on the support link's text, and on the References entry
+// of an image link, which has no text. w3m once dropped every href, then
+// reported them as file:///<cwd>/https://..., and then rendered the button
+// as the plain text "[1]Sign in" with its target only in the list below; the
 // button's link, a tracking link and an image-only link must each reach the
 // browser complete.
 func TestEmlLinksOpenOnClick(t *testing.T) {
@@ -31,7 +34,7 @@ func TestEmlLinksOpenOnClick(t *testing.T) {
 	s.Key("enter")
 	screen := s.WaitFor("References:")
 
-	for _, want := range []string{"[1]Sign in", "[2]Example Support", "[3]"} {
+	for _, want := range []string{"Sign in[1]", "Example Support[2]", "social.example.org[3]", "[1]: https://", "\"Sign in\""} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("screen lacks %q:\n%s", want, screen)
 		}
@@ -40,12 +43,20 @@ func TestEmlLinksOpenOnClick(t *testing.T) {
 		t.Errorf("long links were not shortened, so the terminal got no hyperlinks:\n%s", screen)
 	}
 
-	for i, want := range []string{magicLink, trackLink, iconLink} {
-		marker := "[" + string(rune('1'+i)) + "] https://"
-		col, row := s.Find(marker)
-		s.Click(col+len(marker)+2, row)
-		if got := s.WaitOpened(i + 1)[i]; got != want {
-			t.Errorf("click on %s opened\n  %s\nwant\n  %s", marker, got, want)
+	clicks := []struct {
+		text   string
+		offset int
+		want   string
+	}{
+		{"Sign in[1]", 1, magicLink},
+		{"Example Support[2]", 10, trackLink},
+		{"[3]: https://", len("[3]: https://") + 2, iconLink},
+	}
+	for i, c := range clicks {
+		col, row := s.Find(c.text)
+		s.Click(col+c.offset, row)
+		if got := s.WaitOpened(i + 1)[i]; got != c.want {
+			t.Errorf("click on %s opened\n  %s\nwant\n  %s", c.text, got, c.want)
 		}
 	}
 }

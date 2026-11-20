@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
 
 	"github.com/sarielhp/clihelp"
 	"github.com/sarielhp/clihelp/doc"
@@ -15,18 +15,18 @@ import (
 // MarkdownOptions re-exports doc.MarkdownOptions from clihelp/doc.
 type MarkdownOptions = doc.MarkdownOptions
 
-// GetApp returns the global clihelp.App instance for mail_cli.
+// GetApp returns the global clihelp.App instance for feral.
 func GetApp() *clihelp.App {
 	cliApp := cli.InitCLI(&cli.Session{Config: &cfg_g.Config{}})
 	cliApp.Commands = append(cliApp.Commands, DocumentationCommand())
 	return cliApp
 }
 
-// DocumentationCommand composes clihelp's Markdown command with mail_cli's
+// DocumentationCommand composes clihelp's Markdown command with feral's
 // source-package inventory. Neither needs an initialized runtime session.
 func DocumentationCommand() clihelp.Command {
 	cmd := doc.MarkdownCommand(doc.MarkdownOptions{Dir: "docs/clihelp"})
-	cmd.UsageLine = "mail_cli docs [flags]"
+	cmd.UsageLine = "feral docs [flags]"
 	generateHelp := cmd.Run
 	cmd.Run = func(ctx *clihelp.Context) error {
 		if err := generateHelp(ctx); err != nil {

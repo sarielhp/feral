@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
 )
 
 // storeForExport puts a message in the cache under its own date, as the message

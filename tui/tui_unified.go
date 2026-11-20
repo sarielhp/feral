@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -77,43 +81,35 @@ func (m *tuiModel) loadUnifiedCachedEmails() {
 		if accCache.IsZero() || !folderindex.HasStructure(accCache) {
 			continue
 		}
+		// One account a newer build has reshaped is left out of the view,
+		// with a word in the status line, rather than failing all of it.
+		if err := meta.Check(accCache, acc.Type); err != nil {
+			slog.Warn("unified inbox: skipping an account cache", slog.String("account", acc.Name), slog.Any("error", err))
+			m.saveStatus = fmt.Sprintf("%s left out: %v", acc.Name, err)
+			continue
+		}
 
 		inboxName := "INBOX"
 		ids, err := folderindex.IDs(accCache, inboxName)
 		if err != nil {
 			continue
 		}
-
-		for _, id := range ids {
-			data, err := msg.Read(accCache, id)
-			if err != nil {
-				continue
-			}
-			em := email.ParseReader(bytes.NewReader(data), id, "")
-			if em == nil {
-				continue
-			}
-			stampAccount(em, idx, acc)
-			em.IsRead = m.isRead[id]
-			em.IsReplied = m.isReplied[id]
-			if info, err := msg.GetInfo(accCache, id); err == nil {
-				em.IsSpam = info.IsSpam()
-				em.IsPolitical = info.IsPolitical()
-				em.IsBlacklisted = info.IsBlacklisted()
-			}
-			allEmails = append(allEmails, *em)
-		}
+		allEmails = append(allEmails, unifiedAccountRows(accCache, idx, acc, ids)...)
 	}
 
 	sort.Slice(allEmails, func(i, j int) bool {
-		return allEmails[i].EmailDate.After(allEmails[j].EmailDate)
+		return allEmails[i].EmailDate.Before(allEmails[j].EmailDate)
 	})
 
+	isRead, isReplied := rowFlags(allEmails)
+	m.isRead = mergeFlags(m.isRead, isRead)
+	m.isReplied = mergeFlags(m.isReplied, isReplied)
 	m.rawEmails = allEmails
 	m.rebuildVisibleEmails()
 	if len(m.emails) > 0 {
-		m.eIdx = 0
-		m.selectedID = m.emails[0].ID
+		// The newest message is last: the cursor starts on it, as in mutt.
+		m.eIdx = len(m.emails) - 1
+		m.selectedID = m.emails[m.eIdx].ID
 	} else {
 		m.selectedID = ""
 	}
@@ -121,14 +117,16 @@ func (m *tuiModel) loadUnifiedCachedEmails() {
 }
 
 func (m *tuiModel) loadUnifiedEmailsCmd() tea.Cmd {
+	client := m.client
+	gen := m.flagGen
+	folder := m.currentF
+	accounts := m.getAccounts()
+	cfg := m.Config()
+	if cfg == nil {
+		cfg = m.cfg
+	}
 	return func() tea.Msg {
 		var allEmails []email.Email
-		accounts := m.getAccounts()
-		cfg := m.Config()
-		if cfg == nil {
-			cfg = m.cfg
-		}
-
 		for idx, acc := range accounts {
 			cl, err := m.resolveClientForSwitch(acc)
 			if err != nil || cl == nil {
@@ -140,29 +138,14 @@ func (m *tuiModel) loadUnifiedEmailsCmd() tea.Cmd {
 				continue
 			}
 			accCache := cfg.AccountCacheFor(acc)
-			for _, id := range ids {
-				data, err := msg.Read(accCache, id)
-				if err != nil {
-					continue
-				}
-				em := email.ParseReader(bytes.NewReader(data), id, "")
-				if em == nil {
-					continue
-				}
-				stampAccount(em, idx, acc)
-				if info, err := msg.GetInfo(accCache, id); err == nil {
-					em.IsSpam = info.IsSpam()
-					em.IsPolitical = info.IsPolitical()
-					em.IsBlacklisted = info.IsBlacklisted()
-				}
-				allEmails = append(allEmails, *em)
-			}
+			allEmails = append(allEmails, unifiedAccountRows(accCache, idx, acc, ids)...)
 		}
 
 		sort.Slice(allEmails, func(i, j int) bool {
-			return allEmails[i].EmailDate.After(allEmails[j].EmailDate)
+			return allEmails[i].EmailDate.Before(allEmails[j].EmailDate)
 		})
-		return emailsLoadedMsg{emails: allEmails}
+		isRead, isReplied := rowFlags(allEmails)
+		return emailsLoadedMsg{client: client, folder: folder, emails: allEmails, isRead: isRead, isReplied: isReplied, mergeFlags: true, flagGen: gen}
 	}
 }
 
@@ -181,20 +164,26 @@ type actionPlan struct {
 	// accounts names the owning account of each id; set only in a unified
 	// inbox, where each message belongs to a different account.
 	accounts map[email.ID]string
+	// folders names the source folder of each id; set only in a saved set,
+	// whose rows come from several folders of the one account that owns it.
+	folders map[email.ID]string
 }
 
 // planAction captures the session's client, folder and, in a unified inbox,
-// each id's account. Call it on the Update goroutine, before removing rows.
+// each id's account, or in a saved set each id's folder. Call it on the Update
+// goroutine, before removing rows.
 func (m *tuiModel) planAction(ids []email.ID, folder string) actionPlan {
 	p := actionPlan{active: m.client, folder: folder}
-	if !isUnifiedInbox(folder) {
-		return p
-	}
-	p.accounts = make(map[email.ID]string, len(ids))
-	for _, id := range ids {
-		if em := m.findEmailByID(id); em != nil {
-			p.accounts[id] = em.Account
+	switch {
+	case isUnifiedInbox(folder):
+		p.accounts = make(map[email.ID]string, len(ids))
+		for _, id := range ids {
+			if em := m.findEmailByID(id); em != nil {
+				p.accounts[id] = em.Account
+			}
 		}
+	case isVirtualView(folder):
+		p.folders = m.savedSetFolders(folder, ids)
 	}
 	return p
 }
@@ -227,21 +216,40 @@ func (m *tuiModel) clientForAccountName(active mailclient.MailClient, name strin
 	return nil, fmt.Errorf("account %s is not configured", name)
 }
 
-// target is the client and source folder an action on id must use: the
-// active client and folder, or in a unified inbox the message's own account
-// and that account's inbox.
-func (m *tuiModel) target(p actionPlan, id email.ID) (mailclient.MailClient, string, error) {
-	if !p.unified() {
-		if p.active == nil {
-			return nil, "", errors.New("no active account")
-		}
-		return p.active, p.folder, nil
+// targetClient is the client that must act on id, without the source folder a
+// move needs. Reading a message, marking it read or reporting it needs no
+// folder at all, and a saved set's rows are not all placed in one.
+func (m *tuiModel) targetClient(p actionPlan, id email.ID) (mailclient.MailClient, error) {
+	if p.unified() {
+		return m.clientForAccountName(p.active, p.accounts[id])
 	}
-	cl, err := m.clientForAccountName(p.active, p.accounts[id])
+	if p.active == nil {
+		return nil, errors.New("no active account")
+	}
+	return p.active, nil
+}
+
+// target is the client and source folder an action on id must use: the active
+// client and the message's own folder, which is the folder on screen, or in a
+// unified inbox the message's own account and that account's inbox. An action
+// that has to name a folder refuses an id no plan can place.
+func (m *tuiModel) target(p actionPlan, id email.ID) (mailclient.MailClient, string, error) {
+	cl, err := m.targetClient(p, id)
 	if err != nil {
 		return nil, "", err
 	}
-	return cl, cl.InboxFolder().String(), nil
+	switch {
+	case p.unified():
+		return cl, cl.InboxFolder().String(), nil
+	case p.folders != nil:
+		folder := p.folders[id]
+		if folder == "" {
+			return nil, "", fmt.Errorf("%s: %w", id, errNoSourceFolder)
+		}
+		return cl, folder, nil
+	default:
+		return cl, p.folder, nil
+	}
 }
 
 // accountBatch is the ids of one account in a bulk action, with the client
@@ -252,16 +260,41 @@ type accountBatch struct {
 	ids    []email.ID
 }
 
-// batches groups ids by the client that must act on them. An id whose
-// account cannot be resolved is reported in the error and left out.
+// batches groups ids by the client and folder that must act on them: one batch
+// per account in a unified inbox, and one per source folder in a saved set,
+// whose rows come from several folders of the one account that owns it. An id
+// whose target cannot be resolved is reported in the error and left out.
 func (m *tuiModel) batches(p actionPlan, ids []email.ID) ([]accountBatch, error) {
-	if !p.unified() {
+	switch {
+	case p.unified():
+		return m.batchesByAccount(p, ids)
+	case p.folders != nil:
+		return m.batchesByFolder(p, ids)
+	default:
 		cl, folder, err := m.target(p, "")
 		if err != nil {
 			return nil, err
 		}
 		return []accountBatch{{client: cl, folder: folder, ids: ids}}, nil
 	}
+}
+
+// clientBatches groups ids by the client that must read them, ignoring the
+// source folder: an export needs the messages and not where they came from, so
+// a saved set -- whose rows come from several folders -- is one batch like any
+// other single-account view.
+func (m *tuiModel) clientBatches(p actionPlan, ids []email.ID) ([]accountBatch, error) {
+	if p.unified() {
+		return m.batchesByAccount(p, ids)
+	}
+	if p.active == nil {
+		return nil, errors.New("no active account")
+	}
+	return []accountBatch{{client: p.active, ids: ids}}, nil
+}
+
+// batchesByAccount groups a unified inbox's ids by the account each belongs to.
+func (m *tuiModel) batchesByAccount(p actionPlan, ids []email.ID) ([]accountBatch, error) {
 	byName := make(map[string][]email.ID)
 	for _, id := range ids {
 		byName[p.accounts[id]] = append(byName[p.accounts[id]], id)
@@ -275,6 +308,29 @@ func (m *tuiModel) batches(p actionPlan, ids []email.ID) ([]accountBatch, error)
 			continue
 		}
 		out = append(out, accountBatch{client: cl, folder: cl.InboxFolder().String(), ids: byName[name]})
+	}
+	return out, errors.Join(errs...)
+}
+
+// batchesByFolder groups a saved set's ids by the folder each came from: the
+// set spans folders, and a move names one source folder per call.
+func (m *tuiModel) batchesByFolder(p actionPlan, ids []email.ID) ([]accountBatch, error) {
+	if p.active == nil {
+		return nil, errors.New("no active account")
+	}
+	byFolder := make(map[string][]email.ID)
+	var errs []error
+	for _, id := range ids {
+		folder := p.folders[id]
+		if folder == "" {
+			errs = append(errs, fmt.Errorf("%s: %w", id, errNoSourceFolder))
+			continue
+		}
+		byFolder[folder] = append(byFolder[folder], id)
+	}
+	out := make([]accountBatch, 0, len(byFolder))
+	for _, folder := range sortedKeys(byFolder) {
+		out = append(out, accountBatch{client: p.active, folder: folder, ids: byFolder[folder]})
 	}
 	return out, errors.Join(errs...)
 }
@@ -293,6 +349,8 @@ func sortedKeys(groups map[string][]email.ID) []string {
 type bulkOutcome struct {
 	done []email.ID
 	err  error
+	// undo is what each accepted batch moved, for the actions that move.
+	undo []undoBatch
 }
 
 // eachBatch runs act on every account's batch and collects the outcome.
@@ -328,28 +386,172 @@ type folderTargetResolver func(mailclient.MailClient) (label.Folder, error)
 // message's own account resolves the destination and receives its own ids;
 // otherwise the active client takes the whole batch.
 func (m *tuiModel) dispatchBulkMove(p actionPlan, ids []email.ID, resolve folderTargetResolver) bulkOutcome {
-	return m.eachBatch(p, ids, func(b accountBatch) error {
+	var undo []undoBatch
+	o := m.eachBatch(p, ids, func(b accountBatch) error {
 		tgt, err := resolve(b.client)
 		if err != nil {
 			return err
 		}
-		return b.client.MoveEmail(b.ids, label.FromServer(b.folder), tgt)
+		if err := b.client.MoveEmail(b.ids, label.FromServer(b.folder), tgt); err != nil {
+			return err
+		}
+		undo = append(undo, newUndoBatch(b.client, tgt, label.FromServer(b.folder), b.ids))
+		return nil
 	})
+	o.undo = undo
+	return o
 }
 
 func (m *tuiModel) dispatchBulkDelete(p actionPlan, ids []email.ID) bulkOutcome {
 	return m.dispatchBulkMove(p, ids, m.bk.folders().ResolveTrashTarget)
 }
 
-// dispatchBulkMarkRead marks ids read on their servers.
-func (m *tuiModel) dispatchBulkMarkRead(p actionPlan, ids []email.ID) bulkOutcome {
+// dispatchBulkMarkRead marks ids read on their servers and records it locally.
+func (m *tuiModel) dispatchBulkMarkRead(p actionPlan, ids []email.ID, record bool) bulkOutcome {
 	return m.eachBatch(p, ids, func(b accountBatch) error {
-		return b.client.MarkAsRead(b.ids)
+		return setReadOnServer(b, true, record)
 	})
 }
 
-func (m *tuiModel) dispatchBulkSpam(p actionPlan, ids []email.ID) bulkOutcome {
+// dispatchBulkMarkUnread clears ids' read state on their servers and locally.
+func (m *tuiModel) dispatchBulkMarkUnread(p actionPlan, ids []email.ID, record bool) bulkOutcome {
 	return m.eachBatch(p, ids, func(b accountBatch) error {
-		return b.client.ReportSpam(b.ids, label.FromServer(b.folder))
+		return setReadOnServer(b, false, record)
 	})
+}
+
+// setReadOnServer asks the server to set each message's read state, and, when
+// record is set, writes the same decision into the local read cache first. The
+// local write comes first so a backend with no server-side read state -- an
+// mbox file -- still remembers what the user chose; it is skipped under
+// --read-only, where recording a change the server never saw is exactly what
+// read-only forbids.
+func setReadOnServer(b accountBatch, read, record bool) error {
+	record = record && b.client.Config() != nil
+	if record {
+		account := b.client.Config().AccountCache
+		if read {
+			_ = cache.MarkIDsRead(account, b.ids, nil)
+		} else {
+			_ = cache.MarkIDsUnread(account, b.ids)
+		}
+	}
+	var err error
+	if read {
+		err = b.client.MarkAsRead(b.ids)
+	} else {
+		err = b.client.MarkAsUnread(b.ids)
+	}
+	// A failed mark stays pending, for the next folder load to retry.
+	if err == nil && record {
+		_ = cache.ConfirmReads(b.client.Config().AccountCache, b.ids)
+	}
+	return err
+}
+
+// retryPendingReads sends the account's unconfirmed read marks to the server
+// again, confirming those it accepts and counting a failure against the rest.
+// It runs before a folder is listed, so the listing already reflects them.
+func retryPendingReads(client mailclient.MailClient) {
+	if client == nil || client.Config() == nil {
+		return
+	}
+	account := client.Config().AccountCache
+	var read, unread []email.ID
+	for id, p := range cache.LoadPendingReads(account) {
+		if p.Read {
+			read = append(read, id)
+		} else {
+			unread = append(unread, id)
+		}
+	}
+	retry := func(ids []email.ID, mark func([]email.ID) error) {
+		if len(ids) == 0 {
+			return
+		}
+		if err := mark(ids); err != nil {
+			slog.Warn("retrying pending read marks failed", slog.Int("count", len(ids)), slog.Any("error", err))
+			_ = cache.NoteReadRetryFailed(account, ids)
+			return
+		}
+		_ = cache.ConfirmReads(account, ids)
+	}
+	retry(read, client.MarkAsRead)
+	retry(unread, client.MarkAsUnread)
+}
+
+// dispatchBulkSpam reports ids as spam. An account whose spam folder cannot be
+// named still reports; its batch is recorded as one undo cannot move back.
+func (m *tuiModel) dispatchBulkSpam(p actionPlan, ids []email.ID) bulkOutcome {
+	var undo []undoBatch
+	o := m.eachBatch(p, ids, func(b accountBatch) error {
+		if err := b.client.ReportSpam(b.ids, label.FromServer(b.folder)); err != nil {
+			return err
+		}
+		dest, err := m.bk.folders().ResolveSpamTarget(b.client)
+		batch := newUndoBatch(b.client, dest, label.FromServer(b.folder), b.ids)
+		if err != nil {
+			batch.blocked = "the spam folder is unknown: " + err.Error()
+		}
+		undo = append(undo, batch)
+		return nil
+	})
+	o.undo = undo
+	return o
+}
+
+// unifiedAccountRows is one account's inbox rows for the unified inbox, read
+// from that account's cache. Each row carries the account's own read and
+// replied state: the loaders used to set none, or the active account's, so a
+// refresh showed every other account's mail as unread and never replied.
+func unifiedAccountRows(accCache cachedir.Account, idx int, acc cfg_acc.AccountConfig, ids []email.ID) []email.Email {
+	isRead := cache.LoadReadState(accCache)
+	isReplied := cache.LoadRepliedState(accCache)
+	rows := make([]email.Email, 0, len(ids))
+	for _, id := range ids {
+		data, err := msg.Read(accCache, id)
+		if err != nil {
+			continue
+		}
+		em := email.ParseReader(bytes.NewReader(data), id, "")
+		if em == nil {
+			continue
+		}
+		stampAccount(em, idx, acc)
+		em.IsRead = isRead[id]
+		em.IsReplied = isReplied[id]
+		if info, err := msg.GetInfo(accCache, id); err == nil {
+			em.IsSpam = info.IsSpam()
+			em.IsPolitical = info.IsPolitical()
+			em.IsBlacklisted = info.IsBlacklisted()
+		}
+		rows = append(rows, *em)
+	}
+	return rows
+}
+
+// rowFlags is the read and replied state of the unified inbox's rows, each
+// taken from its own account's cache, for merging into the session's maps.
+// Without it the next rebuild of the list laid the active account's older
+// state over the fresh rows.
+func rowFlags(emails []email.Email) (isRead, isReplied map[email.ID]bool) {
+	isRead = make(map[email.ID]bool, len(emails))
+	isReplied = make(map[email.ID]bool, len(emails))
+	for _, em := range emails {
+		isRead[em.ID] = em.IsRead
+		isReplied[em.ID] = em.IsReplied
+	}
+	return isRead, isReplied
+}
+
+// mergeFlags writes src's entries into dst, allocating dst if needed, and
+// returns it. Entries src does not name are kept.
+func mergeFlags(dst, src map[email.ID]bool) map[email.ID]bool {
+	if dst == nil {
+		dst = make(map[email.ID]bool, len(src))
+	}
+	for id, v := range src {
+		dst[id] = v
+	}
+	return dst
 }

@@ -1,23 +1,29 @@
 package mailops
 
 import (
+	"context"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/backend/gmail"
-	"github.com/sarielhp/mail_cli/backend/jmap"
-	"github.com/sarielhp/mail_cli/backend/mbox"
-	"github.com/sarielhp/mail_cli/backend/outlook"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/email"
+
+	"github.com/sarielhp/feral/backend/gmail"
+	"github.com/sarielhp/feral/backend/jmap"
+	"github.com/sarielhp/feral/backend/mbox"
+	"github.com/sarielhp/feral/backend/outlook"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 // BuildAccountLocalConfig creates a per-account configuration struct.
@@ -88,6 +94,12 @@ func InstantiateBackendClient(acc cfg_acc.AccountConfig, localCfg *cfg_g.Config,
 		return jmap.NewClient(acc, localCfg, rep), nil
 	case "outlook":
 		return outlook.NewClient(acc, localCfg, rep), nil
+	case "mbox":
+		path, err := acc.MboxPath()
+		if err != nil {
+			return nil, err
+		}
+		return mbox.NewClient(acc, localCfg, path), nil
 	default:
 		return nil, fmt.Errorf("unsupported account type: %q", acc.Type)
 	}
@@ -105,13 +117,14 @@ func IsAccountSelected(acc cfg_acc.AccountConfig, config *cfg_g.Config) bool {
 // migrateAccountCacheLayout is H4's cache-layout migration for what lives
 // inside one account's (already-migrated) cache directory: the folder
 // indexes named by the account's own cached label listing, and every
-// self-describing virtual mailbox. Both are best-effort -- a missing or
-// unreadable label cache just means there is nothing yet to migrate, and
-// this runs on every client construction, so a transient failure here is
-// not worth failing the whole command over; the next run tries again.
-func migrateAccountCacheLayout(downloadDir cachedir.Account) {
+// self-describing virtual mailbox. It is the step that takes a cache with no
+// manifest to version 1 (see cache/meta), so it runs once per cache rather
+// than on every start. A missing or unreadable label cache just means there
+// is nothing yet to migrate; a rename that fails is returned, and the cache
+// is left unrecorded so the next start tries again.
+func migrateAccountCacheLayout(downloadDir cachedir.Account) error {
 	if downloadDir.IsZero() {
-		return
+		return nil
 	}
 
 	store := &cache.DiskCacheStore{Dir: downloadDir}
@@ -129,13 +142,28 @@ func migrateAccountCacheLayout(downloadDir cachedir.Account) {
 		if _, err := folderindex.MigrateSanitizedNames(downloadDir, names); err != nil {
 			slog.Debug("folder index sanitization migration failed",
 				slog.String("dir", downloadDir.Path()), slog.Any("error", err))
+			return err
 		}
 	}
 
 	if _, err := virtual.MigrateSanitizedNames(downloadDir); err != nil {
 		slog.Debug("virtual mailbox sanitization migration failed",
 			slog.String("dir", downloadDir.Path()), slog.Any("error", err))
+		return err
 	}
+	return nil
+}
+
+// openAccountCache is the manifest check every client is built behind: it
+// refuses a cache this build does not understand, and records the manifest
+// of one that has none, running the legacy layout step first.
+func openAccountCache(acct cachedir.Account, backend string, config *cfg_g.Config) error {
+	_, err := meta.Open(acct, backend, meta.Options{
+		DryRun:       config.DryRun,
+		Build:        app.Version,
+		LegacyLayout: func() error { return migrateAccountCacheLayout(acct) },
+	})
+	return err
 }
 
 // NewMailClient constructs a fully initialized and wrapped MailClient for the
@@ -148,7 +176,9 @@ func NewMailClient(acc cfg_acc.AccountConfig, config *cfg_g.Config, rep report.R
 	// the pre-H4 directory to if it is still sitting under the old one.
 	cfg_g.MigrateDirSanitization(config.CacheRoot, acc.Name)
 	localCfg := BuildAccountLocalConfig(acc, config)
-	migrateAccountCacheLayout(localCfg.AccountCache)
+	if err := openAccountCache(localCfg.AccountCache, acc.Type, &localCfg); err != nil {
+		return nil, fmt.Errorf("account %s: %w", acc.Name, err)
+	}
 
 	client, err := InstantiateBackendClient(acc, &localCfg, rep)
 	if err != nil {
@@ -189,6 +219,26 @@ func TokenPath(configDir string, acc cfg_acc.AccountConfig) (string, error) {
 	}
 }
 
+// TokenFiles are the paths in configDir an account's OAuth token may be under,
+// current and legacy, each with the copy a login sets aside (".prev"). They
+// are named after the account, so renaming it moves each one. Nothing is
+// written to compute them, unlike TokenPath, which migrates a legacy name.
+func TokenFiles(configDir string, acc cfg_acc.AccountConfig) []string {
+	var names []string
+	switch strings.ToLower(acc.Type) {
+	case "gmail":
+		names = gmail.TokenFileNames(acc.Name)
+	case "outlook":
+		names = outlook.TokenFileNames(acc.Name)
+	}
+	paths := make([]string, 0, 2*len(names))
+	for _, n := range names {
+		p := filepath.Join(configDir, n)
+		paths = append(paths, p, p+".prev")
+	}
+	return paths
+}
+
 // RunBackendTests exercises the Gmail REST surface. It is a Gmail-specific
 // diagnostic, which is why it is named here rather than on the interface.
 func RunBackendTests(rep report.Reporter, config *cfg_g.Config) error {
@@ -207,6 +257,9 @@ func OpenMbox(config *cfg_g.Config, mboxPath string, cacheDir cachedir.Account) 
 		return nil, fmt.Errorf("mbox view requires a synthetic account in the config")
 	}
 	acc := config.Accounts[0]
+	if err := openAccountCache(cacheDir, "mbox", config); err != nil {
+		return nil, fmt.Errorf("mbox view %s: %w", mboxPath, err)
+	}
 
 	raw := mbox.NewClient(acc, config, mboxPath)
 	readOnly := mailclient.NewReadOnlyMailClient(raw, acc.Name)
@@ -216,4 +269,28 @@ func OpenMbox(config *cfg_g.Config, mboxPath string, cacheDir cachedir.Account) 
 // NewCheckingClient wraps a client in the label cache.
 func NewCheckingClient(delegate mailclient.MailClient, accName string, store cache.Store) mailclient.MailClient {
 	return mailclient.NewCheckingMailClient(delegate, accName, store)
+}
+
+// OutlookIDs is what migrating an Outlook account's cache to immutable IDs
+// needs from the backend.
+type OutlookIDs struct {
+	// Translate maps default Graph message IDs to immutable ones.
+	Translate func(context.Context, []email.ID) (map[email.ID]email.ID, error)
+	// Verify proves on the account that Translate agrees with Graph's own
+	// immutable IDs.
+	Verify  func(context.Context) error
+	Account cachedir.Account // the account's cache
+}
+
+// OutlookIDTranslator returns the account's ID translation, built with the
+// per-account configuration it needs. It refuses an account that is not
+// Outlook.
+func OutlookIDTranslator(acc cfg_acc.AccountConfig, config *cfg_g.Config, rep report.Reporter) (OutlookIDs, error) {
+	if !strings.EqualFold(acc.Type, "outlook") {
+		return OutlookIDs{}, fmt.Errorf("account %q is %s, not outlook: only Outlook message IDs change on a move", acc.Name, acc.Type)
+	}
+	cfg_g.MigrateDirSanitization(config.CacheRoot, acc.Name)
+	localCfg := BuildAccountLocalConfig(acc, config)
+	t := outlook.NewIDTranslator(acc, &localCfg, rep)
+	return OutlookIDs{Translate: t.Translate, Verify: t.Verify, Account: localCfg.AccountCache}, nil
 }

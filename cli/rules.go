@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -33,7 +33,7 @@ func newRuleAddCmd(session *Session) clihelp.Command {
 		Title:           "rule add <email|message_id> [lbl]",
 		Description:     "Add rule by sender or message ID.",
 		LongDescription: "Add a server filter rule to auto-label emails from a sender or from a cached message ID.",
-		UsageLine:       "mail_cli rule add <email|message_id> [lbl]",
+		UsageLine:       "feral rule add <email|message_id> [lbl]",
 		Parameters: []clihelp.Param{
 			{Name: "<email|message_id>", Description: "The sender email address or cached message ID."},
 			{Name: "[lbl]", Description: "Target label (optional with message_id).", Complete: CompleteLabelRefs},
@@ -47,16 +47,16 @@ func newRuleAddCmd(session *Session) clihelp.Command {
 			}
 			if email.IsValidEmailOrDomain(arg0) {
 				if label == "" {
-					return fmt.Errorf("target label required when adding rule by email address: mail_cli rule add %s <lbl>", arg0)
+					return fmt.Errorf("target label required when adding rule by email address: feral rule add %s <lbl>", arg0)
 				}
 				return addRuleToConfig(session, arg0, label, "")
 			}
 			return addRuleFromMessageID(session, arg0, label)
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli rule add notifications@github.com %Dev/GitHub`},
-			{Line: `mail_cli rule add 12345 %Dev/GitHub`},
-			{Line: "mail_cli rule add 12345"},
+			{Line: `feral rule add notifications@github.com %Dev/GitHub`},
+			{Line: `feral rule add 12345 %Dev/GitHub`},
+			{Line: "feral rule add 12345"},
 		},
 	}
 }
@@ -67,7 +67,7 @@ func newRuleAddByTitleCmd(session *Session) clihelp.Command {
 		Title:           "rule add-title <title> <lbl>",
 		Description:     "Add rule matching subject prefix.",
 		LongDescription: "Add a server filter rule to auto-label emails with matching subject prefix.",
-		UsageLine:       "mail_cli rule add-title <title> <lbl>",
+		UsageLine:       "feral rule add-title <title> <lbl>",
 		Parameters: []clihelp.Param{
 			{Name: "<title>", Description: "Subject prefix/substring to match."},
 			{Name: "<lbl>", Description: "The target label/folder hierarchy.", Complete: CompleteLabelRefs},
@@ -81,7 +81,7 @@ func newRuleAddByTitleCmd(session *Session) clihelp.Command {
 			return addRuleToConfig(session, "", label, ctx.Args[0])
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli rule add-title "[JIRA]" %Work/Jira`},
+			{Line: `feral rule add-title "[JIRA]" %Work/Jira`},
 		},
 	}
 }
@@ -94,7 +94,7 @@ func newRuleDelCmd(session *Session) clihelp.Command {
 		Title:           "rule del <email|title>",
 		Description:     "Remove rule by sender or subject.",
 		LongDescription: "Remove an auto-labeling rule by sender email address or subject title.",
-		UsageLine:       "mail_cli rule rm <email|title>",
+		UsageLine:       "feral rule rm <email|title>",
 		Parameters: []clihelp.Param{
 			{Name: "<email|title>", Description: "The sender email or subject title to remove rule for."},
 		},
@@ -103,7 +103,7 @@ func newRuleDelCmd(session *Session) clihelp.Command {
 			return deleteRuleFromConfig(session, ctx.Args[0], os.Stdin)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli rule rm notifications@github.com"},
+			{Line: "feral rule rm notifications@github.com"},
 		},
 	}
 }
@@ -115,7 +115,7 @@ func newRuleListCmd(session *Session) clihelp.Command {
 		Title:           "rule list",
 		Description:     "List custom routing rules.",
 		LongDescription: "List custom routing rules with their target labels and export status.",
-		UsageLine:       "mail_cli rule list [flags]",
+		UsageLine:       "feral rule list [flags]",
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagRuleListAll, "-a, --all", false, "List all custom routing rules, including those already exported"),
 		},
@@ -124,8 +124,8 @@ func newRuleListCmd(session *Session) clihelp.Command {
 			return listRules(session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli rule list"},
-			{Line: "mail_cli rule list --all"},
+			{Line: "feral rule list"},
+			{Line: "feral rule list --all"},
 		},
 	}
 }
@@ -163,7 +163,7 @@ func newRuleTidyCmd(session *Session) clihelp.Command {
 		title:       "rule tidy",
 		description: "Remove duplicate routing rules.",
 		longDesc:    "Remove duplicate routing rules, keeping the last rule for each sender or subject.",
-		usageLine:   "mail_cli rule tidy",
+		usageLine:   "feral rule tidy",
 		action:      tidyRules,
 	})
 }
@@ -174,7 +174,7 @@ func newRuleDeleteAllCmd(session *Session) clihelp.Command {
 		Title:           "rule rm-all",
 		Description:     "Delete all rules for account.",
 		LongDescription: "Delete all routing rules for the selected account.",
-		UsageLine:       "mail_cli rule rm-all [--yes]",
+		UsageLine:       "feral rule rm-all [--yes]",
 		Args:            clihelp.NoArgs,
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagRuleDeleteAllYes, "-y, --yes", false, "Proceed without the confirmation prompt."),
@@ -186,7 +186,7 @@ func newRuleDeleteAllCmd(session *Session) clihelp.Command {
 			return deleteAllRules(session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli rule rm-all"},
+			{Line: "feral rule rm-all"},
 		},
 	}
 }
@@ -197,7 +197,7 @@ func newRuleUpdateCmd(session *Session) clihelp.Command {
 		title:       "rule update",
 		description: "Sync blacklisted senders to rules.",
 		longDesc:    "Ensure all blacklisted senders have a corresponding local rule.",
-		usageLine:   "mail_cli rule update",
+		usageLine:   "feral rule update",
 		action:      syncBlacklistToRules,
 	})
 }
@@ -209,7 +209,7 @@ func newRuleExportCmd(session *Session) clihelp.Command {
 		Title:           "rule push",
 		Description:     "Export local rules to server filters.",
 		LongDescription: "Export local rules to mail server filters (e.g. Gmail filters or Sieve script).",
-		UsageLine:       "mail_cli rule push [force] [flags]",
+		UsageLine:       "feral rule push [force] [flags]",
 		Parameters: []clihelp.Param{
 			{
 				Name:        "[force]",
@@ -243,8 +243,8 @@ func newRuleExportCmd(session *Session) clihelp.Command {
 			return client.ExportRules()
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli rule push"},
-			{Line: "mail_cli rule push --sieve ~/rules.sieve"},
+			{Line: "feral rule push"},
+			{Line: "feral rule push --sieve ~/rules.sieve"},
 		},
 	}
 }
@@ -256,7 +256,7 @@ func RuleCmd(session *Session) clihelp.Command {
 		Group:           "Rules",
 		Description:     "Manage routing rules and server filters.",
 		LongDescription: "Configure local routing rules and sync them as remote server-side filters (e.g. Gmail filters or JMAP/Sieve scripts) to automatically label or discard incoming messages.",
-		UsageLine:       "mail_cli rule <subcommand> [args...]",
+		UsageLine:       "feral rule <subcommand> [args...]",
 		// No positional arguments of its own: that is what lets clihelp tell a
 		// mistyped subcommand from an argument, and suggest the right one.
 		Args: clihelp.NoArgs,
@@ -275,19 +275,19 @@ func RuleCmd(session *Session) clihelp.Command {
 			newRuleUpdateCmd(session),
 			newRuleExportCmd(session),
 			RuleRemoteCmd(session),
-			hiddenRuleSubcommand(newRuleAddByTitleCmd(session), "add-by-title", "mail_cli rule add-by-title <title> <lbl>"),
-			hiddenRuleSubcommand(newRuleDeleteAllCmd(session), "delete-all", "mail_cli rule delete-all [--yes]"),
-			hiddenRuleSubcommand(newRuleDeleteAllCmd(session), "del-all", "mail_cli rule del-all [--yes]"),
-			hiddenRuleSubcommand(newRuleDelCmd(session), "delete", "mail_cli rule delete <email|title>"),
+			hiddenRuleSubcommand(newRuleAddByTitleCmd(session), "add-by-title", "feral rule add-by-title <title> <lbl>"),
+			hiddenRuleSubcommand(newRuleDeleteAllCmd(session), "delete-all", "feral rule delete-all [--yes]"),
+			hiddenRuleSubcommand(newRuleDeleteAllCmd(session), "del-all", "feral rule del-all [--yes]"),
+			hiddenRuleSubcommand(newRuleDelCmd(session), "delete", "feral rule delete <email|title>"),
 		},
 		Run: func(ctx *clihelp.Context) error {
 			return runRuleRoot(ctx, session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli rule list"},
-			{Line: `mail_cli rule add notifications@github.com %Dev/GitHub`},
-			{Line: `mail_cli rule add-title "[ALERT]" "Alerts"`},
-			{Line: "mail_cli rule push"},
+			{Line: "feral rule list"},
+			{Line: `feral rule add notifications@github.com %Dev/GitHub`},
+			{Line: `feral rule add-title "[ALERT]" "Alerts"`},
+			{Line: "feral rule push"},
 		},
 	}
 }
@@ -524,7 +524,7 @@ func listRules(session *Session) error {
 	// Listing must not modify state. Report duplicates and let the user decide.
 	// The notice is status, so it does not land in a redirected listing.
 	if _, removed := dedupeRules(session.errOut(), resolved.Account.Rules, false); removed > 0 {
-		fmt.Fprintf(session.errOut(), "%s %d duplicate rule(s) present. Run 'mail_cli rule tidy' to remove them.\n",
+		fmt.Fprintf(session.errOut(), "%s %d duplicate rule(s) present. Run 'feral rule tidy' to remove them.\n",
 			app.PrefixWarn, removed)
 	}
 

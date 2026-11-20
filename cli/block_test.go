@@ -3,18 +3,19 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // setupTestBlockSession wires a session whose global Config.AccountCache and
@@ -210,10 +211,11 @@ func TestBlock_MsgBlockCommand(t *testing.T) {
 	}
 }
 
-// TestBlock_MsgBlockCommand_ReadOnlySkipsLocalReindex is H2's regression: a
-// --read-only / --dry-run block must not simulate MoveEmail on the server
-// (mock client does that verbatim) yet still leaves the local folder index
-// untouched, since nothing actually moved.
+// TestBlock_MsgBlockCommand_ReadOnlySkipsLocalReindex is H2's regression,
+// tightened: under --read-only / --dry-run a block is refused outright, as the
+// TUI's block is. H2 stopped only the false reindex; the command went on to
+// write the blacklist, train the filter and print "moved to Trash" for a move
+// that was simulated. The folder index stays as it was.
 func TestBlock_MsgBlockCommand_ReadOnlySkipsLocalReindex(t *testing.T) {
 	session, _, acctDir := setupTestBlockSession(t)
 	session.Config.ReadOnly = true
@@ -226,8 +228,9 @@ func TestBlock_MsgBlockCommand_ReadOnlySkipsLocalReindex(t *testing.T) {
 		t.Fatalf("folderindex.Add: %v", err)
 	}
 
-	if err := blockByIDs(session, []string{"offer123"}, true, false); err != nil {
-		t.Fatalf("blockByIDs failed: %v", err)
+	err := blockByIDs(session, []string{"offer123"}, true, false)
+	if err == nil || !strings.Contains(err.Error(), "refused under --read-only") {
+		t.Fatalf("blockByIDs under --read-only: err = %v, want a refusal", err)
 	}
 
 	ids, err := folderindex.IDs(cachedir.At(acctDir), "INBOX")

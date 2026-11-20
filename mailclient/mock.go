@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
 )
 
 type movedEmailRecord struct {
@@ -45,9 +45,13 @@ type MockMailClient struct {
 	UploadedEmails    []uploadedEmailRecord
 	SentRawEmails     [][]byte
 	AccountLatestRefs []cfg_acc.MessageFolderRef
-	Err               error
-	InboxFolderVal    string
-	BackendTypeVal    string
+	// InboxIDs is what LatestInboxIDs reports, newest first.
+	InboxIDs []email.ID
+	// InboxEntries is what InboxMessageBefore searches.
+	InboxEntries   []InboxEntry
+	Err            error
+	InboxFolderVal string
+	BackendTypeVal string
 
 	// FailOn makes one named method fail while the rest keep working, so a
 	// test can prove a command survives (or correctly aborts on) a single
@@ -95,6 +99,13 @@ type MockMailClient struct {
 	MoveAllSpamCalls       int
 	LastMoveAllSpamDest    string
 	DeleteAllSpamCalls     int
+
+	// MovedToInbox and MarkedUnread record the IDs MoveToInbox and
+	// MarkAsUnread accepted, and EnsuredLabels the folders EnsureLabelExists
+	// was asked for.
+	MovedToInbox  []email.ID
+	MarkedUnread  []email.ID
+	EnsuredLabels []string
 }
 
 // failure resolves the error for a method: its FailOn entry if present,
@@ -190,6 +201,31 @@ func (m *MockMailClient) FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageF
 	return refs, nil
 }
 
+// LatestInboxIDs returns InboxIDs truncated to limit.
+func (m *MockMailClient) LatestInboxIDs(_ context.Context, limit int) ([]email.ID, error) {
+	if err := m.failure("LatestInboxIDs"); err != nil {
+		return nil, err
+	}
+	ids := m.InboxIDs
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
+// InboxMessageBefore reports the first of InboxEntries received before cutoff.
+func (m *MockMailClient) InboxMessageBefore(_ context.Context, cutoff time.Time) (InboxEntry, bool, error) {
+	if err := m.failure("InboxMessageBefore"); err != nil {
+		return InboxEntry{}, false, err
+	}
+	for _, e := range m.InboxEntries {
+		if e.Received.Before(cutoff) {
+			return e, true, nil
+		}
+	}
+	return InboxEntry{}, false, nil
+}
+
 // CheckAndApplyRules returns the IDs it accepts, rejecting only those listed in
 // FailOnMessage.
 func (m *MockMailClient) CheckAndApplyRules(messageIDs []email.ID, _ label.Folder, _ string) ([]email.ID, error) {
@@ -217,7 +253,8 @@ func (m *MockMailClient) MoveToInbox(messageIDs []email.ID, _ label.Folder) erro
 	if err := m.failure("MoveToInbox"); err != nil {
 		return err
 	}
-	_, err := m.partition(messageIDs)
+	accepted, err := m.partition(messageIDs)
+	m.MovedToInbox = append(m.MovedToInbox, accepted...)
 	return err
 }
 
@@ -341,8 +378,12 @@ func (m *MockMailClient) Config() *cfg_g.Config { return m.Cfg }
 func (m *MockMailClient) RewriteRuleLabelCasing(_ string) string { return "" }
 
 // EnsureLabelExists returns the failure configured for it and creates nothing.
-func (m *MockMailClient) EnsureLabelExists(_ label.Folder) error {
-	return m.failure("EnsureLabelExists")
+func (m *MockMailClient) EnsureLabelExists(name label.Folder) error {
+	if err := m.failure("EnsureLabelExists"); err != nil {
+		return err
+	}
+	m.EnsuredLabels = append(m.EnsuredLabels, name.String())
+	return nil
 }
 
 // GetLabelItems returns the LabelItems configured on the mock.
@@ -359,6 +400,16 @@ func (m *MockMailClient) MarkAsRead(messageIDs []email.ID) error {
 		return err
 	}
 	_, err := m.partition(messageIDs)
+	return err
+}
+
+// MarkAsUnread returns the first per-message failure from FailOnMessage, or nil.
+func (m *MockMailClient) MarkAsUnread(messageIDs []email.ID) error {
+	if err := m.failure("MarkAsUnread"); err != nil {
+		return err
+	}
+	accepted, err := m.partition(messageIDs)
+	m.MarkedUnread = append(m.MarkedUnread, accepted...)
 	return err
 }
 

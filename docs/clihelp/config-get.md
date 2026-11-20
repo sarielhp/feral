@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli config get'
-parent: 'mail_cli config'
+title: 'feral config get'
+parent: 'feral config'
 ---
 
-# mail\_cli config get
+# feral config get
 
 Print a configuration parameter's value.
 
 ## Usage
 
 ```
-mail_cli config get <key>
+feral config get <key>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli config get <key>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,10 +34,10 @@ mail_cli config get <key>
 
 ## Examples
 
-- `mail_cli config get mutt_alias_file`
-- `mail_cli config get browser`
-- `mail_cli config get download_dir`
+- `feral config get mutt_alias_file`
+- `feral config get browser`
+- `feral config get download_dir`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

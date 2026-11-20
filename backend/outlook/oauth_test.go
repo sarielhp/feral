@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestTokenFileName_Injectivity(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // Defaults for an LLM request: the model used when the caller names none, the
@@ -137,7 +137,7 @@ func truncateFront(s string, n int) string {
 	return s[:n]
 }
 
-func buildChatCompletionRequest(cfg cfg_g.LLMConfig, emailContent string) chatCompletionRequest {
+func buildChatCompletionRequest(cfg cfg_g.LLMConfig, p chatPrompt) chatCompletionRequest {
 	model := cfg.Model
 	if model == "" {
 		model = DefaultModel
@@ -147,21 +147,19 @@ func buildChatCompletionRequest(cfg cfg_g.LLMConfig, emailContent string) chatCo
 		temp = *cfg.Temperature
 	}
 
-	maxTokens := defaultMaxTokens
-	if cfg.MaxTokens != nil && *cfg.MaxTokens > 0 {
-		maxTokens = *cfg.MaxTokens
-	}
-
-	sysPrompt := cfg.SystemPrompt
-	if strings.TrimSpace(sysPrompt) == "" {
-		sysPrompt = defaultSystemPrompt
+	maxTokens := p.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
+		if cfg.MaxTokens != nil && *cfg.MaxTokens > 0 {
+			maxTokens = *cfg.MaxTokens
+		}
 	}
 
 	return chatCompletionRequest{
 		Model: model,
 		Messages: []chatMessage{
-			{Role: "system", Content: sysPrompt},
-			{Role: "user", Content: emailContent},
+			{Role: "system", Content: p.System},
+			{Role: "user", Content: p.User},
 		},
 		Temperature:     temp,
 		MaxTokens:       maxTokens,
@@ -202,14 +200,33 @@ func parseChatCompletionResponse(respBody []byte) (string, error) {
 	return strings.TrimSpace(completionResp.Choices[0].Message.Content), nil
 }
 
+// chatPrompt is one request to the model: the instruction, the text it
+// applies to, and the reply budget. MaxTokens <= 0 means the configured
+// summary budget.
+type chatPrompt struct {
+	System    string
+	User      string
+	MaxTokens int
+}
+
 // SummarizeEmail sends an email text to the configured LLM endpoint and returns the executive summary.
 func SummarizeEmail(ctx context.Context, cfg cfg_g.LLMConfig, emailContent string) (string, error) {
+	sysPrompt := cfg.SystemPrompt
+	if strings.TrimSpace(sysPrompt) == "" {
+		sysPrompt = defaultSystemPrompt
+	}
+	return complete(ctx, cfg, chatPrompt{System: sysPrompt, User: TruncateForModel(emailContent, DefaultMaxInputChars)})
+}
+
+// complete sends one prompt to the configured endpoint and returns the reply
+// text. It is bounded twice, by ctx and by the HTTP client timeout.
+func complete(ctx context.Context, cfg cfg_g.LLMConfig, p chatPrompt) (string, error) {
 	endpoint := NormalizeEndpoint(cfg.Endpoint)
 	if endpoint == "" {
 		return "", fmt.Errorf("LLM endpoint is not configured")
 	}
 
-	reqPayload := buildChatCompletionRequest(cfg, TruncateForModel(emailContent, DefaultMaxInputChars))
+	reqPayload := buildChatCompletionRequest(cfg, p)
 	bodyBytes, err := json.Marshal(reqPayload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request payload: %w", err)

@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/email"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -102,12 +103,20 @@ func runCachePrune(session *Session, args []string, wipe bool) error {
 	if wipe || days <= 0 {
 		days = 0
 	}
+	if session.Config.DryRun {
+		fmt.Fprintf(session.out(), "[DRY-RUN] would delete cached files older than %d day(s) from %s\n", days, resolveAccountCacheDir(session))
+		return nil
+	}
 	if wipe {
 		_ = os.Remove(contacts.DefaultHistoryPath(session.Config))
 	}
 
 	cutoff := time.Now().AddDate(0, 0, -days)
 	pruneDir := resolveAccountCacheDir(session)
+	// Pruning rewrites the index: never in a cache this build does not know.
+	if err := meta.Check(pruneDir, ""); err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(pruneDir.Path()); os.IsNotExist(err) {
 		fmt.Fprintf(session.out(), "Cache directory does not exist: %s\n", pruneDir)
@@ -124,6 +133,12 @@ func runCachePrune(session *Session, args []string, wipe bool) error {
 }
 
 func runCacheReset(session *Session) error {
+	// The account cache holds what cannot be downloaded again: spam overrides,
+	// the training ledgers, read state. --dry-run used to delete it.
+	if session.Config.DryRun {
+		fmt.Fprintf(session.out(), "[DRY-RUN] would delete the cache directory %s and the contact history\n", resolveAccountCacheDir(session))
+		return nil
+	}
 	if err := os.Remove(contacts.DefaultHistoryPath(session.Config)); err != nil && !os.IsNotExist(err) {
 		slog.Warn("failed to remove contact history during cache reset", slog.Any("error", err))
 	}
@@ -144,7 +159,7 @@ func newCachePruneCmd(session *Session) clihelp.Command {
 		Title:           "utils cache prune [days] [--wipe]",
 		Description:     "Prune cached emails older than N days.",
 		LongDescription: "Prune cached emails and spam scores older than the specified number of days (default: 30). With --wipe, purges all cached messages regardless of age.",
-		UsageLine:       "mail_cli utils cache prune [days] [-w, --wipe]",
+		UsageLine:       "feral utils cache prune [days] [-w, --wipe]",
 		Parameters: []clihelp.Param{
 			{Name: "[days]", Description: "Age threshold in days for pruning cached emails (default: 30)."},
 		},
@@ -152,9 +167,9 @@ func newCachePruneCmd(session *Session) clihelp.Command {
 			clihelp.Bool(&flagPruneWipe, "-w, --wipe", false, "Purge all cached email files regardless of age."),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils cache prune"},
-			{Line: "mail_cli utils cache prune 7"},
-			{Line: "mail_cli utils cache prune --wipe"},
+			{Line: "feral utils cache prune"},
+			{Line: "feral utils cache prune 7"},
+			{Line: "feral utils cache prune --wipe"},
 		},
 		Args: clihelp.MaximumNArgs(1),
 		Run: func(ctx *clihelp.Context) error {
@@ -170,7 +185,7 @@ func newCacheResetCmd(session *Session) clihelp.Command {
 		Aliases:         []string{"reset"},
 		Description:     "Recreate cache directory and wipe data.",
 		LongDescription: "Recreate the cache directory for the current account, wiping all cached data.",
-		UsageLine:       "mail_cli utils cache clear [--yes]",
+		UsageLine:       "feral utils cache clear [--yes]",
 		Args:            clihelp.NoArgs,
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagCacheResetYes, "-y, --yes", false, "Proceed without the confirmation prompt."),
@@ -182,8 +197,8 @@ func newCacheResetCmd(session *Session) clihelp.Command {
 			return runCacheReset(session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils cache clear"},
-			{Line: "mail_cli utils cache repair"},
+			{Line: "feral utils cache clear"},
+			{Line: "feral utils cache repair"},
 		},
 	}
 }
@@ -194,17 +209,18 @@ func CacheCmd(session *Session) clihelp.Command {
 		Name:        "cache",
 		Group:       "Setup",
 		Description: "Manage the local email download cache.",
-		UsageLine:   "mail_cli utils cache <subcommand> [args...]",
+		UsageLine:   "feral utils cache <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			newCachePruneCmd(session),
 			newCacheResetCmd(session),
 			newCacheRepairCmd(session),
+			newCacheOutlookIDsCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils cache prune"},
-			{Line: "mail_cli utils cache prune 7"},
-			{Line: "mail_cli utils cache prune --wipe"},
-			{Line: "mail_cli utils cache clear"},
+			{Line: "feral utils cache prune"},
+			{Line: "feral utils cache prune 7"},
+			{Line: "feral utils cache prune --wipe"},
+			{Line: "feral utils cache clear"},
 		},
 	}
 }

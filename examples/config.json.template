@@ -14,6 +14,9 @@
   ],
   "block_political": true,
   "auto_unsubscribe": false,
+  "my_emails": [
+    "you@other-address.org"
+  ],
   "accounts": [
     {
       "name": "personal",
@@ -32,9 +35,21 @@
       "whitelist": [],
       "blacklist": [],
       "rules": []
+    },
+    {
+      "name": "relay",
+      "type": "outlook",
+      "username": "forwarded-from@outlook.com",
+      "inbox_max_age": "15m"
     }
   ],
   "browser": "browser-name",
+  "attachment_save_dir": "~/Downloads",
+  "tui_watch": true,
+  "save_locations": [
+    "~/Downloads",
+    "~"
+  ],
   "llm": {
     "endpoint": "http://localhost:4000/v1/chat/completions",
     "api_key": "sk-litellm-master-key",

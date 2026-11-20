@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/label"
 
 	"github.com/fatih/color"
 )

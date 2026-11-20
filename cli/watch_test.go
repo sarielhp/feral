@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/watcher"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/watcher"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -17,13 +17,13 @@ import (
 // restores them afterwards, since clihelp writes into those variables.
 func setWatchFlags(t *testing.T, interval time.Duration, account, onMail string, noNotify, noFlush bool) {
 	t.Helper()
-	prevInterval, prevAccount, prevOnMail := flagWatchInterval, app.FlagAccountName, flagWatchOnMail
+	prevInterval, prevAccount, prevOnMail := flagWatchInterval, flagAccount, flagWatchOnMail
 	prevNoNotify, prevNoFlush := flagWatchNoNotify, flagWatchNoFlush
 	t.Cleanup(func() {
-		flagWatchInterval, app.FlagAccountName, flagWatchOnMail = prevInterval, prevAccount, prevOnMail
+		flagWatchInterval, flagAccount, flagWatchOnMail = prevInterval, prevAccount, prevOnMail
 		flagWatchNoNotify, flagWatchNoFlush = prevNoNotify, prevNoFlush
 	})
-	flagWatchInterval, app.FlagAccountName, flagWatchOnMail = interval, account, onMail
+	flagWatchInterval, flagAccount, flagWatchOnMail = interval, accountChoice{value: account}, onMail
 	flagWatchNoNotify, flagWatchNoFlush = noNotify, noFlush
 }
 

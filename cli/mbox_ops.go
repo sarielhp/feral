@@ -15,8 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/transfer"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -26,20 +27,23 @@ func MboxCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
 		Name:        "mbox",
 		Group:       "Folders",
-		Description: "Inspect, validate and merge local mbox files.",
-		UsageLine:   "mail_cli mbox <subcommand> [args...]",
+		Description: "Inspect, merge and import local mbox files.",
+		UsageLine:   "feral mbox <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			mboxCheckCmd(),
+			mboxSaveCmd(session),
 			mboxMergeCmd(),
 			mboxInfoCmd(),
 			mboxViewCmd(session),
+			mboxImportCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli mbox check archive.mbox", Description: "Validate a single mbox file"},
-			{Line: "mail_cli mbox check ~/archive/", Description: "Validate all mbox files in a directory"},
-			{Line: "mail_cli mbox merge new.mbox archive.mbox", Description: "Merge new.mbox into archive.mbox deduplicating messages"},
-			{Line: "mail_cli mbox info archive.mbox", Description: "Show message count, file size, and attachment statistics"},
-			{Line: "mail_cli mbox view archive.mbox", Description: "Open and browse an mbox file in the TUI (read-only)"},
+			{Line: "feral mbox check archive.mbox", Description: "Validate a single mbox file"},
+			{Line: "feral mbox check ~/archive/", Description: "Validate all mbox files in a directory"},
+			{Line: "feral mbox merge new.mbox archive.mbox", Description: "Merge new.mbox into archive.mbox deduplicating messages"},
+			{Line: "feral mbox info archive.mbox", Description: "Show message count, file size, and attachment statistics"},
+			{Line: "feral mbox view archive.mbox", Description: "Open and browse an mbox file in the TUI (read-only)"},
+			{Line: "feral mbox import archive.mbox", Description: "Copy its messages into the received folder"},
 		},
 	}
 }
@@ -49,17 +53,39 @@ func mboxCheckCmd() clihelp.Command {
 		Name:            "check",
 		Description:     "Validate mbox file or directory.",
 		LongDescription: "Check if a file (or all files in a directory) is a valid mbox file.",
-		UsageLine:       "mail_cli mbox check <file>",
+		UsageLine:       "feral mbox check <file>",
 		Parameters: []clihelp.Param{
 			{Name: "<file>", Description: "Mbox file or directory to validate"},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli mbox check inbox.mbox"},
-			{Line: "mail_cli mbox check ~/archive/"},
+			{Line: "feral mbox check inbox.mbox"},
+			{Line: "feral mbox check ~/archive/"},
 		},
 		Args: clihelp.ExactArgs(1),
 		Run: func(ctx *clihelp.Context) error {
 			return runMboxCheck(ctx.Args[0])
+		},
+	}
+}
+
+// mboxSaveCmd downloads a folder and appends its messages to a local mbox file.
+func mboxSaveCmd(session *Session) clihelp.Command {
+	return clihelp.Command{
+		Name:            "save",
+		Description:     "Append a folder to an mbox file.",
+		LongDescription: "Download a folder and append its messages to a local mbox file, creating the file when it does not exist. The file is appended to, never replaced, so repeated runs accumulate into one corpus; `mbox merge` is what deduplicates. The folder is named by a label prefix, exactly as `msg show` names it: in the default account unless the prefix names one (`%work:inbox`), and in every account with `%all:`.",
+		UsageLine:       "feral mbox save <path> <lbl_prefix>",
+		Parameters: []clihelp.Param{
+			{Name: "<path>", Description: "Destination mbox file (created if missing)"},
+			{Name: "<lbl_prefix>", Description: "Folder or label prefix to download"},
+		},
+		Examples: []clihelp.Example{
+			{Line: "feral mbox save ~/archive/keep.mbox %keep"},
+			{Line: "feral mbox save backup.mbox INBOX"},
+		},
+		Args: clihelp.ExactArgs(2),
+		Run: func(ctx *clihelp.Context) error {
+			return session.mail().SaveFolderToMbox(session.Config, ctx.Args[0], ctx.Args[1])
 		},
 	}
 }
@@ -69,13 +95,13 @@ func mboxMergeCmd() clihelp.Command {
 		Name:            "merge",
 		Description:     "Merge mbox file x into y.",
 		LongDescription: "Merge mbox file x into y (copies messages in x but not in y, appending to y).",
-		UsageLine:       "mail_cli mbox merge <x> <y>",
+		UsageLine:       "feral mbox merge <x> <y>",
 		Parameters: []clihelp.Param{
 			{Name: "<x>", Description: "Source mbox file to merge from"},
 			{Name: "<y>", Description: "Destination mbox file to merge into"},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli mbox merge incoming.mbox archive.mbox"},
+			{Line: "feral mbox merge incoming.mbox archive.mbox"},
 		},
 		Args: clihelp.ExactArgs(2),
 		Run: func(ctx *clihelp.Context) error {
@@ -89,12 +115,12 @@ func mboxInfoCmd() clihelp.Command {
 		Name:            "info",
 		Description:     "Display message count and file size.",
 		LongDescription: "Display message count, total file size, and attachment sizes for an mbox file.",
-		UsageLine:       "mail_cli mbox info <file>",
+		UsageLine:       "feral mbox info <file>",
 		Parameters: []clihelp.Param{
 			{Name: "<file>", Description: "Mbox file to inspect"},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli mbox info archive.mbox"},
+			{Line: "feral mbox info archive.mbox"},
 		},
 		Args: clihelp.ExactArgs(1),
 		Run: func(ctx *clihelp.Context) error {
@@ -359,13 +385,13 @@ func makeMboxEntry(env string, raw []byte) mboxEntry {
 // isMboxEmailMatch is the mbox spelling of the shared email-identity check: it
 // matches by Message-ID, or by Subject and Date when neither side carries one.
 func isMboxEmailMatch(src, dest *email.Email) bool {
-	return isEmailMatch(src, dest)
+	return transfer.Same(src, dest)
 }
 
 func filterNewMessages(srcMsgs, destMsgs []mboxEntry) []mboxEntry {
-	idx := newMessageIdentityIndex(len(destMsgs) + len(srcMsgs))
+	idx := transfer.NewIdentityIndex(len(destMsgs) + len(srcMsgs))
 	for _, dm := range destMsgs {
-		idx.add(dm.email)
+		idx.Add(dm.email)
 	}
 
 	var newMsgs []mboxEntry
@@ -373,9 +399,9 @@ func filterNewMessages(srcMsgs, destMsgs []mboxEntry) []mboxEntry {
 		if sm.email == nil {
 			continue
 		}
-		if !idx.contains(sm.email) {
+		if !idx.Contains(sm.email) {
 			newMsgs = append(newMsgs, sm)
-			idx.add(sm.email)
+			idx.Add(sm.email)
 		}
 	}
 	return newMsgs

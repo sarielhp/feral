@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 )
 
 func TestSecurityPill(t *testing.T) {

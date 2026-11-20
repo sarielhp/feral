@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/report"
 )
 
 func TestIsOfflineSendError(t *testing.T) {

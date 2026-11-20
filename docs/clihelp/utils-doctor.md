@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli utils doctor'
+title: 'feral utils doctor'
 has_children: true
-parent: 'mail_cli utils'
+parent: 'feral utils'
 ---
 
-# mail\_cli utils doctor
+# feral utils doctor
 
 Diagnose the setup: verify credentials, connectivity and mail flow. It proves the account is writable by creating a label and a message and then deleting both, so it is refused under --read-only and --dry-run.
 
 ## Usage
 
 ```
-mail_cli utils doctor run
+feral utils doctor run
 ```
 
 ## Subcommands
@@ -27,7 +27,7 @@ mail_cli utils doctor run
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli utils doctor run
 
 ## Examples
 
-- `mail_cli utils doctor run`
+- `feral utils doctor run`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

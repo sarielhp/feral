@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli calendar'
+title: 'feral calendar'
 has_children: true
 ---
 
-# mail\_cli calendar
+# feral calendar
 
 Parse iCalendar (.ics) attachments from emails and synchronize events with Google Calendar or inspect upcoming agenda schedules.
 
 ## Usage
 
 ```
-mail_cli calendar <subcommand> [args...]
+feral calendar <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -29,7 +29,7 @@ mail_cli calendar <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,10 +37,10 @@ mail_cli calendar <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli calendar week`
-- `mail_cli calendar add 1234abcd`
-- `mail_cli calendar add-all`
+- `feral calendar week`
+- `feral calendar add 1234abcd`
+- `feral calendar add-all`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

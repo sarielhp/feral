@@ -1,15 +1,15 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -40,43 +40,32 @@ func TestThread_TabCycleExpansion(t *testing.T) {
 
 	m.eIdx = 0
 
-	// 1st Tab: expands Level 0 (e0). e1 becomes visible, but e2 remains hidden
+	// 1st Tab: the whole chain fits the budget, so e1 and e2 both open.
 	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = res.(*tuiModel)
 
-	if len(m.emails) != 3 {
-		t.Fatalf("expected 3 visible emails after 1st Tab, got %d", len(m.emails))
+	if len(m.emails) != 4 {
+		t.Fatalf("expected 4 visible emails after 1st Tab, got %d", len(m.emails))
 	}
-	if m.emails[0].ID != "e0" || m.emails[1].ID != "e1" || m.emails[2].ID != "e3" {
-		t.Fatalf("expected e0, e1, e3 visible, got %v", []string{string(m.emails[0].ID), string(m.emails[1].ID), string(m.emails[2].ID)})
+	if m.emails[0].ID != "e0" || m.emails[1].ID != "e1" || m.emails[2].ID != "e2" || m.emails[3].ID != "e3" {
+		t.Fatalf("expected all emails visible, got %v", []string{string(m.emails[0].ID), string(m.emails[1].ID), string(m.emails[2].ID), string(m.emails[3].ID)})
 	}
 	if m.emails[0].ThreadPrefix != "┌── " {
 		t.Errorf("expected e0 expanded ThreadPrefix to be \x27┌── \x27, got %q", m.emails[0].ThreadPrefix)
 	}
 
-	// 2nd Tab: expands Level 1 (e1). e2 becomes visible
-	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = res.(*tuiModel)
-
-	if len(m.emails) != 4 {
-		t.Fatalf("expected 4 visible emails after 2nd Tab, got %d", len(m.emails))
-	}
-	if m.emails[0].ID != "e0" || m.emails[1].ID != "e1" || m.emails[2].ID != "e2" || m.emails[3].ID != "e3" {
-		t.Fatalf("expected all emails visible, got %v", []string{string(m.emails[0].ID), string(m.emails[1].ID), string(m.emails[2].ID), string(m.emails[3].ID)})
-	}
-
-	// 3rd Tab: all descendants expanded -> folds the whole thread subtree
+	// 2nd Tab: all descendants expanded -> folds the whole thread subtree
 	res, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = res.(*tuiModel)
 
 	if len(m.emails) != 2 {
-		t.Fatalf("expected 2 visible emails after 3rd Tab (collapse), got %d", len(m.emails))
+		t.Fatalf("expected 2 visible emails after 2nd Tab (collapse), got %d", len(m.emails))
 	}
 	if m.emails[0].ID != "e0" || m.emails[1].ID != "e3" {
 		t.Fatalf("expected e0 and e3 visible after collapse, got %s and %s", m.emails[0].ID, m.emails[1].ID)
 	}
 	if !m.emails[0].ThreadCollapsed {
-		t.Error("expected e0 to be collapsed again after 3rd Tab")
+		t.Error("expected e0 to be collapsed again after 2nd Tab")
 	}
 	if m.emails[0].ThreadPrefix != "━━━ " {
 		t.Errorf("expected e0 collapsed ThreadPrefix to be \x27━━━ \x27, got %q", m.emails[0].ThreadPrefix)

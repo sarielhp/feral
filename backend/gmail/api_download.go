@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -18,11 +18,11 @@ import (
 	gmailapi "google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/report"
 )
 
 const maxGmailListAttempts = 4

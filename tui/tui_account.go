@@ -7,13 +7,13 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -62,8 +62,8 @@ func (m *tuiModel) openAccountOverlay() {
 		return
 	}
 	m.accountOverlayOpen = true
-	m.treeOpen = false
-	m.showHelp = false
+	m.closeTree()
+	m.closeHelp()
 	m.showDiag = false
 	m.showError = false
 	m.accountCursor = m.activeAccountIndex()
@@ -122,6 +122,9 @@ func (m *tuiModel) initReadStateForAccount() {
 }
 
 func (m *tuiModel) resetStateForAccountSwitch() {
+	m.endListFilter()
+	m.endDetailFilter()
+	m.clearHistory()
 	m.pendingEmails = make(map[email.ID]pendingOpType)
 	m.expandedThreads = make(map[threadKey]bool)
 	m.rawEmails = nil
@@ -129,19 +132,17 @@ func (m *tuiModel) resetStateForAccountSwitch() {
 	m.eIdx = 0
 	m.selectedID = ""
 	m.indexStart = 0
-	m.mode = modeIndex
+	m.showList()
 	m.detail = ""
 	m.detailH = ""
 	m.detailCrypto = nil
 	m.attachments = nil
 	m.attachmentDrawer = false
-	m.searchQuery = ""
-	m.inSearch = false
 	m.folderSearch = ""
 	m.inFolderSearch = false
-	m.treeOpen = false
+	m.closeTree()
 	m.accountOverlayOpen = false
-	m.showHelp = false
+	m.closeHelp()
 	m.showError = false
 	m.err = nil
 	m.showDiag = false
@@ -205,6 +206,9 @@ func (m *tuiModel) switchAccount(acc cfg_acc.AccountConfig) (tea.Model, tea.Cmd)
 		return m, nil
 	}
 
+	// Keyed by the account being left, so before the client changes.
+	m.rememberPosition()
+	m.recordVisit(m.currentF, "")
 	if newClient != nil {
 		m.client = newClient
 	}
@@ -274,12 +278,16 @@ type accountLoginFinishedMsg struct {
 }
 
 func (m *tuiModel) loginAccountCmd(acc cfg_acc.AccountConfig) tea.Cmd {
+	// os.Args[0] is no fallback: started as a link, it names the link, whose
+	// preset would then be put in front of the login arguments.
 	bin, err := os.Executable()
 	if err != nil || bin == "" {
-		bin = os.Args[0]
+		if bin, err = exec.LookPath(cfg_g.AppName); err != nil {
+			bin = cfg_g.AppName
+		}
 	}
-	c := exec.Command(bin, "account", "login", acc.Name)
-	return tea.ExecProcess(c, func(execErr error) tea.Msg {
+	c := exec.Command(bin, m.loginArgs(acc.Name)...)
+	return runProgram(c, func(execErr error) tea.Msg {
 		return accountLoginFinishedMsg{
 			acc: acc,
 			err: execErr,
@@ -360,8 +368,11 @@ func renderAccountOverlay(m *tuiModel) string {
 	}
 
 	lines = append(lines, "")
-	dialogWidth := min(72, max(48, m.width-4))
-	innerWidth := dialogWidth - 4 // accounting for Padding(1, 2)
+	dialogWidth := min(72, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	innerWidth := max(10, dialogWidth-4) // accounting for Padding(1, 2)
 
 	helpLeft := "Enter/1-9: Select  │  l: Login  │  j/k: Nav  │  Esc: Cancel"
 	helpRight := "●=active"
@@ -397,4 +408,18 @@ func renderAccountOverlay(m *tuiModel) string {
 		Height(max(10, m.height)).
 		Align(lipgloss.Center, lipgloss.Center).
 		Render(dialog)
+}
+
+// loginArgs is the command line of the sign-in the TUI hands the terminal to.
+// It carries --read-only and --dry-run on: without them the child loaded the
+// configuration as a writer and could rewrite config.json while the session
+// that started it promised not to.
+func (m *tuiModel) loginArgs(account string) []string {
+	var args []string
+	if cfg := m.cfg; cfg != nil && cfg.DryRun {
+		args = append(args, "--dry-run")
+	} else if m.isAccountReadOnly() {
+		args = append(args, "--read-only")
+	}
+	return append(args, "account", "login", account)
 }

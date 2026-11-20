@@ -1,7 +1,7 @@
 package sieve
 
 import (
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 	"strings"
 	"testing"
 )

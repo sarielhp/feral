@@ -3,7 +3,20 @@
 
 require_relative 'tooling'
 
-Tooling.entry do
+HELP = <<~TEXT
+  Usage: tools/gate [--full]
+
+  Check the tree without changing it: formatting, go mod tidy -diff, go vet,
+  staticcheck, go-audit, the architecture and version checks, every test, and
+  the build into bin/.
+
+  Options:
+    --full      The release gate: adds every test under -race, govulncheck,
+                gocritic, shadow, revive and dupl.
+    -h, --help  Show this help; nothing is run.
+TEXT
+
+Tooling.entry(HELP) do
   abort 'Usage: tools/gate [--full]' unless ARGV.empty? || ARGV == ['--full']
   Tooling.gate(ARGV == ['--full'])
 end

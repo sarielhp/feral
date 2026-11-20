@@ -3,7 +3,7 @@ package gmail
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 )

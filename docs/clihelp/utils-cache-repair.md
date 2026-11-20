@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils cache repair'
-parent: 'mail_cli utils cache'
+title: 'feral utils cache repair'
+parent: 'feral utils cache'
 ---
 
-# mail\_cli utils cache repair
+# feral utils cache repair
 
 Check the account's message index against the cached message files and rewrite it: one current-format record per message, a record for every file, and none for a missing file unless it holds your spam/not-spam decision, which a re-download then gets back. Damaged training ledgers are reported but never rewritten. Only local files are touched.
 
 ## Usage
 
 ```
-mail_cli utils cache repair
+feral utils cache repair
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli utils cache repair
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli utils cache repair
 
 ## Examples
 
-- `mail_cli --dry-run utils cache repair` — Report what a repair would change
-- `mail_cli utils cache repair`
+- `feral --dry-run utils cache repair` — Report what a repair would change
+- `feral utils cache repair`
 
 ## Reporting only
 
@@ -37,4 +37,4 @@ With --dry-run or --read-only it reports what it would change and changes nothin
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

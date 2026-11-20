@@ -5,10 +5,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/terminal"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/terminal"
 
 	"github.com/fatih/color"
 	"github.com/mattn/go-runewidth"
@@ -133,10 +133,7 @@ func renderSummaryFolderCell(_ io.Writer, eml email.Email, folderMap map[email.I
 func renderSummaryRow(w io.Writer, eml email.Email, folderMap map[email.ID]string, cols summaryColumns, isEven, verbose bool) string {
 	state, subjectPrefix := summaryRowState(eml)
 
-	senderPlain := email.FormatSender(eml.FromRaw)
-	if verbose {
-		senderPlain = email.FormatSenderVerbose(eml.FromRaw)
-	}
+	senderPlain := eml.SenderColumn(verbose)
 	senderDisp := getCellStyle(state, isEven).Sprint(padOrTruncate(senderPlain, cols.sender))
 	subjectDisp := getCellStyle(state, isEven).Sprint(padOrTruncate(subjectPrefix+eml.Subject, cols.subject))
 	idDisp := getCellStyle("id", isEven).Sprint(padOrTruncate(string(email.ComputeShortID(eml.ID)), cols.id))

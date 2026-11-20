@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 )
 
 // TestGetOAuthClientContext_ConcurrentRefreshIsSerialized is a concurrency-race

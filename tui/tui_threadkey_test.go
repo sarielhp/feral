@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 // A header Message-ID and a backend ID that happen to be the same string are

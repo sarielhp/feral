@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -19,11 +19,11 @@ import (
 // CompleteAccountNames provides dynamic tab-completion for configured account names.
 func CompleteAccountNames(toComplete string) []string {
 	var matches []string
-	homeDir, err := os.UserHomeDir()
+	configDir, err := cfg_g.UserConfigDir()
 	if err != nil {
 		return matches
 	}
-	configPath := filepath.Join(homeDir, ".config", app.AppName, "config.json")
+	configPath := filepath.Join(configDir, "config.json")
 	fc, _ := cfg_g.LoadConfigFile(configPath)
 	if fc == nil || fc.Accounts == nil {
 		return matches
@@ -49,6 +49,7 @@ func CompleteAccountProviders(toComplete string) []string {
 		{"gmail", "Google Mail"},
 		{"jmap", "FastMail / Stalwart"},
 		{"outlook", "Microsoft 365 / Outlook"},
+		{"mbox", "Local mbox file"},
 	}
 	var matches []string
 	for _, p := range providers {
@@ -66,6 +67,7 @@ func CompleteConfigKeys(toComplete string) []string {
 		desc string
 	}{
 		{"attachment_save_dir", "Attachment download directory"},
+		{"save_locations", "Save dialog jump directories (comma-separated)"},
 		{"auto_unsubscribe", "Auto-unsubscribe from political mail"},
 		{"badge", "Account tag in mixed-account listings"},
 		{"block_political", "Auto-block political spam senders"},
@@ -82,6 +84,7 @@ func CompleteConfigKeys(toComplete string) []string {
 		{"llm_system_prompt", "System prompt for email summarization"},
 		{"llm_temperature", "Sampling temperature for LLM"},
 		{"mutt_aliases", "Path to Mutt aliases file"},
+		{"my_emails", "Your own addresses (comma-separated)"},
 		{"score_threshold", "Spam probability threshold (0.0 - 1.0)"},
 		{"spam_folder", "Folder name for spam messages"},
 		{"spam_learn", "Folder to train spam filter on"},
@@ -178,15 +181,10 @@ func containsFold(slice []string, val string) bool {
 }
 
 func loadCachedFolderNames() []string {
-	cacheDir, err := os.UserCacheDir()
+	baseDir, err := cfg_g.UserCacheDir()
 	if err != nil {
-		homeDir, hErr := os.UserHomeDir()
-		if hErr != nil {
-			return nil
-		}
-		cacheDir = filepath.Join(homeDir, ".cache")
+		return nil
 	}
-	baseDir := filepath.Join(cacheDir, app.AppName)
 	paths := []string{filepath.Join(baseDir, "labels_cache.json")}
 	if entries, rErr := os.ReadDir(baseDir); rErr == nil {
 		for _, e := range entries {
@@ -376,4 +374,19 @@ func newRemoveByIDCmd(description, usageLine string, remove func([]string) error
 			return remove(ctx.Args)
 		},
 	}
+}
+
+// readRedirectedStdin reads stdin when it is a file or a pipe -- `< body.txt`
+// or `cmd |` -- and reports whether it did. A terminal is left alone: it is
+// the user's keyboard, not a body.
+func readRedirectedStdin() (string, bool, error) {
+	stat, err := os.Stdin.Stat()
+	if err != nil || stat.Mode()&os.ModeCharDevice != 0 {
+		return "", false, nil
+	}
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", false, fmt.Errorf("reading the body from stdin: %w", err)
+	}
+	return string(data), true, nil
 }

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account setup'
-parent: 'mail_cli account'
+title: 'feral account setup'
+parent: 'feral account'
 ---
 
-# mail\_cli account setup
+# feral account setup
 
 Configure an email account interactively.
 
 ## Usage
 
 ```
-mail_cli account setup
+feral account setup
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli account setup
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli account setup
 
 ## Examples
 
-- `mail_cli account setup` — Launch guided account setup wizard
+- `feral account setup` — Launch guided account setup wizard
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

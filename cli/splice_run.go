@@ -5,11 +5,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/transfer"
 )
 
 // splicePlan is one splice run: the folder messages come from, how each
@@ -27,11 +28,14 @@ type splicePlan struct {
 	destBase   string
 	yearSuffix bool
 	suffix     bool
+	// copyOnly turns --move into --copy, for a source nothing may be removed
+	// from: a local mbox file.
+	copyOnly bool
 }
 
 func (p *splicePlan) baseDir() cachedir.Account { return p.src.Config().AccountCache }
 
-func (p *splicePlan) sameAccount() bool { return isSameAccount(p.src, p.dest) }
+func (p *splicePlan) sameAccount() bool { return transfer.SameAccount(p.src, p.dest) }
 
 func (p *splicePlan) srcDisplay() string {
 	return FormatAccountFolder(p.session, p.src, p.source.String())
@@ -58,6 +62,10 @@ type spliceItem struct {
 	parsed *email.Email
 	raw    []byte
 	dest   label.Folder
+}
+
+func (it spliceItem) item() transfer.Item {
+	return transfer.Item{ID: it.id, Parsed: it.parsed, Raw: it.raw, Dest: it.dest}
 }
 
 // load reads message i of total and names its destination, reporting a
@@ -113,7 +121,7 @@ func (p *splicePlan) run(ids []email.ID) (map[label.Folder]bool, error) {
 	switch {
 	case !flagSpliceCopy && !flagSpliceMove:
 		return p.dryRun(ids), nil
-	case flagSpliceCopy:
+	case flagSpliceCopy || p.copyOnly:
 		return p.copyAll(ids), nil
 	case p.sameAccount():
 		return p.moveSameAccount(ids)
@@ -123,7 +131,7 @@ func (p *splicePlan) run(ids []email.ID) (map[label.Folder]bool, error) {
 }
 
 func (p *splicePlan) dryRun(ids []email.ID) map[label.Folder]bool {
-	destCache := make(map[label.Folder]*destFolderIndex)
+	destCache := make(transfer.FolderCache)
 	touched := make(map[label.Folder]bool)
 	for i, id := range ids {
 		if i > 0 {
@@ -137,10 +145,13 @@ func (p *splicePlan) dryRun(ids []email.ID) map[label.Folder]bool {
 		if p.skipSelf(i, len(ids), it) {
 			continue
 		}
-		exists := isMessageInDest(p.dest, it.dest, it.id, it.parsed, destCache)
+		exists := transfer.InDest(p.dest, it.dest, it.id, it.parsed, destCache)
 		printSpliceSuccess(p.session.out(), i, len(ids), it.id, it.parsed.Subject)
 		fmt.Fprintf(p.session.out(), "    %s\n       →   %s\n", p.srcDisplay(), p.destDisplay(it.dest))
 		note := app.ColorCyan.Sprint("(would move to destination)")
+		if p.copyOnly {
+			note = app.ColorCyan.Sprint("(would copy to destination)")
+		}
 		if exists {
 			note = app.ColorYellow.Sprint("(already exists in destination)")
 		}
@@ -150,9 +161,12 @@ func (p *splicePlan) dryRun(ids []email.ID) map[label.Folder]bool {
 }
 
 func (p *splicePlan) copyAll(ids []email.ID) map[label.Folder]bool {
-	destCache := make(map[label.Folder]*destFolderIndex)
-	ensured := make(map[label.Folder]bool)
 	touched := make(map[label.Folder]bool)
+	mover, err := transfer.NewMover(p.src, p.dest, p.source, transfer.Options{Reporter: p.session.status()})
+	if err != nil {
+		return touched
+	}
+	defer func() { _ = mover.Close() }()
 	for i, id := range ids {
 		if i > 0 {
 			fmt.Fprintln(p.session.out(), "---------------")
@@ -165,38 +179,34 @@ func (p *splicePlan) copyAll(ids []email.ID) map[label.Folder]bool {
 		if p.skipSelf(i, len(ids), it) {
 			continue
 		}
-		p.copyOne(i, len(ids), it, destCache, ensured)
+		p.copyOne(i, len(ids), it, mover)
 	}
 	return touched
 }
 
-func (p *splicePlan) copyOne(i, total int, it spliceItem, destCache map[label.Folder]*destFolderIndex, ensured map[label.Folder]bool) {
+func (p *splicePlan) copyOne(i, total int, it spliceItem, mover *transfer.Mover) {
 	out := p.session.out()
 	route := fmt.Sprintf("    %s\n       →   %s", p.srcDisplay(), p.destDisplay(it.dest))
-	if isMessageInDest(p.dest, it.dest, it.id, it.parsed, destCache) {
+	res := mover.Copy(it.item())
+	switch {
+	case res.Existed:
 		fmt.Fprintf(p.session.errOut(), "[%d/%d] %s %s | Subject: %q\n", i+1, total, app.PrefixInfo, strings.TrimSpace(string(it.id)), it.parsed.Subject)
 		fmt.Fprintf(p.session.errOut(), "%s\n", route)
 		fmt.Fprintf(out, "    %s\n", app.ColorYellow.Sprint("(already exists in destination, skipping copy)"))
-		return
-	}
-	if err := p.ensureDest(it.dest, ensured); err != nil {
+	case res.Failed == transfer.StageEnsure:
 		printSpliceError(out, i, total, it.id, it.parsed.Subject)
-		fmt.Fprintf(out, "%s (failed to create folder: %v)\n", route, err)
-		return
-	}
-	destID, err := p.copyOrUpload(it)
-	if err != nil {
+		fmt.Fprintf(out, "%s (failed to create folder: %v)\n", route, res.Err)
+	case !res.OK():
 		printSpliceError(out, i, total, it.id, it.parsed.Subject)
 		what := "failed to upload to target account"
 		if p.sameAccount() {
 			what = "failed to copy"
 		}
-		fmt.Fprintf(out, "%s (%s: %v)\n", route, what, err)
-		return
+		fmt.Fprintf(out, "%s (%s: %v)\n", route, what, res.Err)
+	default:
+		printSpliceSuccess(out, i, total, it.id, it.parsed.Subject)
+		fmt.Fprintf(out, "%s\n    %s\n", route, app.ColorGreen.Sprint("(copied to destination)"))
 	}
-	indexFor(destCache, it.dest).add(it.id, destID, it.parsed)
-	printSpliceSuccess(out, i, total, it.id, it.parsed.Subject)
-	fmt.Fprintf(out, "%s\n    %s\n", route, app.ColorGreen.Sprint("(copied to destination)"))
 }
 
 // moveSameAccount groups messages by destination and moves each group with
@@ -247,28 +257,16 @@ func (p *splicePlan) reportMoved(chunk []email.ID, dest label.Folder, subjects m
 	}
 }
 
-// crossMove is the state a cross-account move carries from message to
-// message: what is known to be in each destination, which destinations exist,
-// and the journal that lets an interrupted run finish its deletions.
-type crossMove struct {
-	destCache map[label.Folder]*destFolderIndex
-	ensured   map[label.Folder]bool
-	journal   *SpliceJournal
-}
-
 func (p *splicePlan) moveCrossAccount(ids []email.ID) (map[label.Folder]bool, error) {
-	journal, err := OpenSpliceJournal(p.baseDir(), p.source.String())
+	mover, err := transfer.NewMover(p.src, p.dest, p.source, transfer.Options{
+		Remove:   trashRemover(p.session, p.src),
+		Reporter: p.session.status(),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("cross-account move refusing to run without its crash journal: %w", err)
+		return nil, err
 	}
-	defer func() { _ = journal.Close() }()
-	_ = RecoverSpliceJournal(journal, p.src, p.session, p.source)
+	defer func() { _ = mover.Close() }()
 
-	state := crossMove{
-		destCache: make(map[label.Folder]*destFolderIndex),
-		ensured:   make(map[label.Folder]bool),
-		journal:   journal,
-	}
 	touched := make(map[label.Folder]bool)
 	for i, id := range ids {
 		if i > 0 {
@@ -278,7 +276,7 @@ func (p *splicePlan) moveCrossAccount(ids []email.ID) (map[label.Folder]bool, er
 		if !ok {
 			continue
 		}
-		if p.moveOneCrossAccount(i, len(ids), it, state) {
+		if p.moveOneCrossAccount(i, len(ids), it, mover) {
 			touched[it.dest] = true
 		}
 	}
@@ -287,87 +285,49 @@ func (p *splicePlan) moveCrossAccount(ids []email.ID) (map[label.Folder]bool, er
 
 // moveOneCrossAccount uploads one message, confirms it arrived, and only then
 // removes it from the source. It reports whether the message was moved.
-func (p *splicePlan) moveOneCrossAccount(i, total int, it spliceItem, state crossMove) bool {
+func (p *splicePlan) moveOneCrossAccount(i, total int, it spliceItem, mover *transfer.Mover) bool {
 	out := p.session.out()
 	route := fmt.Sprintf("    %s\n       →   %s", p.srcDisplay(), p.destDisplay(it.dest))
-	fail := func(format string, err error) bool {
-		printSpliceError(out, i, total, it.id, it.parsed.Subject)
-		fmt.Fprintf(out, "%s ("+format+")\n", route, err)
-		return false
-	}
-	if err := p.ensureDest(it.dest, state.ensured); err != nil {
-		return fail("failed to create folder: %v", err)
-	}
-
-	exists := isMessageInDest(p.dest, it.dest, it.id, it.parsed, state.destCache)
-	var destID email.ID
-	if !exists {
-		var err error
-		if destID, err = p.copyOrUpload(it); err != nil {
-			return fail("failed to upload to target account: %v", err)
-		}
-	}
-	indexFor(state.destCache, it.dest).add(it.id, destID, it.parsed)
-
-	if destID == "" && !exists {
-		if confirmed, err := confirmMessageInDest(p.dest, it.dest, it.id, it.parsed); !confirmed || err != nil {
-			return fail("unconfirmed in destination; source message NOT deleted: %v", err)
-		}
-	}
-
-	_ = state.journal.RecordUpload(string(it.id), string(destID), it.dest.String())
-	if err := trashSpliceSource(p.session, p.src, it.id, p.source); err != nil {
+	res := mover.Move(it.item())
+	if res.Failed == transfer.StageRemove {
 		printSpliceWarn(out, i, total, it.id, it.parsed.Subject)
-		fmt.Fprintf(out, " (confirmed in destination, but failed to remove from source: %v)\n", err)
+		fmt.Fprintf(out, " (confirmed in destination, but failed to remove from source: %v)\n", res.Err)
 		return false
 	}
-	_ = state.journal.RecordDeleted(string(it.id))
-
+	if !res.OK() {
+		printSpliceError(out, i, total, it.id, it.parsed.Subject)
+		fmt.Fprintf(out, "%s (%s: %v)\n", route, failedStep(res.Failed), res.Err)
+		return false
+	}
 	printSpliceSuccess(out, i, total, it.id, it.parsed.Subject)
 	note := "(confirmed in destination, removed from source)"
-	if exists {
+	if res.Existed {
 		note = "(already existed in destination, confirmed and removed from source)"
 	}
 	fmt.Fprintf(out, "%s\n    %s\n", route, app.ColorGreen.Sprint(note))
 	return true
 }
 
-// ensureDest creates dest on the destination side once per run.
-func (p *splicePlan) ensureDest(dest label.Folder, ensured map[label.Folder]bool) error {
-	if ensured[dest] {
-		return nil
+// failedStep is how a cross-account move names the step that stopped it.
+func failedStep(stage transfer.Stage) string {
+	switch stage {
+	case transfer.StageEnsure:
+		return "failed to create folder"
+	case transfer.StageUpload:
+		return "failed to upload to target account"
+	default:
+		return "unconfirmed in destination; source message NOT deleted"
 	}
-	if err := p.dest.EnsureLabelExists(dest); err != nil {
-		return err
-	}
-	ensured[dest] = true
-	return nil
 }
 
-// copyOrUpload copies within an account, or uploads to another, returning the
-// message's ID on the destination side.
-func (p *splicePlan) copyOrUpload(it spliceItem) (email.ID, error) {
-	if p.sameAccount() {
-		return it.id, p.src.CopyEmail([]email.ID{it.id}, p.source, it.dest)
-	}
-	return p.dest.UploadRawEmail(it.raw, it.dest)
-}
-
-// trashSpliceSource removes a message that now lives in another account from
-// the source folder, by moving it to the source account's trash.
-func trashSpliceSource(session *Session, src mailclient.MailClient, id email.ID, source label.Folder) error {
+// trashRemover removes messages that now live in another account from a
+// source folder, by moving them to the source account's trash.
+func trashRemover(session *Session, src mailclient.MailClient) transfer.Remover {
 	trash := label.FromServer("Trash")
 	if t, err := session.organize().ResolveTrashTarget(src); err == nil && !t.IsZero() {
 		trash = t
 	}
-	return src.MoveEmail([]email.ID{id}, source, trash)
-}
-
-func indexFor(destCache map[label.Folder]*destFolderIndex, dest label.Folder) *destFolderIndex {
-	if destCache[dest] == nil {
-		destCache[dest] = newDestFolderIndex(1)
-	}
-	return destCache[dest]
+	return transfer.TrashRemover(src, trash)
 }
 
 // printTotals prints the message counts of the source and every destination

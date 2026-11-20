@@ -30,8 +30,8 @@ type footerItem struct {
 	label, key string
 }
 
-// footerItems are the actions, by mode; jumpItems the directories 1-4 jump
-// to. They are two rows: on one, the save picker's footer was 98 columns and
+// footerItems are the actions, by mode; jumpItems the directories the digit
+// keys jump to. They are two rows: on one, the save picker's footer was 98 columns and
 // wrapped in its box, and the jumps were a "[1-4]" hint nothing could click.
 func (m *Model) footerItems() []footerItem {
 	if m.AllowFileSelect {
@@ -46,14 +46,25 @@ func (m *Model) footerItems() []footerItem {
 	}
 }
 
-var jumpItems = []footerItem{
-	{"[1] Downloads", "1"}, {"[2] ~", "2"}, {"[3] Documents", "3"}, {"[4] /tmp", "4"},
+// jumpItems are the picker's locations as clickable footer entries, each
+// labelled by its digit.
+func (m *Model) jumpItems() []footerItem {
+	items := make([]footerItem, 0, len(m.Locations))
+	for i, l := range m.Locations {
+		label := l.Label
+		if label == "" {
+			label = displayDir(l.Path, 28)
+		}
+		key := strconv.Itoa(i + 1)
+		items = append(items, footerItem{"[" + key + "] " + label, key})
+	}
+	return items
 }
 
 // renderFooter draws the two footer rows with each key marked for clicking.
 func (m *Model) renderFooter() string {
 	width := m.contentWidth()
-	return strings.Join(append(packItems(m.footerItems(), " | ", " ", width), packItems(jumpItems, "  ", " Jump: ", width)...), "\n")
+	return strings.Join(append(packItems(m.footerItems(), " | ", " ", width), packItems(m.jumpItems(), "  ", " Jump: ", width)...), "\n")
 }
 
 // packItems lays items out in rows no wider than width, the first row
@@ -107,7 +118,7 @@ func (m *Model) Mouse(msg tea.MouseMsg) (Model, tea.Cmd) {
 			return *m, nil
 		}
 	}
-	for _, it := range append(m.footerItems(), jumpItems...) {
+	for _, it := range append(m.footerItems(), m.jumpItems()...) {
 		if zone.Get(keyZone(it.key)).InBounds(msg) {
 			return m.Update(keyMsg(it.key))
 		}

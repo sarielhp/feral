@@ -8,8 +8,8 @@ import (
 
 	jmapemail "git.sr.ht/~rockorager/go-jmap/mail/email"
 
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	mailemail "github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msgstore"
+	mailemail "github.com/sarielhp/feral/email"
 )
 
 // blobWorkers bounds concurrent blob downloads inside one batch. JMAP resolves

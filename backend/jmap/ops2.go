@@ -3,11 +3,11 @@ package jmap
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	myme "github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	myme "github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 	"mime"
 	"net/mail"
 	"strings"
@@ -465,41 +465,52 @@ func (c *client) UploadRawEmail(rawBytes []byte, target label.Folder) (myme.ID, 
 		return "", fmt.Errorf("failed JMAP import request: %w", err)
 	}
 
+	id, _, err := c.importedEmailID(resp, rawBytes, destMailboxID)
+	if err != nil {
+		return "", err
+	}
+	return myme.ID(id), nil
+}
+
+// importedEmailID returns the ID the server assigned to the imported email,
+// or of the existing copy when the import reports alreadyExists; existing
+// says which.
+func (c *client) importedEmailID(resp *jmap.Response, rawBytes []byte, destMailboxID jmap.ID) (id string, existing bool, err error) {
 	for _, inv := range resp.Responses {
 		r, ok := inv.Args.(*email.ImportResponse)
 		if !ok {
 			continue
 		}
-		id, err := c.handleImportResponse(r, rawBytes, destMailboxID)
+		id, existing, err = c.handleImportResponse(r, rawBytes, destMailboxID)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		if id != "" {
-			return myme.ID(id), nil
+			return id, existing, nil
 		}
 	}
-	return "", fmt.Errorf("import completed without assigned ID")
+	return "", false, fmt.Errorf("import completed without assigned ID")
 }
 
-func (c *client) handleImportResponse(r *email.ImportResponse, rawBytes []byte, destMailboxID jmap.ID) (string, error) {
+func (c *client) handleImportResponse(r *email.ImportResponse, rawBytes []byte, destMailboxID jmap.ID) (id string, existing bool, err error) {
 	if len(r.Created) > 0 && r.Created["import1"] != nil {
-		return string(r.Created["import1"].ID), nil
+		return string(r.Created["import1"].ID), false, nil
 	}
-	for id, jErr := range r.NotCreated {
+	for key, jErr := range r.NotCreated {
 		if jErr.Type == "alreadyExists" {
 			linkedID, linkErr := c.linkExistingEmailToMailbox(rawBytes, destMailboxID)
 			if linkErr != nil {
-				return "", fmt.Errorf("email already exists in account, but failed to link: %w", linkErr)
+				return "", false, fmt.Errorf("email already exists in account, but failed to link: %w", linkErr)
 			}
-			return linkedID, nil
+			return linkedID, true, nil
 		}
 		desc := ""
 		if jErr.Description != nil {
 			desc = *jErr.Description
 		}
-		return "", fmt.Errorf("failed to import email %s: %s (%s)", id, jErr.Type, desc)
+		return "", false, fmt.Errorf("failed to import email %s: %s (%s)", key, jErr.Type, desc)
 	}
-	return "", nil
+	return "", false, nil
 }
 
 func (c *client) linkExistingEmailToMailbox(rawBytes []byte, destMailboxID jmap.ID) (string, error) {
@@ -597,18 +608,51 @@ func (c *client) SendEmail(rawBytes []byte) error {
 	}
 
 	cleanBytes := stripBccHeader(rawBytes)
-	createdEmailID, err := c.uploadAndImportEmail(cleanBytes)
+	createdEmailID, existing, err := c.uploadAndImportEmail(cleanBytes)
 	if err != nil {
 		return err
+	}
+	if existing {
+		// A retry whose first attempt reached the server: if the message was
+		// already submitted, submitting again would deliver it twice.
+		submitted, subErr := c.alreadySubmitted(createdEmailID)
+		if subErr != nil {
+			return fmt.Errorf("message already exists on the server and could not check whether it was sent: %w", subErr)
+		}
+		if submitted {
+			return nil
+		}
 	}
 
 	return c.submitEmail(createdEmailID, identityID, rcptTo)
 }
 
-func (c *client) uploadAndImportEmail(rawBytes []byte) (jmap.ID, error) {
+// alreadySubmitted reports whether an EmailSubmission already exists for the
+// email. feral never cancels a submission, so any existing one means the
+// message went out.
+func (c *client) alreadySubmitted(emailID jmap.ID) (bool, error) {
+	req := &jmap.Request{}
+	req.Invoke(&emailsubmission.Query{
+		Account: c.accID,
+		Filter:  &emailsubmission.FilterCondition{EmailIDs: []jmap.ID{emailID}},
+		Limit:   1,
+	})
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	for _, inv := range resp.Responses {
+		if qr, ok := inv.Args.(*emailsubmission.QueryResponse); ok {
+			return len(qr.IDs) > 0, nil
+		}
+	}
+	return false, fmt.Errorf("no EmailSubmission/query response")
+}
+
+func (c *client) uploadAndImportEmail(rawBytes []byte) (id jmap.ID, existing bool, err error) {
 	uploadResp, err := c.client.Upload(c.accID, bytes.NewReader(rawBytes))
 	if err != nil {
-		return "", fmt.Errorf("failed JMAP upload: %w", err)
+		return "", false, fmt.Errorf("failed JMAP upload: %w", err)
 	}
 
 	targetMailboxID := c.sentMailboxID
@@ -616,7 +660,7 @@ func (c *client) uploadAndImportEmail(rawBytes []byte) (jmap.ID, error) {
 		targetMailboxID = c.resolveFallbackMailbox()
 	}
 	if targetMailboxID == "" {
-		return "", fmt.Errorf("failed to submit email: no mailboxes available on JMAP server")
+		return "", false, fmt.Errorf("failed to submit email: no mailboxes available on JMAP server")
 	}
 
 	req := &jmap.Request{}
@@ -631,30 +675,16 @@ func (c *client) uploadAndImportEmail(rawBytes []byte) (jmap.ID, error) {
 	})
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed JMAP import request: %w", err)
+		return "", false, fmt.Errorf("failed JMAP import request: %w", err)
 	}
 
-	var createdEmailID jmap.ID
-	for _, inv := range resp.Responses {
-		r, ok := inv.Args.(*email.ImportResponse)
-		if !ok {
-			continue
-		}
-		if created, ok := r.Created["import1"]; ok {
-			createdEmailID = created.ID
-		}
-		for id, jErr := range r.NotCreated {
-			desc := ""
-			if jErr.Description != nil {
-				desc = *jErr.Description
-			}
-			return "", fmt.Errorf("failed to import email %s: %s (%s)", id, jErr.Type, desc)
-		}
+	// A retried send re-imports identical bytes; alreadyExists then resolves
+	// to the existing message instead of failing the send.
+	gotID, existing, err := c.importedEmailID(resp, rawBytes, targetMailboxID)
+	if err != nil {
+		return "", false, err
 	}
-	if createdEmailID == "" {
-		return "", fmt.Errorf("failed to retrieve created email ID from JMAP import")
-	}
-	return createdEmailID, nil
+	return jmap.ID(gotID), existing, nil
 }
 
 func (c *client) parseRecipients(rawBytes []byte) ([]*emailsubmission.Address, error) {

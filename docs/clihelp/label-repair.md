@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label repair'
-parent: 'mail_cli label'
+title: 'feral label repair'
+parent: 'feral label'
 ---
 
-# mail\_cli label repair
+# feral label repair
 
 Ensure that all parent folders exist for every nested folder path in the account.
 
 ## Usage
 
 ```
-mail_cli label repair
+feral label repair
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli label repair
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli label repair
 
 ## Examples
 
-- `mail_cli label fix`
+- `feral label fix`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

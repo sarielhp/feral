@@ -24,7 +24,8 @@ end
 
 # Packages below the user interface: they report, they do not print.
 BELOW_UI = %w[backend mailclient cache email calendar contacts label report spam scan
-              organize show last sieve train message_info terminal browser outbox watcher pgp].freeze
+              organize show last sieve train message_info terminal browser outbox watcher pgp
+              transfer snooze].freeze
 
 # 1. No presentation below the UI layer.
 offenders = []
@@ -75,7 +76,7 @@ unless offenders.empty?
 end
 
 # 4. No CLI flag state below the CLI.
-out, = Open3.capture3("grep -rn 'app\\.Flag' --include='*.go' .")
+out, = Open3.capture3("grep -rn --exclude-dir=.git --exclude-dir=.claude 'app\\.Flag' --include='*.go' .")
 offenders = out.lines.reject do |l|
   l =~ %r{^\./cli/} || l =~ %r{^\./app/} || l =~ /_test\.go:/ ||
     l =~ %r{:\s*(//|\*)} || l =~ %r{^\./tools/}
@@ -84,6 +85,19 @@ unless offenders.empty?
   fail_rule('no CLI flags below the CLI',
             'Reading the parser\'s globals makes a package impossible to call with ' \
             'different options from the TUI, or twice in one test. Pass an options struct.',
+            offenders)
+end
+
+# 5. transfer sits beside mailops, below every user interface and orchestrator.
+out, = Open3.capture3("go list -f '{{.ImportPath}} {{join .Imports \" \"}}' ./transfer/...")
+offenders = out.lines.select do |l|
+  l.split.drop(1).any? { |imp| imp =~ %r{^#{Regexp.escape(MODULE)}/(cli|tui|runner|ui|mailops)(/|$)} }
+end.map(&:strip)
+unless offenders.empty?
+  fail_rule('transfer imports nothing above it',
+            'transfer is the move protocol splice and the TUI share. If it reaches up into ' \
+            'a user interface or the factory, one of them can no longer use it, and how a ' \
+            'source removes a message belongs to the caller\'s Remover, not to a backend import.',
             offenders)
 end
 

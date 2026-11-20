@@ -5,18 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/ui"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -37,7 +37,7 @@ func SearchCmd(session *Session) clihelp.Command {
 		Name:        "search",
 		Group:       "Daily",
 		Description: "Search email history or export to mbox.",
-		UsageLine:   "mail_cli search <query> [flags]",
+		UsageLine:   "feral search <query> [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<query>", Description: "Query string (free text or search filters)."},
 		},
@@ -48,10 +48,10 @@ func SearchCmd(session *Session) clihelp.Command {
 			clihelp.Bool(&flagSearchReverse, "-r, --reverse", false, "List newest first instead of oldest first"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli search \"taxes 2025\""},
-			{Line: "mail_cli search from:alice@example.com -n 25"},
-			{Line: "mail_cli -A work search \"from:manager has:attachment\""},
-			{Line: "mail_cli search from:lawyer@firm.com --all -o legal.mbox", Description: "Export every match to an archive"},
+			{Line: "feral search \"taxes 2025\""},
+			{Line: "feral search from:alice@example.com -n 25"},
+			{Line: "feral -A work search \"from:manager has:attachment\""},
+			{Line: "feral search from:lawyer@firm.com --all -o legal.mbox", Description: "Export every match to an archive"},
 		},
 		Args: clihelp.ExactArgs(1),
 		Run: func(ctx *clihelp.Context) error {
@@ -172,7 +172,7 @@ func saveSearchMailbox(client mailclient.Reader, emails []email.Email, query str
 		return
 	}
 	vm := &virtual.Mailbox{
-		Name:        "search",
+		Name:        virtual.NameForQuery(query),
 		Description: fmt.Sprintf("Results for %q", query),
 		MessageIDs:  make([]email.ID, len(emails)),
 		FolderMap:   make(map[email.ID]string, len(emails)),

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam mark'
-parent: 'mail_cli spam'
+title: 'feral spam mark'
+parent: 'feral spam'
 ---
 
-# mail\_cli spam mark
+# feral spam mark
 
 Mark one or more messages as spam: train the filter and move them to the Spam folder.
 
 ## Usage
 
 ```
-mail_cli spam mark <message_id...>
+feral spam mark <message_id...>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli spam mark <message_id...>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,8 +34,8 @@ mail_cli spam mark <message_id...>
 
 ## Examples
 
-- `mail_cli spam mark abc123de` — Mark one message as spam
+- `feral spam mark abc123de` — Mark one message as spam
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

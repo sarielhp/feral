@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestPromptSecretWithInput_NonTerminal(t *testing.T) {
@@ -254,5 +254,45 @@ func TestAccountNewKeepsEveryPipedAnswer(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("%s = %q, want %q (answer lost to a per-prompt reader?)", tc.field, tc.got, tc.want)
 		}
+	}
+}
+
+// `account add mbox` asks for nothing but the file, refuses one that is not
+// there, and saves the account read-only.
+func TestAccountAddMbox(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"username": "test@example.com"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mboxPath := filepath.Join(tempDir, "old.mbox")
+	if err := os.WriteFile(mboxPath, []byte("From a@example.com Tue Sep 01 09:00:00 2026\nSubject: x\n\nbody\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	session := &Session{Config: &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: tempDir}}}
+
+	err := withPipedStdin(t, filepath.Join(tempDir, "missing.mbox")+"\n", func() error {
+		return InitCLI(session).Execute([]string{"account", "add", "mbox", "gone"})
+	})
+	if err == nil {
+		t.Fatal("an mbox account for a file that does not exist was saved")
+	}
+
+	if err = InitCLI(session).Execute([]string{"account", "add", "mbox", "old", "--path", mboxPath}); err != nil {
+		t.Fatalf("account add mbox: %v", err)
+	}
+	fc, err := cfg_g.LoadConfigFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fc.Accounts == nil || len(*fc.Accounts) != 1 {
+		t.Fatalf("expected one account saved, got %v", fc.Accounts)
+	}
+	got := (*fc.Accounts)[0]
+	if got.Type != "mbox" || got.Path != mboxPath || !got.ReadOnly {
+		t.Errorf("saved %+v; want an mbox account for %s, read-only", got, mboxPath)
+	}
+	if err := cfg_g.ValidateAccountParams(got); err != nil {
+		t.Errorf("the saved account does not validate: %v", err)
 	}
 }

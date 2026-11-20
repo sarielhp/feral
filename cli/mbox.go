@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
 	"io"
 	"net/mail"
 	"os"
@@ -12,11 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/transfer"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -34,7 +36,7 @@ func downloadCmd(session *Session, name, path string) clihelp.Command {
 		Group:           "Folders",
 		Description:     "Download messages to local mbox file(s).",
 		LongDescription: "Downloads a folder into an mbox file. Safe to repeat: if the file already exists, only messages it does not yet contain are appended, and a run with nothing new leaves it untouched. Messages are matched by Message-ID (Subject and Date when there is none). The folder is also filled into the local cache. Use -d to see what would be added, or -w to replace the file instead.",
-		UsageLine:       "mail_cli " + path + " <label_or_prefix> <destination> [flags]",
+		UsageLine:       "feral " + path + " <label_or_prefix> <destination> [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<label_or_prefix>", Description: "Label, or hierarchy prefix, to download.", Complete: CompleteLabelRefs},
 			{Name: "<destination>", Description: "The local destination file (or directory if using -r)."},
@@ -45,14 +47,16 @@ func downloadCmd(session *Session, name, path string) clihelp.Command {
 			clihelp.Bool(&flagDownloadOverwrite, "-w, --overwrite", false, "Overwrite files instead of appending"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " receipts ~/archive/receipts", Description: "Create the mbox, or append what is missing"},
-			{Line: "mail_cli " + path + " -d receipts ~/archive/receipts"},
-			{Line: "mail_cli " + path + " -r research ~/archive/research/"},
-			{Line: "mail_cli " + path + " -r -d FastMail:research ~/archive/research/"},
+			{Line: "feral " + path + " receipts ~/archive/receipts", Description: "Create the mbox, or append what is missing"},
+			{Line: "feral " + path + " -d receipts ~/archive/receipts"},
+			{Line: "feral " + path + " -r research ~/archive/research/"},
+			{Line: "feral " + path + " -r -d FastMail:research ~/archive/research/"},
 		},
 		Args: clihelp.ExactArgs(2),
 		Run: func(ctx *clihelp.Context) error {
-			isDryRun := app.FlagReadOnly || flagDownloadDryRun
+			// Config.ReadOnly, which --dry-run sets too; the raw --read-only
+			// flag alone let --dry-run write the mbox file.
+			isDryRun := session.Config.ReadOnly || flagDownloadDryRun
 			return runDownload(session, ctx.Args[0], ctx.Args[1], flagDownloadRecursive, isDryRun, flagDownloadOverwrite)
 		},
 	}
@@ -120,12 +124,12 @@ func downloadSingleLabel(client mailclient.Reader, folder label.Folder, mboxPath
 		}
 		if !overwrite && existingCount > 0 {
 			// The same authoritative-Message-ID-else-Subject+Date hierarchy
-			// isEmailMatch/destFolderIndex use for splice: a header-less
+			// transfer.Same and transfer.FolderIndex use: a header-less
 			// message has no Message-ID to be found under, so it was
 			// re-appended on every export until this fell back to matching
 			// it by Subject and a non-zero Date too (M3).
 			parsed := email.ParseReader(bytes.NewReader(rawBytes), msgID, "")
-			if existingIdx.contains("", parsed) {
+			if existingIdx.Contains("", parsed) {
 				continue
 			}
 		}
@@ -244,14 +248,14 @@ func resolveSafeMboxPath(destDir, relPath string) (string, error) {
 
 // getMboxExistingMessages indexes an mbox file's existing messages for
 // dedup, using the same authoritative-Message-ID-else-Subject+Date matching
-// as splice's destFolderIndex, rather than Message-ID alone: a message
+// as transfer.FolderIndex, rather than Message-ID alone: a message
 // without one (M3) would otherwise never be recorded as "already archived"
 // and would be re-appended on every export.
-func getMboxExistingMessages(mboxPath string) (*destFolderIndex, int, error) {
+func getMboxExistingMessages(mboxPath string) (*transfer.FolderIndex, int, error) {
 	f, err := os.Open(mboxPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return newDestFolderIndex(0), 0, nil
+			return transfer.NewFolderIndex(0), 0, nil
 		}
 		return nil, 0, err
 	}
@@ -262,11 +266,11 @@ func getMboxExistingMessages(mboxPath string) (*destFolderIndex, int, error) {
 		return nil, 0, err
 	}
 
-	idx := newDestFolderIndex(len(msgs))
+	idx := transfer.NewFolderIndex(len(msgs))
 	for _, m := range msgs {
 		parsed := email.ParseReader(bytes.NewReader(m.Body), "", "")
 		if parsed != nil {
-			idx.add("", "", parsed)
+			idx.Add("", "", parsed)
 		}
 	}
 	return idx, len(msgs), nil
@@ -364,13 +368,13 @@ func uploadCmd(session *Session, name, path string) clihelp.Command {
 		Name:        name,
 		Group:       "Folders",
 		Description: "Upload messages from mbox file to folder.",
-		UsageLine:   "mail_cli " + path + " <label> <file_name>",
+		UsageLine:   "feral " + path + " <label> <file_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<label>", Description: "The target label/folder to upload messages into.", Complete: CompleteLabelRefs},
 			{Name: "<file_name>", Description: "The local mbox file path to read messages from."},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " %receipts ~/archive/receipts.mbox"},
+			{Line: "feral " + path + " %receipts ~/archive/receipts.mbox"},
 		},
 		Args: clihelp.ExactArgs(2),
 		Run: func(ctx *clihelp.Context) error {

@@ -2,16 +2,16 @@ package cli
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/spam"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/spam"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -26,7 +26,7 @@ import (
 
 // MsgCmd groups the operations on individual messages.
 func MsgCmd(session *Session) clihelp.Command {
-	compose := rewriteCommandHelp(ComposeCmd(session), strings.NewReplacer("mail_cli write", "mail_cli msg compose"))
+	compose := rewriteCommandHelp(ComposeCmd(session), strings.NewReplacer("feral write", "feral msg compose"))
 	compose.Name = "compose"
 	compose.Hidden = true
 	return clihelp.Command{
@@ -34,7 +34,7 @@ func MsgCmd(session *Session) clihelp.Command {
 		Group:           "Messages",
 		Description:     "Read, send, and manage messages.",
 		LongDescription: "Use msg show to read a message or folder, msg send for scripts and pipes, and msg reply to continue a thread. msg drafts manages saved work, msg last lists recent mail, and msg export saves messages or threads. Write new mail with write. Archive and block operate on message IDs; label archive acts on a whole folder.",
-		UsageLine:       "mail_cli msg <subcommand> [args...]",
+		UsageLine:       "feral msg <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			ShowCmd(session),
 			SendCmd(session),
@@ -46,13 +46,19 @@ func MsgCmd(session *Session) clihelp.Command {
 			OutboxCmd(session),
 			msgArchiveCmd(session),
 			msgBlockCmd(session),
+			msgSnoozeCmd(session),
+			msgUnsubCmd(session),
+			msgMuteCmd(session),
+			msgUnmuteCmd(session),
+			msgMutedCmd(session),
 			compose,
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg show abc123de", Description: "Read a message"},
-			{Line: "mail_cli msg last 20", Description: "List recent messages across folders"},
-			{Line: "mail_cli msg archive abc123de", Description: "Archive one message by ID"},
-			{Line: "mail_cli msg block abc123de", Description: "Block sender of message to Spam"},
+			{Line: "feral msg show abc123de", Description: "Read a message"},
+			{Line: "feral msg last 20", Description: "List recent messages across folders"},
+			{Line: "feral msg archive abc123de", Description: "Archive one message by ID"},
+			{Line: "feral msg block abc123de", Description: "Block sender of message to Spam"},
+			{Line: "feral msg unsub abc123de", Description: "Leave the mailing list of a message"},
 		},
 	}
 }
@@ -63,7 +69,7 @@ func msgArchiveCmd(session *Session) clihelp.Command {
 		Name:        "archive",
 		Title:       "msg archive <message-id...>",
 		Description: "Archive one or more messages by ID.",
-		UsageLine:   "mail_cli msg archive <message-id...>",
+		UsageLine:   "feral msg archive <message-id...>",
 		Parameters: []clihelp.Param{
 			{Name: "<message-id...>", Description: "One or more message IDs (short 8-character or full).", Variadic: true},
 		},
@@ -72,8 +78,8 @@ func msgArchiveCmd(session *Session) clihelp.Command {
 			return archiveByIDs(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg archive abc123de", Description: "Archive one message"},
-			{Line: "mail_cli msg archive abc123de 9f8e7d6c", Description: "Archive several at once"},
+			{Line: "feral msg archive abc123de", Description: "Archive one message"},
+			{Line: "feral msg archive abc123de 9f8e7d6c", Description: "Archive several at once"},
 		},
 	}
 }
@@ -84,7 +90,7 @@ func labelArchiveCmd(session *Session) clihelp.Command {
 		Name:        "archive",
 		Title:       "label archive [%label]",
 		Description: "Archive every message in a folder.",
-		UsageLine:   "mail_cli label archive [%label]",
+		UsageLine:   "feral label archive [%label]",
 		Parameters: []clihelp.Param{
 			{Name: "[%label]", Description: "The folder to empty into the archive. Defaults to the inbox.", Complete: CompleteLabelRefs},
 		},
@@ -97,8 +103,8 @@ func labelArchiveCmd(session *Session) clihelp.Command {
 			return archiveFolder(session, ref)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label archive", Description: "Archive everything in the inbox"},
-			{Line: "mail_cli label archive %receipts", Description: "Archive everything in one folder"},
+			{Line: "feral label archive", Description: "Archive everything in the inbox"},
+			{Line: "feral label archive %receipts", Description: "Archive everything in one folder"},
 		},
 	}
 }
@@ -156,7 +162,7 @@ func msgBlockCmd(session *Session) clihelp.Command {
 		Name:        "block",
 		Title:       "msg block [flags] <message-id...>",
 		Description: "Block the senders of messages and move them.",
-		UsageLine:   "mail_cli msg block [flags] <message-id...>",
+		UsageLine:   "feral msg block [flags] <message-id...>",
 		Parameters: []clihelp.Param{
 			{Name: "<message-id...>", Description: "One or more message IDs (short 8-character or full).", Variadic: true},
 		},
@@ -169,13 +175,16 @@ func msgBlockCmd(session *Session) clihelp.Command {
 			return blockByIDs(session, ctx.Args, flagBlockTrash, flagBlockPush)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg block abc123de", Description: "Block sender of one message to Spam"},
-			{Line: "mail_cli msg block --trash abc123de", Description: "Block sender of message to Trash"},
+			{Line: "feral msg block abc123de", Description: "Block sender of one message to Spam"},
+			{Line: "feral msg block --trash abc123de", Description: "Block sender of message to Trash"},
 		},
 	}
 }
 
 func blockByIDs(session *Session, ids []string, toTrash, push bool) error {
+	if err := refuseLocalWrite(session, "msg block", true); err != nil {
+		return err
+	}
 	client, err := GetValidatedClient(session)
 	if err != nil {
 		return err

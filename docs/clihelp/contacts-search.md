@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts search'
-parent: 'mail_cli contacts'
+title: 'feral contacts search'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts search
+# feral contacts search
 
 Search contacts across names, emails, nicknames, groups, and notes.
 
 ## Usage
 
 ```
-mail_cli contacts search <query>
+feral contacts search <query>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli contacts search <query>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli contacts search <query>
 
 ## Examples
 
-- `mail_cli contacts search algo`
-- `mail_cli contacts search "dave mount"`
+- `feral contacts search algo`
+- `feral contacts search "dave mount"`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

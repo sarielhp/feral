@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -21,7 +21,7 @@ func TestCompactRootCommandInventory(t *testing.T) {
 			visible = append(visible, cmd.Name)
 		}
 	}
-	want := []string{"scan", "search", "write", "tui", "watch", "msg", "label", "mbox", "spam", "rule", "calendar", "contacts", "account", "config", "utils"}
+	want := []string{"scan", "search", "write", "tui", "watch", "msg", "label", "mbox", "spam", "rule", "calendar", "contacts", "account", "link", "config", "utils"}
 	if !reflect.DeepEqual(visible, want) {
 		t.Fatalf("visible root commands = %v, want %v", visible, want)
 	}
@@ -72,7 +72,7 @@ func TestMovedCommandsPreserveTheirEntireSurface(t *testing.T) {
 			assertCommandSurface(t, old, current)
 			var out bytes.Buffer
 			app.RenderCommand(clihelp.Options{Writer: &out, Width: 80}, strings.Fields(tc.path)...)
-			if !strings.Contains(out.String(), "mail_cli "+tc.path) {
+			if !strings.Contains(out.String(), "feral "+tc.path) {
 				t.Errorf("help does not teach the canonical path:\n%s", out.String())
 			}
 		})
@@ -162,10 +162,10 @@ func TestNestedCompletionAndParentHelp(t *testing.T) {
 		want []string
 	}{
 		{"tui", []string{"write"}},
-		{"msg", []string{"show", "send", "reply", "drafts", "last", "export", "archive", "block"}},
+		{"msg", []string{"show", "send", "reply", "drafts", "last", "export", "archive", "block", "unsub"}},
 		{"account", []string{"setup", "migrate", "login", "new"}},
 		{"config", []string{"show", "set", "check", "llm"}},
-		{"utils", []string{"cache", "color", "doctor", "completion", "manpage"}},
+		{"utils", []string{"cache", "color", "doctor", "keys", "completion", "manpage"}},
 		{"msg drafts server", []string{"ls", "rm", "prune"}},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
@@ -232,7 +232,7 @@ func TestTuiWritePreservesWriteSurface(t *testing.T) {
 	assertCommandSurface(t, write, alias)
 	var out bytes.Buffer
 	app.RenderCommand(clihelp.Options{Writer: &out, Width: 80}, "tui", "write")
-	if !strings.Contains(out.String(), "mail_cli tui write") {
+	if !strings.Contains(out.String(), "feral tui write") {
 		t.Errorf("alias help should use its own path:\n%s", out.String())
 	}
 }

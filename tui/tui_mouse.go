@@ -90,6 +90,7 @@ var composeKeyZones = []string{"t", "c", "b", "s", "e", "a", "d", "v", "f3", "f5
 // handleMouse turns a mouse event into what it stands for: the wheel scrolls,
 // a left click on marked text acts. Clicks act on release, as buttons do.
 func (m *tuiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.lastActivityTime = time.Now()
 	if m.mouseOff {
 		return m, nil
 	}
@@ -105,6 +106,10 @@ func (m *tuiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case tea.MouseButtonLeft:
 		if msg.Action == tea.MouseActionRelease {
 			return m.click(msg)
+		}
+	case tea.MouseButtonBackward, tea.MouseButtonForward:
+		if msg.Action == tea.MouseActionPress {
+			return m.historyMouse(msg.Button)
 		}
 	}
 	return m, nil
@@ -189,18 +194,32 @@ func (m *tuiModel) clickAttachment(i int) (tea.Model, tea.Cmd) {
 // own dialogs, is what is on screen: nothing drawn over it, so a click lands
 // on what the user sees.
 func (m *tuiModel) composeScreenShowing() bool {
-	return m.mode == modeCompose && m.compose != nil && !m.compose.sending &&
+	return m.mode == modeCompose && m.compose != nil && !m.compose.sending && !m.compose.suggestingSubject &&
 		!m.showHelp && !m.fileBrowserOpen && !m.attModalOpen &&
-		m.contactPick == nil && !m.accountOverlayOpen
+		m.contactPick == nil && m.aliasView == nil && !m.accountOverlayOpen
 }
 
-// keyMsg is the key event for k, as the keyboard would deliver it.
+// keyMsg is the key event for k, as the keyboard would deliver it, for a
+// click on a marked key: the review screen's zones and every overlay's key
+// hints. The keys whose handlers branch on a KeyType get their real type;
+// everything else travels as runes.
+var keyMsgTypes = map[string]tea.KeyType{
+	"f1":    tea.KeyF1,
+	"f3":    tea.KeyF3,
+	"f4":    tea.KeyF4,
+	"f5":    tea.KeyF5,
+	"f6":    tea.KeyF6,
+	"esc":   tea.KeyEsc,
+	"enter": tea.KeyEnter,
+	"tab":   tea.KeyTab,
+}
+
 func keyMsg(k string) tea.KeyMsg {
-	switch k {
-	case "f3":
-		return tea.KeyMsg{Type: tea.KeyF3}
-	case "f5":
-		return tea.KeyMsg{Type: tea.KeyF5}
+	if k == "space" {
+		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
+	}
+	if kt, ok := keyMsgTypes[k]; ok {
+		return tea.KeyMsg{Type: kt}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 }

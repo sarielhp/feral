@@ -3,17 +3,17 @@ package spam
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/train"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/train"
 	"log/slog"
 	"mime"
 	"net/mail"
@@ -136,8 +136,9 @@ func LearnHam(rep report.Reporter, client interface {
 	return nil
 }
 
-func trainSpamUntilMarked(rep report.Reporter, emailBytes []byte, msgID email.ID, config *cfg_g.Config) (float32, error) {
+func trainSpamUntilMarked(rep report.Reporter, emailBytes []byte, msgID email.ID, config *cfg_g.Config) (float32, int, error) {
 	var score float32
+	trained := 0
 	for i := 0; i < 15; i++ {
 		curScore, isSpam, _ := CheckSpamScore(emailBytes)
 		score = curScore
@@ -149,24 +150,25 @@ func trainSpamUntilMarked(rep report.Reporter, emailBytes []byte, msgID email.ID
 			if !config.Quiet {
 				rep.Successf("    Message %s is now classified as Spam locally (score: %f).\n", msgID, score)
 			}
-			return score, nil
+			return score, trained, nil
 		}
 
 		if !config.Quiet {
 			rep.Infof("    Training message %s as Spam (attempt %d/15, current score: %f)...\n", msgID, i+1, score)
 		}
 		if err := TrainSpam(emailBytes); err != nil {
-			return score, fmt.Errorf("bogofilter training failed: %w", err)
+			return score, trained, fmt.Errorf("bogofilter training failed: %w", err)
 		}
+		trained++
 	}
 
 	curScore, isSpam, _ := CheckSpamScore(emailBytes)
 	score = curScore
 	if isSpam {
-		return score, nil
+		return score, trained, nil
 	}
 
-	return score, fmt.Errorf("message %s is still not classified as Spam locally after training (score: %f)", msgID, score)
+	return score, trained, fmt.Errorf("message %s is still not classified as Spam locally after training (score: %f)", msgID, score)
 }
 
 func extractSubjectFromEmail(emailBytes []byte) string {
@@ -223,13 +225,15 @@ func saveHamLedger(downloadDir cachedir.Account, trained map[string]bool) error 
 }
 
 // recordTrainedMessageID notes that a message has been trained as spam, so a
-// later run does not train it again.
-func recordTrainedMessageID(configDir string, msgID email.ID) {
+// later run does not train it again, and reports whether this added it.
+func recordTrainedMessageID(configDir string, msgID email.ID) bool {
 	ledger := train.OpenOrEmpty(train.MessageIDPath(configDir))
-	if _, err := ledger.Add(string(msgID)); err != nil {
+	added, err := ledger.Add(string(msgID))
+	if err != nil {
 		slog.Warn("could not record trained message",
 			slog.String("id", string(msgID)), slog.Any("error", err))
 	}
+	return added
 }
 
 func relocateMarkedSpam(rep report.Reporter, client interface {
@@ -270,46 +274,92 @@ type spamClassifier interface {
 // MarkByID trains the message named by targetID as spam locally and then moves
 // it to the account's spam folder on the server.
 func MarkByID(rep report.Reporter, client spamClassifier, config *cfg_g.Config, targetID string) error {
-	if err := ClassifyAsSpam(rep, client, config, targetID); err != nil {
-		return err
+	_, err := MarkByIDTrained(rep, client, config, targetID)
+	return err
+}
+
+// MarkByIDTrained is MarkByID, reporting what the mark taught the filter so
+// that UnmarkTraining can take it back. The training is reported even when
+// the move fails: it happened.
+func MarkByIDTrained(rep report.Reporter, client spamClassifier, config *cfg_g.Config, targetID string) (Training, error) {
+	t, err := classifyAsSpam(rep, client, config, targetID)
+	if err != nil {
+		return t, err
 	}
-	return MoveToSpamByID(rep, client, config, targetID)
+	return t, MoveToSpamByID(rep, client, config, targetID)
+}
+
+// Training is what marking one message as spam taught the filter.
+type Training struct {
+	// Registered is how many times bogofilter registered it as spam.
+	Registered int
+	// Recorded says the mark added it to the trained-message ledger; false
+	// when an earlier training had already recorded it.
+	Recorded bool
+}
+
+// UnmarkTraining takes back what a spam mark taught the filter about the
+// message raw: one unregistration (bogofilter -S) for each registration, and
+// the trained-message record if the mark made it. Nothing else is touched:
+// training the message as ham would be a decision the user did not make.
+func UnmarkTraining(configDir string, msgID email.ID, raw []byte, t Training) error {
+	for i := 0; i < t.Registered; i++ {
+		if err := trainBogofilter(raw, "-S", "spam unregistration"); err != nil {
+			return err
+		}
+	}
+	if !t.Recorded {
+		return nil
+	}
+	if _, err := train.OpenOrEmpty(train.MessageIDPath(configDir)).Remove(string(msgID)); err != nil {
+		return fmt.Errorf("updating the trained-message record: %w", err)
+	}
+	return nil
 }
 
 // ClassifyAsSpam trains the message with bogofilter and records it as spam in
 // the local cache, without moving it. This is what "spam the current message"
 // means in the TUI: the message is learned and gains the [SPAM] badge in place,
 // and a later "move all" relocates it.
-func ClassifyAsSpam(rep report.Reporter, client interface {
+func ClassifyAsSpam(rep report.Reporter, client classifierClient, config *cfg_g.Config, targetID string) error {
+	_, err := classifyAsSpam(rep, client, config, targetID)
+	return err
+}
+
+// classifierClient is what ClassifyAsSpam needs of a client.
+type classifierClient interface {
 	mailclient.ConfigProvider
 	Validate() error
-}, config *cfg_g.Config, targetID string) error {
+}
+
+func classifyAsSpam(rep report.Reporter, client classifierClient, config *cfg_g.Config, targetID string) (Training, error) {
 	if err := client.Validate(); err != nil {
-		return err
+		return Training{}, err
 	}
 
 	msgID, _, err := cache.FindCachedEmailByID(client.Config().AccountCache, targetID)
 	if err != nil {
-		return err
+		return Training{}, err
 	}
 
 	emailBytes, err := msg.Read(client.Config().AccountCache, msgID)
 	if err != nil {
-		return fmt.Errorf("failed to read cached email %s: %w", msgID, err)
+		return Training{}, fmt.Errorf("failed to read cached email %s: %w", msgID, err)
 	}
 
 	rep.Infof("Training message %s (%q) as spam locally...\n", targetID, extractSubjectFromEmail(emailBytes))
 
-	_, err = trainSpamUntilMarked(rep, emailBytes, msgID, config)
+	_, registered, err := trainSpamUntilMarked(rep, emailBytes, msgID, config)
+	t := Training{Registered: registered}
 	if err != nil {
-		return err
+		return t, err
 	}
 
-	recordTrainedMessageID(config.ConfigDir, msgID)
+	t.Recorded = recordTrainedMessageID(config.ConfigDir, msgID)
 	// The training succeeded; a failure to persist the badge is not fatal, and
 	// the previous MarkByID swallowed it too.
 	_ = msg.SetOverride(client.Config().AccountCache, msgID, msg.OverrideSpam)
-	return nil
+	return t, nil
 }
 
 // MoveToSpamByID relocates an already-learned message to the spam folder. It

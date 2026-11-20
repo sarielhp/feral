@@ -13,7 +13,7 @@
 // into bubbletea messages, so progress appears in the interface instead of
 // being suppressed; tests supply a buffer, or Discard.
 //
-// It is a leaf: no mail_cli imports, so any layer can reach it.
+// It is a leaf: no feral imports, so any layer can reach it.
 package report
 
 // Reporter receives progress and status from work in progress.

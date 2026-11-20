@@ -6,116 +6,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-func (m *tuiModel) withErrorBanner(content string) string {
-	if m.showError {
-		return content + "\n" + renderErrorBanner(m)
-	}
-	return content
-}
-
 func (m *tuiModel) renderLoadingOverlay() string {
+	if m.mode == modeCompose && m.compose != nil && m.compose.sending {
+		return renderSendingDialog(m.width, m.height, m.compose)
+	}
 	if m.showLoad == "Downloading..." {
 		return renderDownloadingDialog(m.width, m.height)
 	}
-	if m.showLoad == "Unspamming..." {
-		return renderUnspammingDialog(m.width, m.height)
+	if m.loadIsMutation() {
+		return renderMutationDialog(m.width, m.height, m.showLoad, m.loadEscNoted)
 	}
 	return lipgloss.NewStyle().Width(m.width).Height(max(5, m.height/2)).
 		Align(lipgloss.Center, lipgloss.Center).Bold(true).Render(m.showLoad)
-}
-
-// composeFrameKind is what renderComposeModal draws: a picker, or the screen.
-func (m *tuiModel) composeFrameKind() string {
-	switch {
-	case m.contactPick != nil:
-		return frameContacts
-	case m.accountOverlayOpen:
-		return frameAccount
-	}
-	return frameCompose
-}
-
-// renderComposeModal is the compose screen, or the picker drawn over it.
-func (m *tuiModel) renderComposeModal() string {
-	switch {
-	case m.contactPick != nil:
-		return renderContactPicker(m)
-	case m.accountOverlayOpen:
-		return renderAccountOverlay(m)
-	}
-	return m.renderComposeScreen()
-}
-
-func (m *tuiModel) tryRenderModalOverlay() (string, bool) {
-	if m.showHelp {
-		m.frameKind = frameHelp
-		m.treeOpen = false
-		m.accountOverlayOpen = false
-		return renderDimmedOverlay(m.width, m.height, m.renderBaseScreen(), m.withErrorBanner(renderHelp(m))), true
-	}
-	if m.mode == modeCompose && !m.fileBrowserOpen && !m.attModalOpen {
-		m.frameKind = m.composeFrameKind()
-		return m.withErrorBanner(m.renderComposeModal()), true
-	}
-	if m.showDeadlinesAgenda {
-		m.frameKind = frameDeadlines
-		return m.withErrorBanner(renderDeadlinesAgenda(m)), true
-	}
-	if m.fileBrowserOpen {
-		m.frameKind = frameFiles
-		return m.withErrorBanner(renderDimmedOverlay(m.width, m.height, m.renderBaseScreen(), m.fileBrowser.View())), true
-	}
-	if m.attachmentListOpen {
-		m.frameKind = frameAttList
-		return m.withErrorBanner(m.renderAttachmentListView()), true
-	}
-	if m.icsModalOpen {
-		m.frameKind = frameICS
-		return m.withErrorBanner(renderICSModalOverlay(m)), true
-	}
-	if m.attModalOpen {
-		m.frameKind = frameAttModal
-		return m.withErrorBanner(renderAttachmentModalOverlay(m)), true
-	}
-	if m.attachmentHelpOpen {
-		m.frameKind = frameAttHelp
-		return renderDimmedOverlay(m.width, m.height, m.renderBaseScreen(), m.withErrorBanner(renderAttachmentHelp(m))), true
-	}
-	if m.showSummary {
-		m.frameKind = frameSummary
-		return m.withErrorBanner(renderSummaryOverlay(m)), true
-	}
-	if m.showDiag {
-		m.frameKind = frameDiag
-		return renderDiag(m), true
-	}
-	if m.accountOverlayOpen {
-		m.frameKind = frameAccount
-		return m.withErrorBanner(renderAccountOverlay(m)), true
-	}
-	if m.treeOpen && len(m.entries) > 0 {
-		m.frameKind = frameTree
-		return m.withErrorBanner(renderFolderOverlay(m, renderFolderTree(m))), true
-	}
-	if m.blockModalOpen {
-		m.frameKind = frameBlock
-		return m.withErrorBanner(renderBlockDialog(m)), true
-	}
-	if m.spamMenuOpen {
-		m.frameKind = frameSpam
-		return m.withErrorBanner(renderSpamMenu(m)), true
-	}
-	if m.showLoad != "" {
-		m.frameKind = frameLoading
-		return m.withErrorBanner(m.renderLoadingOverlay()), true
-	}
-	return "", false
 }
 
 func (m *tuiModel) resolveViewableAttachment() *email.Attachment {
@@ -146,14 +54,14 @@ func (m *tuiModel) renderDetailView(topBar string) string {
 
 	var selectedLine string
 	if m.eIdx >= 0 && m.eIdx < len(m.emails) {
-		sjw := leftWidth - headerColTotal
-		m.selectedRow = render.EmailRowTagged(m.emails[m.eIdx], leftWidth, sjw, m.eIdx+1, m.theme.Theme(), true, m.isPending(m.emails[m.eIdx].ID), m.isTagged(m.emails[m.eIdx].ID))
+		sjw := leftWidth - m.indexHeaderWidth(leftWidth)
+		sel := m.emails[m.eIdx]
+		m.selectedRow = render.EmailRowStyled(sel, leftWidth, sjw, m.eIdx+1, render.RowStyle{
+			Highlight: true, Ghosted: m.isPending(sel.ID), Tagged: m.isTagged(sel.ID),
+		})
 		selectedLine = m.selectedRow.Render(m.theme.Theme())
 	}
-	vh := max(5, m.height-3)
-	if m.showError {
-		vh = max(5, vh-1)
-	}
+	vh := max(5, m.height-3-m.bannerLines())
 	vw := max(20, leftWidth-2)
 	m.refreshDetailViewport(vw, vh)
 	viewportStr := m.vp.View()
@@ -185,10 +93,7 @@ func (m *tuiModel) renderDetailView(topBar string) string {
 	if m.noticeVisible() {
 		parts = append(parts, renderNotice(m))
 	}
-	if m.showError {
-		parts = append(parts, renderErrorBanner(m))
-	}
-	return strings.Join(parts, "\n")
+	return m.withBanners(strings.Join(parts, "\n"))
 }
 
 // refreshDetailViewport rebuilds the detail viewport when its size changed or
@@ -233,16 +138,13 @@ func (m *tuiModel) renderIndexView(topBar string) string {
 	if m.noticeVisible() {
 		parts = append(parts, renderNotice(m))
 	}
-	if m.showError {
-		parts = append(parts, renderErrorBanner(m))
-	}
-	return strings.Join(parts, "\n")
+	return m.withBanners(strings.Join(parts, "\n"))
 }
 
 // View is the screen, with the clickable zones recorded and their markers
 // removed; see tui_mouse.go.
 func (m *tuiModel) View() string {
-	m.lastFrame = zone.Scan(clipToHeight(m.view(), m.height))
+	m.lastFrame = zone.Scan(clipToHeight(m.withSentToast(m.view()), m.height))
 	return m.lastFrame
 }
 
@@ -268,11 +170,10 @@ func (m *tuiModel) view() string {
 	if m.done {
 		return ""
 	}
-	if overlay, ok := m.tryRenderModalOverlay(); ok {
-		return overlay
-	}
-	m.frameKind = frameBase
-	return m.renderBaseScreen()
+	// The top layer of screen_layers.go, the one handleKey gives keys to.
+	l := m.drawnLayer()
+	m.frameKind = l.frame
+	return l.draw(m)
 }
 
 // renderBaseScreen draws the non-modal screen: the index or detail view under

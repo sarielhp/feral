@@ -5,6 +5,7 @@ import (
 	"io"
 	"mime"
 	"net/mail"
+	"net/textproto"
 	"os"
 	"regexp"
 	"strings"
@@ -32,14 +33,24 @@ func ParseReader(r io.Reader, id ID, path string) *Email {
 	if subject == "" {
 		subject = "(No Subject)"
 	}
-	from := StripEscapeSequences(ParseEmailAddress(msg.Header.Get("From")))
+	rawFrom := headerValues(msg.Header, "From")
+	from := StripEscapeSequences(ParseEmailAddress(rawFrom))
 	if from == "" {
 		from = "(Unknown Sender)"
 	}
-	fromRaw := StripEscapeSequences(strings.TrimSpace(msg.Header.Get("From")))
+	fromRaw := DecodeHeader(dec, rawFrom)
 	if fromRaw == "" {
 		fromRaw = "(Unknown Sender)"
 	}
+	// The recipient is left empty when absent rather than given a placeholder:
+	// most mail is not the user's, and a listing shows the sender for those.
+	rawTo := headerValues(msg.Header, "To")
+	to := StripEscapeSequences(ParseEmailAddress(rawTo))
+	toRaw := DecodeHeader(dec, rawTo)
+
+	rawCc := headerValues(msg.Header, "Cc")
+	cc := StripEscapeSequences(ParseEmailAddress(rawCc))
+	ccRaw := DecodeHeader(dec, rawCc)
 	dateStr := msg.Header.Get("Date")
 	var t time.Time
 	if dateStr != "" {
@@ -52,20 +63,56 @@ func ParseReader(r io.Reader, id ID, path string) *Email {
 			t = info.ModTime()
 		}
 	}
+	var size int64
+	var recDate time.Time
+	if path != "" {
+		if info, err := os.Stat(path); err == nil {
+			size = info.Size()
+			recDate = info.ModTime()
+		}
+	}
+	if recStr := msg.Header.Get("Received"); recStr != "" {
+		if idx := strings.LastIndex(recStr, ";"); idx != -1 {
+			if parsed, err := mail.ParseDate(strings.TrimSpace(recStr[idx+1:])); err == nil {
+				recDate = parsed
+			}
+		}
+	}
+	if recDate.IsZero() {
+		recDate = t
+	}
 	hasAttachment, hasICS := DetectAttachments(msg.Header, msg.Body)
 	return &Email{
 		ID:            id,
 		Subject:       subject,
 		FromEmail:     from,
 		FromRaw:       fromRaw,
+		ToEmail:       to,
+		ToRaw:         toRaw,
+		CcEmail:       cc,
+		CcRaw:         ccRaw,
 		EmailDate:     t,
 		FormattedDate: FormatEmailDate(t),
+		DateReceived:  recDate,
+		Size:          size,
 		HasAttachment: hasAttachment,
 		HasICS:        hasICS,
 		MessageID:     HeaderID(strings.TrimSpace(msg.Header.Get("Message-ID"))),
 		InReplyTo:     strings.TrimSpace(msg.Header.Get("In-Reply-To")),
 		References:    strings.TrimSpace(msg.Header.Get("References")),
+		ListID:        ParseListID(msg.Header.Get("List-Id")),
 	}
+}
+
+func headerValues(h mail.Header, key string) string {
+	vals := h[textproto.CanonicalMIMEHeaderKey(key)]
+	if len(vals) == 0 {
+		return ""
+	}
+	if len(vals) == 1 {
+		return strings.TrimSpace(vals[0])
+	}
+	return strings.TrimSpace(strings.Join(vals, ", "))
 }
 
 // CompilePattern creates a reusable matcher predicate for subject filtering.

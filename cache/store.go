@@ -2,13 +2,14 @@ package cache
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"errors"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // Store reads and writes a session's cached label listing. DiskCacheStore
@@ -18,6 +19,9 @@ type Store interface {
 	GetLabelItems() ([]cfg_acc.Item, error)
 	SaveLabelItems(items []cfg_acc.Item) error
 	CachedLabelItemsAge() (time.Duration, error)
+	// ForgetLabelItems drops the cached listing, so the next lookup asks the
+	// server. A folder created, renamed or deleted makes the listing wrong.
+	ForgetLabelItems() error
 	IsActive() bool
 }
 
@@ -77,6 +81,19 @@ func (d *DiskCacheStore) CachedLabelItemsAge() (time.Duration, error) {
 	return time.Since(info.ModTime()), nil
 }
 
+// ForgetLabelItems removes the cached listing; a listing never saved is no error.
+func (d *DiskCacheStore) ForgetLabelItems() error {
+	if d.Dir.IsZero() {
+		return nil
+	}
+	release := guard(d.Dir.Path())
+	defer release()
+	if err := os.Remove(d.cachePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // NoOpCacheStore satisfies Store without touching disk, for when no account is
 // selected: every read reports os.ErrNotExist and every write is discarded.
 type NoOpCacheStore struct{}
@@ -90,6 +107,9 @@ func (n *NoOpCacheStore) GetLabelItems() ([]cfg_acc.Item, error) {
 func (n *NoOpCacheStore) SaveLabelItems(_ []cfg_acc.Item) error {
 	return nil
 }
+
+// ForgetLabelItems has nothing to forget.
+func (n *NoOpCacheStore) ForgetLabelItems() error { return nil }
 
 // CachedLabelItemsAge always reports os.ErrNotExist: nothing was ever saved.
 func (n *NoOpCacheStore) CachedLabelItemsAge() (time.Duration, error) {

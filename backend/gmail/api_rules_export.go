@@ -2,8 +2,8 @@ package gmail
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/report"
 	"strings"
 
 	gmailapi "google.golang.org/api/gmail/v1"
@@ -172,7 +172,7 @@ func exportSingleRule(rep report.Reporter, srv *gmailapi.Service, config *Config
 		rep.Warnf("Filter for '%s' already exists on Gmail with different action (%s). Skipping to avoid conflict.\n", ruleDesc, remoteActionDesc)
 		rep.Printf("    -> Remote filter action: %s\n", remoteActionDesc)
 		rep.Printf("    -> Local rule suggests:  Add label %q and archive (remove INBOX)\n", rule.Label)
-		rep.Printf("    -> To overwrite conflicting remote filters, run 'mail_cli rule export force' or use '--force'.\n")
+		rep.Printf("    -> To overwrite conflicting remote filters, run 'feral rule export force' or use '--force'.\n")
 		rule.Exported = false
 		return false, true, nil
 	}
@@ -292,4 +292,4 @@ func describeFilterAction(action *gmailapi.FilterAction, labelIDToName map[strin
 	return strings.Join(parts, "; ")
 }
 
-// updateLocalRulesInConfig saves the rules slice back to ~/.config/mail_cli/config.json
+// updateLocalRulesInConfig saves the rules slice back to ~/.config/feral/config.json

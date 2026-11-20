@@ -3,17 +3,18 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/draft"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+
+	"github.com/sarielhp/feral/draft"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -420,21 +421,4 @@ func findServerCopy(client mailclient.MailClient, messageID string) (serverDraft
 		}
 	}
 	return serverDraft{}, nil
-}
-
-func readSignature() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	sigPath := filepath.Join(home, ".signature")
-	data, err := os.ReadFile(sigPath)
-	if err != nil {
-		return ""
-	}
-	sigText := string(data)
-	if sigText != "" {
-		return "\n-- \n" + strings.TrimSuffix(sigText, "\n") + "\n"
-	}
-	return ""
 }

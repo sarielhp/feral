@@ -15,14 +15,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/localdir"
+	"github.com/sarielhp/feral/localdir"
 )
 
 // FileName is the one file in a draft directory.
 const FileName = "draft.eml"
 
 // Root is where drafts live for a download directory: <downloadDir>/drafts.
-// With no download directory it falls back to ~/.cache/mail_cli/drafts, which
+// With no download directory it falls back to ~/.cache/feral/drafts, which
 // is what the compose screen always used before -- derived from $HOME, so the
 // test suite wrote hundreds of drafts into the developer's real cache.
 func Root(downloadDir string) string {

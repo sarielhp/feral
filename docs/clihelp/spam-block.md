@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli spam block'
+title: 'feral spam block'
 has_children: true
-parent: 'mail_cli spam'
+parent: 'feral spam'
 ---
 
-# mail\_cli spam block
+# feral spam block
 
 Manage the personal sender blacklist to instantly classify messages as spam.
 
 ## Usage
 
 ```
-mail_cli spam block <subcommand> [args...]
+feral spam block <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -29,7 +29,7 @@ mail_cli spam block <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,9 +37,9 @@ mail_cli spam block <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli spam block list`
-- `mail_cli spam block add spammer@example.com`
+- `feral spam block list`
+- `feral spam block add spammer@example.com`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

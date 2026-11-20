@@ -3,6 +3,7 @@ package email
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"mime"
 	"net/mail"
 	"strings"
@@ -19,14 +20,27 @@ type ReplyDetails struct {
 }
 
 // BuildReplyDetails extracts reply headers and quotes the original message.
-func BuildReplyDetails(orig *mail.Message, ourEmail string, groupReply bool) ReplyDetails {
+//
+// authored says the original is a message the user wrote -- it was read from a
+// Sent folder. A reply to one's own mail goes to the people it was sent to, not
+// back to oneself, so authored selects the original To as the target; the
+// original Cc becomes the reply's Cc on a group reply. own is the set of the
+// user's own addresses, lower-cased (OwnSet); none of them is copied onto the
+// Cc of a group reply.
+func BuildReplyDetails(orig *mail.Message, own map[string]bool, groupReply, authored bool) ReplyDetails {
 	if orig == nil {
 		return ReplyDetails{}
 	}
 
-	toAddress := orig.Header.Get("Reply-To")
+	toAddress := ""
+	if authored {
+		toAddress = strings.TrimSpace(orig.Header.Get("To"))
+	}
 	if toAddress == "" {
-		toAddress = orig.Header.Get("From")
+		toAddress = orig.Header.Get("Reply-To")
+		if toAddress == "" {
+			toAddress = orig.Header.Get("From")
+		}
 	}
 	toAddress = strings.TrimSpace(toAddress)
 
@@ -42,8 +56,12 @@ func BuildReplyDetails(orig *mail.Message, ourEmail string, groupReply bool) Rep
 	}
 
 	var cc []string
-	if groupReply {
-		cc = BuildGroupReplyCC(orig, toAddress, ourEmail)
+	switch {
+	case !groupReply:
+	case authored:
+		cc = BuildAuthoredReplyCC(orig, own)
+	default:
+		cc = BuildGroupReplyCC(orig, toAddress, own)
 	}
 
 	return ReplyDetails{
@@ -100,35 +118,69 @@ func FormatReplyQuote(orig *mail.Message) string {
 	return buf.String()
 }
 
-// BuildGroupReplyCC extracts all recipient addresses from To and Cc, excluding ourEmail and toAddress.
-func BuildGroupReplyCC(origMsg *mail.Message, toAddress string, ourEmail string) []string {
-	seen := make(map[string]bool)
-	if ourEmail != "" {
-		seen[strings.ToLower(strings.TrimSpace(ourEmail))] = true
+// OwnSet returns the lower-cased set of the given addresses, skipping blanks:
+// the form of the user's own addresses the reply builders take.
+func OwnSet(addrs ...string) map[string]bool {
+	own := make(map[string]bool, len(addrs))
+	for _, a := range addrs {
+		if a = strings.ToLower(strings.TrimSpace(a)); a != "" {
+			own[a] = true
+		}
 	}
+	return own
+}
 
+// BuildGroupReplyCC is the Cc list for a group reply to received mail: every
+// address in the original To and Cc, except the user's own addresses (own,
+// lower-cased) and toAddress, which is the reply's To.
+func BuildGroupReplyCC(origMsg *mail.Message, toAddress string, own map[string]bool) []string {
+	seen := maps.Clone(own)
+	if seen == nil {
+		seen = map[string]bool{}
+	}
 	if primaryTo, errTo := mail.ParseAddress(toAddress); errTo == nil && primaryTo != nil {
 		seen[strings.ToLower(primaryTo.Address)] = true
 	} else if toAddress != "" {
 		seen[strings.ToLower(strings.TrimSpace(toAddress))] = true
 	}
-
-	var ccAddresses []string
-	for _, hdrVal := range []string{origMsg.Header.Get("To"), origMsg.Header.Get("Cc")} {
-		if hdrVal == "" {
-			continue
-		}
-		addrs, err := mail.ParseAddressList(hdrVal)
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			emailLower := strings.ToLower(addr.Address)
-			if !seen[emailLower] {
-				seen[emailLower] = true
-				ccAddresses = append(ccAddresses, addr.String())
-			}
-		}
+	var cc []string
+	for _, hdr := range []string{origMsg.Header.Get("To"), origMsg.Header.Get("Cc")} {
+		cc = append(cc, recipientsExcluding(hdr, seen)...)
 	}
-	return ccAddresses
+	return cc
+}
+
+// BuildAuthoredReplyCC is the Cc list for a group reply to a message the user
+// wrote: the original Cc, minus the user's own addresses. The original To is
+// not copied -- it is the reply's To -- and neither are addresses the user
+// owns, which would mail the message back to its sender.
+func BuildAuthoredReplyCC(origMsg *mail.Message, own map[string]bool) []string {
+	return recipientsExcluding(origMsg.Header.Get("Cc"), maps.Clone(own))
+}
+
+// recipientsExcluding parses a header's address list and drops any address in
+// seen (lower-cased), preserving the rest as written. Every address kept is
+// added to seen, so a caller walking several headers gets each address once;
+// seen may be nil.
+func recipientsExcluding(header string, seen map[string]bool) []string {
+	if header == "" {
+		return nil
+	}
+	addrs, err := mail.ParseAddressList(header)
+	if err != nil {
+		return nil
+	}
+	if seen == nil {
+		seen = map[string]bool{}
+	}
+	var out []string
+	for _, addr := range addrs {
+		key := strings.ToLower(addr.Address)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, addr.String())
+	}
+	return out
 }

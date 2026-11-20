@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli mbox view'
-parent: 'mail_cli mbox'
+title: 'feral mbox view'
+parent: 'feral mbox'
 ---
 
-# mail\_cli mbox view
+# feral mbox view
 
 Browse a local mbox or .eml file in the TUI.
 
 ## Usage
 
 ```
-mail_cli mbox view <file>
+feral mbox view <file>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli mbox view <file>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,10 +34,10 @@ mail_cli mbox view <file>
 
 ## Examples
 
-- `mail_cli mbox view archive.mbox`
-- `mail_cli mbox view ~/mail/backup.mbox`
-- `mail_cli mbox view message.eml` — Open one saved message
+- `feral mbox view archive.mbox`
+- `feral mbox view ~/mail/backup.mbox`
+- `feral mbox view message.eml` — Open one saved message
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

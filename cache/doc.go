@@ -3,7 +3,8 @@
 // label listing.
 //
 // DiskCacheStore is the label listing; the read and replied state live beside
-// it as their own files. The Store interface exists so a caller can be
+// it as their own files, as does the one record that is the user's rather than
+// the server's: the folders the TUI opened most recently, which F8 lists. The Store interface exists so a caller can be
 // handed a store that writes nothing, which is what tests use -- but a store
 // that writes nothing must never be read as "do not talk to the server", a
 // conflation that once emptied every folder view in the program.

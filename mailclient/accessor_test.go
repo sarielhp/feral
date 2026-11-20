@@ -3,12 +3,12 @@ package mailclient
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // The accessors are what let a caller ask for a message by ID alone. These

@@ -3,8 +3,9 @@
 // or file.
 //
 // Times are resolved through the IANA database: an explicit ...Z value is UTC,
-// and a TZID that time.LoadLocation knows is parsed in that location. A TZID it
-// does not know leaves the wall-clock time read as UTC and ZoneUnresolved set,
-// because the resulting instant is wrong by that zone's offset and a caller
-// filing a real calendar entry needs to know it is a guess.
+// and a TZID is resolved to canonical IANA zones (including Windows time zone
+// names from Exchange/Outlook and common aliases) and parsed in that location.
+// A TZID that cannot be resolved leaves the wall-clock time read as UTC and
+// ZoneUnresolved set, because the resulting instant is wrong by that zone's
+// offset and a caller filing a real calendar entry needs to know it is a guess.
 package calendar

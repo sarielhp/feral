@@ -2,18 +2,18 @@ package mailclient
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 type mockFailingCacheStore struct {
@@ -33,6 +33,8 @@ func (m *mockFailingCacheStore) SaveLabelItems(_ []cfg_acc.Item) error {
 func (m *mockFailingCacheStore) CachedLabelItemsAge() (time.Duration, error) {
 	return 0, errors.New("no cache")
 }
+
+func (m *mockFailingCacheStore) ForgetLabelItems() error { return nil }
 
 func (m *mockFailingCacheStore) IsActive() bool {
 	return true
@@ -110,12 +112,12 @@ func assertReceivedFolderRejected(t *testing.T, account, want string) {
 }
 
 func TestCheckingMailClient_FixReceivedFolder_ErrorWithAccount(t *testing.T) {
-	want := `received_folder cannot be inbox for account "personal"; run 'mail_cli config check --fix' to repair it automatically, or edit received_folder in config.json`
+	want := `received_folder cannot be inbox for account "personal"; run 'feral config check --fix' to repair it automatically, or edit received_folder in config.json`
 	assertReceivedFolderRejected(t, "personal", want)
 }
 
 func TestCheckingMailClient_FixReceivedFolder_ErrorFallbackWithoutAccount(t *testing.T) {
-	want := "received_folder cannot be inbox; run 'mail_cli config check --fix' to repair it automatically, or edit received_folder in config.json"
+	want := "received_folder cannot be inbox; run 'feral config check --fix' to repair it automatically, or edit received_folder in config.json"
 	assertReceivedFolderRejected(t, "", want)
 }
 
@@ -132,7 +134,7 @@ func TestCheckingMailClient_FixReceivedFolder_SelectedAccountFallback(t *testing
 	if err == nil {
 		t.Fatal("expected error when received_folder is inbox, got nil")
 	}
-	want := `received_folder cannot be inbox for account "work"; run 'mail_cli config check --fix' to repair it automatically, or edit received_folder in config.json`
+	want := `received_folder cannot be inbox for account "work"; run 'feral config check --fix' to repair it automatically, or edit received_folder in config.json`
 	if err.Error() != want {
 		t.Errorf("got error %q, want %q", err.Error(), want)
 	}
@@ -294,4 +296,136 @@ func TestCheckingMailClient_MoveEmail_ReindexesAndRespectsReadOnly(t *testing.T)
 			t.Errorf("expected msg1 to remain in INBOX under ReadOnly, got %v (err %v)", inboxIDs, err)
 		}
 	})
+}
+
+type mockItemStore struct {
+	cache.NoOpCacheStore
+	items []cfg_acc.Item
+	err   error
+	age   time.Duration
+}
+
+func (m *mockItemStore) CachedLabelItemsAge() (time.Duration, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	return m.age, nil
+}
+
+func (m *mockItemStore) GetLabelItems() ([]cfg_acc.Item, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.items, nil
+}
+
+func TestCheckingMailClient_GetMatchingLabels(t *testing.T) {
+	t.Run("returns from cache store when present", func(t *testing.T) {
+		mockBackend := &MockMailClient{
+			Labels: []string{"ServerOnly"},
+		}
+		store := &mockItemStore{
+			items: []cfg_acc.Item{
+				{Name: "INBOX", FullName: "INBOX"},
+				{Name: "Sent", FullName: "Sent Items"},
+				{Name: "Archive", FullName: "Archive"},
+			},
+		}
+		client := NewCheckingMailClient(mockBackend, "test-acc", store)
+
+		matched, err := client.GetMatchingLabels("sent")
+		if err != nil {
+			t.Fatalf("GetMatchingLabels failed: %v", err)
+		}
+		if len(matched) != 1 || matched[0] != "Sent Items" {
+			t.Errorf("GetMatchingLabels = %v, want [\"Sent Items\"]", matched)
+		}
+	})
+
+	t.Run("delegates when cache store has error or empty", func(t *testing.T) {
+		mockBackend := &MockMailClient{
+			Labels: []string{"INBOX", "Sent", "Trash"},
+		}
+		store := &mockItemStore{err: errors.New("not found")}
+		client := NewCheckingMailClient(mockBackend, "test-acc", store)
+
+		matched, err := client.GetMatchingLabels("in")
+		if err != nil {
+			t.Fatalf("GetMatchingLabels failed: %v", err)
+		}
+		if len(matched) != 1 || matched[0] != "INBOX" {
+			t.Errorf("GetMatchingLabels = %v, want [\"INBOX\"]", matched)
+		}
+	})
+	// A stale cache, or one that predates a new label, must not answer "absent".
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+	}{
+		{"delegates when the cache is stale", 48 * time.Hour},
+		{"delegates when the cache has no match", time.Hour},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockBackend := &MockMailClient{Labels: []string{"NewLabel"}}
+			store := &mockItemStore{items: []cfg_acc.Item{{Name: "NewLabel2", FullName: "Old"}}, age: tc.age}
+			if tc.age > maxLabelCacheAge {
+				store.items = []cfg_acc.Item{{Name: "NewLabel", FullName: "NewLabel"}}
+			}
+			client := NewCheckingMailClient(mockBackend, "test-acc", store)
+			matched, err := client.GetMatchingLabels("New")
+			if err != nil {
+				t.Fatalf("GetMatchingLabels failed: %v", err)
+			}
+			if len(matched) != 1 || matched[0] != "NewLabel" {
+				t.Errorf("GetMatchingLabels = %v, want the backend's [\"NewLabel\"]", matched)
+			}
+		})
+	}
+
+	t.Run("sorts cached matches", func(t *testing.T) {
+		store := &mockItemStore{items: []cfg_acc.Item{{FullName: "b/2"}, {FullName: "b/1"}}}
+		client := NewCheckingMailClient(&MockMailClient{}, "test-acc", store)
+		matched, _ := client.GetMatchingLabels("b")
+		if len(matched) != 2 || matched[0] != "b/1" {
+			t.Errorf("GetMatchingLabels = %v, want sorted", matched)
+		}
+	})
+}
+
+// A folder change drops the cached listing. It used to stay for up to a day,
+// so `label create X` followed by `label rm %X` reported "no label matches":
+// the lookup read a listing taken before X existed.
+func TestCheckingMailClient_FolderChangesForgetCachedListing(t *testing.T) {
+	changes := map[string]func(c *CheckingMailClient) error{
+		"EnsureLabelExists": func(c *CheckingMailClient) error { return c.EnsureLabelExists(label.FromServer("New")) },
+		"DeleteLabel":       func(c *CheckingMailClient) error { return c.DeleteLabel(label.FromServer("Old")) },
+		"RenameLabel": func(c *CheckingMailClient) error {
+			return c.RenameLabel(label.FromServer("Old"), label.FromServer("New"))
+		},
+		"FixLabels": func(c *CheckingMailClient) error { return c.FixLabels() },
+	}
+	for name, change := range changes {
+		t.Run(name, func(t *testing.T) {
+			backend := &MockMailClient{
+				Labels:     []string{"INBOX", "Old"},
+				LabelItems: []cfg_acc.Item{{Name: "INBOX", FullName: "INBOX"}, {Name: "Old", FullName: "Old"}},
+			}
+			store := &cache.DiskCacheStore{Dir: cachedir.At(t.TempDir())}
+			client := NewCheckingMailClient(backend, "test-acc", store)
+			if _, err := client.GetLabelItems(); err != nil { // caches INBOX, Old
+				t.Fatal(err)
+			}
+			backend.Labels = []string{"INBOX", "New"} // the server after the change
+			if err := change(client); err != nil {
+				t.Fatal(err)
+			}
+			all, err := client.GetMatchingLabels("")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(all, "New") || slices.Contains(all, "Old") {
+				t.Errorf("listing after %s = %v, want the server's [INBOX New]", name, all)
+			}
+		})
+	}
 }

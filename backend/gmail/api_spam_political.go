@@ -3,12 +3,12 @@ package gmail
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/backend/political"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/backend/political"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
 	"log"
 	"mime"
 	"net/mail"
@@ -100,6 +100,9 @@ func handlePoliticalUnsubscribe(rep report.Reporter, srv *gmailapi.Service, conf
 	return unsubSuccess
 }
 
+// checkAutoBlacklistPolitical blacklists a political sender that is safe to
+// blacklist -- a list mailer from a non-public domain, scored well past the
+// threshold. The sweep then blocks every such sender on Gmail.
 func checkAutoBlacklistPolitical(rep report.Reporter, config *Config, sender, listUnsubscribe string, score float64, act bool) bool {
 	if !act || !email.IsSafeToAutoBlacklist(sender, listUnsubscribe, score) {
 		return false
@@ -222,25 +225,41 @@ func inspectSinglePoliticalEmail(rep report.Reporter, srv *gmailapi.Service, con
 	}, nil
 }
 
+// showPoliticalSpamInGmailREST reports the political mail in Spam and, when
+// acting, unsubscribes, blacklists, deletes what was unsubscribed from and
+// blocks every blacklisted political sender on Gmail -- those found now and
+// those blacklisted by earlier sweeps.
 func showPoliticalSpamInGmailREST(rep report.Reporter, config *Config, act bool) error {
 	srv, err := GetGmailService(rep, config)
 	if err != nil {
 		return err
 	}
+	added, err := sweepPoliticalSpam(rep, srv, config, act)
+	if err != nil || !act {
+		return err
+	}
+	if err := blockSendersOnGmail(rep, srv, config, politicalSenders(config.Rules, added)); err != nil {
+		rep.Warnf("Could not block political senders on Gmail: %v\n", err)
+	}
+	return nil
+}
 
+// sweepPoliticalSpam inspects Spam for political mail and returns the
+// senders it blacklisted.
+func sweepPoliticalSpam(rep report.Reporter, srv *gmailapi.Service, config *Config, act bool) ([]string, error) {
 	allIDs, err := fetchAndDownloadSpamMessages(rep, srv, config)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(allIDs) == 0 {
 		rep.Infof("No emails found in Gmail Spam folder.\n")
-		return nil
+		return nil, nil
 	}
 
 	rep.Infof("Inspecting %d spam emails for political content...\n", len(allIDs))
 	politicalIDs := political.FilterIDs(config.AccountCache, allIDs, config.Whitelist)
 	if len(politicalIDs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	rep.Printf("\n")
@@ -248,7 +267,7 @@ func showPoliticalSpamInGmailREST(rep report.Reporter, config *Config, act bool)
 	rep.Printf("%s\n", app.ColorBoldPurple.Sprint("           POLITICAL DONATION EMAILS DETECTED IN SPAM FOLDER          "))
 	rep.Printf("%s\n", app.ColorBoldPurple.Sprint("======================================================================"))
 
-	var idsToDelete []string
+	var idsToDelete, added []string
 	for idx, id := range politicalIDs {
 		info, err := inspectSinglePoliticalEmail(rep, srv, config, email.ID(id), act)
 		if err != nil {
@@ -256,6 +275,9 @@ func showPoliticalSpamInGmailREST(rep report.Reporter, config *Config, act bool)
 		}
 		if info.unsubSuccess {
 			idsToDelete = append(idsToDelete, string(id))
+		}
+		if info.isBlacklisted {
+			added = append(added, info.sender)
 		}
 		printPoliticalDetails(rep, idx+1, info, config.Verbose, config.AutoUnsubscribe)
 	}
@@ -267,5 +289,5 @@ func showPoliticalSpamInGmailREST(rep report.Reporter, config *Config, act bool)
 	rep.Printf(" political email(s) out of %d spam emails analyzed.\n", len(allIDs))
 	rep.Printf("%s\n", app.ColorBoldPurple.Sprint("======================================================================"))
 
-	return nil
+	return added, nil
 }

@@ -6,8 +6,8 @@ import (
 
 	gmailapi "google.golang.org/api/gmail/v1"
 
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/email"
 )
 
 // rawFetcher retrieves raw messages over the Gmail REST API. It is the whole of

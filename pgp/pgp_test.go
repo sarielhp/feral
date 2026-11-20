@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 const testUser = "Test User <test@example.com>"

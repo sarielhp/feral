@@ -8,9 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/filebrowser"
-	"github.com/sarielhp/mail_cli/pgp"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/contactsui"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/filebrowser"
+	"github.com/sarielhp/feral/pgp"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -19,8 +21,8 @@ func (m *tuiModel) handleComposeDiscardPrompt(k tea.KeyMsg) (tea.Model, tea.Cmd)
 	s := k.String()
 	switch s {
 	case "y", "Y":
-		// Only an explicit y: Enter one keystroke earlier is Send, and this
-		// removes the local file and the server copy in one motion.
+		// Only an explicit y: this removes the local file and the server copy
+		// in one motion.
 		session := m.composeSession()
 		if err := cleanupLocalDraft(m.compose.DraftPath); err != nil {
 			m.saveStatus = "Draft discarded, but the local copy could not be removed: " + err.Error()
@@ -29,7 +31,7 @@ func (m *tuiModel) handleComposeDiscardPrompt(k tea.KeyMsg) (tea.Model, tea.Cmd)
 		}
 		req := syncRequest{kind: syncRetire, client: m.client, encrypted: m.compose.Encrypt}
 		m.compose = nil
-		m.mode = modeIndex
+		m.showList()
 		if m.standaloneCompose {
 			return m, m.requestQuitAfterSync(session, req)
 		}
@@ -57,7 +59,7 @@ func (m *tuiModel) handleComposeWarnEmptyPrompt(k tea.KeyMsg) (tea.Model, tea.Cm
 // handleComposeSendConfirmPrompt answers the question a clicked Send asks.
 func (m *tuiModel) handleComposeSendConfirmPrompt(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
-	case "y", "Y", "enter":
+	case "y", "Y":
 		m.compose.SendConfirm = false
 		return m.sendComposeEmailCmd()
 	case "n", "N", "esc", "q":
@@ -68,13 +70,24 @@ func (m *tuiModel) handleComposeSendConfirmPrompt(k tea.KeyMsg) (tea.Model, tea.
 
 func (m *tuiModel) handleComposeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.compose == nil {
-		m.mode = modeIndex
+		m.showList()
 		return m, nil
 	}
 
 	// While a send is in flight nothing may send again or save the message
-	// as a draft: Enter twice used to send twice.
+	// as a draft: a second send key used to send twice.
 	if m.compose.sending {
+		if k.String() == "esc" {
+			m.compose.sendEscNoted = true
+		}
+		return m, nil
+	}
+
+	// A subject being written for send is waited for, or dropped with Esc.
+	if m.compose.suggestingSubject && m.compose.subjectForSend {
+		if k.String() == "esc" {
+			m.cancelSubjectSuggestion()
+		}
 		return m, nil
 	}
 
@@ -142,9 +155,26 @@ func (m *tuiModel) handleComposeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "f4", "F4":
+		if m.compose.suggestingSubject {
+			return m, nil
+		}
+		if !m.canSuggestSubject() {
+			m.saveStatus = "Cannot generate subject: message has no body or attachments"
+			m.saveStatusTime = time.Now()
+			return m, nil
+		}
+		// The old subject stays until a replacement arrives, so a failed or
+		// cancelled generation loses nothing.
+		m.compose.replaceSubject = true
+		return m.startSubjectSuggestion(false)
+
 	case "f5", "F5":
 		m.openContactPicker()
 		return m, nil
+
+	case "f6", "F6":
+		return m.openAliasBrowser(false, "", "")
 
 	case "f3", "F3":
 		// The same picker the index view opens on F3: the sending account is a
@@ -152,7 +182,8 @@ func (m *tuiModel) handleComposeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openAccountOverlay()
 		return m, nil
 
-	case "y", "enter":
+	// Only y sends: Enter is too easy to press by accident.
+	case "y":
 		return m.sendComposeEmailCmd()
 
 	case "q", "esc":
@@ -163,7 +194,7 @@ func (m *tuiModel) handleComposeKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "?", "h", "f1":
-		m.showHelp = true
+		m.openHelp()
 		return m, nil
 
 	case "up", "k":
@@ -289,6 +320,7 @@ func (m *tuiModel) commitComposeField() {
 		m.compose.Bcc = val
 	case fieldSubject:
 		m.compose.Subject = val
+		m.compose.SubjectGenerated = false
 	}
 	m.compose.FieldEditing = fieldNone
 	m.compose.FieldInput = ""
@@ -306,6 +338,9 @@ func (m *tuiModel) kComposeFieldEdit(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case k.Type == tea.KeyF5:
 		m.openContactPicker()
 		return m, nil
+
+	case k.Type == tea.KeyF6:
+		return m.openAliasBrowser(false, "", "")
 
 	case k.Type == tea.KeyEsc:
 		m.resetComposeSuggestions()
@@ -353,7 +388,9 @@ func (m *tuiModel) autocompleteRecipient() (tea.Model, tea.Cmd) {
 
 	input := m.compose.FieldInput
 	prefix := ""
-	lastComma := strings.LastIndex(input, ",")
+	// The comma before the entry being typed; one inside a quoted name such
+	// as "Doe, Alice" separates nothing.
+	lastComma := email.LastAddressStart(input) - 1
 	if lastComma >= 0 {
 		prefix = strings.TrimSpace(input[lastComma+1:])
 	} else {
@@ -409,17 +446,11 @@ func (m *tuiModel) applyCompletedRecipient(lastComma int, completed string) {
 	m.compose.FieldInput = completed
 }
 
+// formatCompletionString is a contact as it lands in a recipient field: a
+// group as all its members, a person as name and address, or the bare
+// address when there is no name.
 func formatCompletionString(sc contacts.ScoredContact) string {
-	if sc.Name != "" && !strings.Contains(sc.ID, "alias:group") {
-		return fmt.Sprintf("%s <%s>", sc.Name, sc.PrimaryEmail())
-	}
-	if sc.PrimaryEmail() != "" {
-		return sc.PrimaryEmail()
-	}
-	if len(sc.Emails) > 0 {
-		return strings.Join(sc.Emails, ", ")
-	}
-	return ""
+	return contactsui.Recipient(sc)
 }
 
 func (m *tuiModel) deleteCurrentAttachment() (tea.Model, tea.Cmd) {
@@ -448,6 +479,11 @@ func (m *tuiModel) switchComposeAccountTo(idx int) (tea.Model, tea.Cmd) {
 
 	m.compose.AccountIndex = idx
 	targetAcc := accounts[idx]
+	// The signature belongs to the account it is sent from: an unedited copy
+	// of the old account's goes, and the new account's takes its place.
+	m.compose.Body = email.ReplaceSignature(m.compose.Body,
+		m.composeSignature(m.compose.AccountName), m.composeSignature(targetAcc.Name))
+	m.compose.Vp.SetContent(m.compose.Body)
 	m.compose.AccountName = targetAcc.Name
 	m.compose.From = formatFromHeader(targetAcc, m.cfg)
 
@@ -470,19 +506,14 @@ func (m *tuiModel) sendComposeEmailCmd() (tea.Model, tea.Cmd) {
 	emptySubj := strings.TrimSpace(m.compose.Subject) == ""
 	emptyBody := strings.TrimSpace(m.compose.Body) == ""
 
-	if emptySubj && emptyBody {
-		m.compose.WarnEmptySend = true
-		m.compose.WarnEmptyReason = "Both Subject and Message Body are empty!"
-		return m, nil
+	// An empty subject is written by the model when one is configured; the
+	// send resumes, through the confirmation, once it has been seen.
+	if emptySubj && m.canSuggestSubject() {
+		return m.startSubjectSuggestion(true)
 	}
-	if emptySubj {
+	if reason := emptyFieldsReason(emptySubj, emptyBody); reason != "" {
 		m.compose.WarnEmptySend = true
-		m.compose.WarnEmptyReason = "Subject is empty!"
-		return m, nil
-	}
-	if emptyBody {
-		m.compose.WarnEmptySend = true
-		m.compose.WarnEmptyReason = "Message Body is empty!"
+		m.compose.WarnEmptyReason = reason
 		return m, nil
 	}
 
@@ -509,24 +540,33 @@ func (m *tuiModel) executeSendComposeEmail() (tea.Model, tea.Cmd) {
 
 	draftPath := m.compose.DraftPath
 	targetID := m.compose.OriginalID
+	// Where the replied flag goes: the original's account, or for a
+	// session that does not know it -- a resumed draft -- the account
+	// that sends, never whichever is active when the send completes.
+	repliedCache := m.compose.OriginalCache
+	if repliedCache.IsZero() {
+		repliedCache = accountCacheOf(m.client)
+	}
 	session := m.composeSession()
 	client := m.client
 	cfg := m.cfg
 
 	m.compose.sending = true
+	m.compose.sendStart = time.Now()
+	m.compose.sendEscNoted = false
 	m.showLoad = "Sending email..."
 	slog.Info("executeSendComposeEmail: dispatching SendEmail")
 
 	// The goroutine uses only what it captured: an F3 switch during the send
 	// swaps m.client on the UI goroutine.
-	return m, func() tea.Msg {
+	return m, tea.Batch(sendTickCmd(session), func() tea.Msg {
 		if err := client.SendEmail(rawBytes); err != nil {
-			return emailSentMsg{err: err, targetID: targetID, session: session}
+			return emailSentMsg{err: err, targetID: targetID, repliedCache: repliedCache, session: session}
 		}
 		contacts.RecordSentRecipients(cfg, rawBytes)
 		_ = cleanupLocalDraft(draftPath)
-		return emailSentMsg{targetID: targetID, session: session}
-	}
+		return emailSentMsg{targetID: targetID, repliedCache: repliedCache, session: session}
+	})
 }
 
 func (m *tuiModel) saveDraftAndExit() (tea.Model, tea.Cmd) {
@@ -539,7 +579,7 @@ func (m *tuiModel) saveDraftAndExit() (tea.Model, tea.Cmd) {
 // otherwise the upload finishes behind the index view.
 func (m *tuiModel) saveDraftAndLeave(quit bool) (tea.Model, tea.Cmd) {
 	if m.compose == nil {
-		m.mode = modeIndex
+		m.showList()
 		if quit {
 			return m, m.quitNow()
 		}
@@ -550,7 +590,7 @@ func (m *tuiModel) saveDraftAndLeave(quit bool) (tea.Model, tea.Cmd) {
 	path, raw, err := m.saveDraftCopy()
 	req := syncRequest{kind: syncUpload, raw: raw, client: m.client, encrypted: m.compose.Encrypt}
 
-	m.mode = modeIndex
+	m.showList()
 	m.compose = nil
 	switch {
 	case err == nil:

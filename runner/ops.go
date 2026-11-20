@@ -8,23 +8,24 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/last"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/scan"
-	"github.com/sarielhp/mail_cli/show"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/last"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/scan"
+	"github.com/sarielhp/feral/show"
 )
 
-// RunScanOnAccounts runs spam scanning across one or all matching accounts.
+// RunScanOnAccounts runs spam scanning in the account labelPrefix names -- the
+// default account when it names none -- or in every account for `%all:`.
 func RunScanOnAccounts(out io.Writer, opts scan.Options, config *cfg_g.Config, labelPrefix string, rep report.Reporter) (int, error) {
 	totalMoved := 0
 	var reports []scan.FolderReport
-	err := mailops.ForEachAccount(config, labelPrefix, rep, func(acc cfg_acc.AccountConfig, prefix string) (bool, error) {
+	err := mailops.ForEachAccount(config, labelPrefix, mailops.DefaultSpan, func(acc cfg_acc.AccountConfig, prefix string) (bool, error) {
 		if config.Verbose {
 			rep.Infof("Running scan for account: %s (%s)...\n", acc.Name, acc.Type)
 		}
@@ -96,7 +97,7 @@ func errShortIDNotCached(id email.ShortID) error {
 // stopped working.
 func showMessageByRef(opts show.Options, out io.Writer, config *cfg_g.Config, ref string, rep report.Reporter) error {
 	var clients []mailclient.MailClient
-	err := mailops.ForEachAccount(config, "", rep, func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
+	err := mailops.ForEachAccount(config, "", mailops.EverySpan, func(acc cfg_acc.AccountConfig, _ string) (bool, error) {
 		client, err := mailops.NewMailClient(acc, config, rep)
 		if err != nil {
 			return true, err
@@ -138,13 +139,18 @@ func showRefFromClients(opts show.Options, out io.Writer, clients []mailclient.M
 // RunShowOnAccounts displays a message or lists messages across matching accounts.
 //
 // A first argument without the label sigil is a message ID; with the sigil it
-// is a folder, optionally followed by a message ID within it.
+// is a folder, optionally followed by a message ID within it. "virtual/<name>"
+// names a saved result set instead, which lives in the selected account's
+// cache rather than on any server.
 func RunShowOnAccounts(opts show.Options, out io.Writer, config *cfg_g.Config, labelPrefix string, targetMsgID string, rep report.Reporter) error {
+	if name, ok := show.VirtualPrefix(labelPrefix); ok {
+		return runShowVirtualMailbox(opts, out, config, name, targetMsgID, rep)
+	}
 	if targetMsgID == "" && !strings.HasPrefix(labelPrefix, cfg_g.LabelSigil) {
 		return showMessageByRef(opts, out, config, labelPrefix, rep)
 	}
 	var listings []show.FolderListing
-	err := mailops.ForEachAccount(config, labelPrefix, rep, func(acc cfg_acc.AccountConfig, prefix string) (bool, error) {
+	err := mailops.ForEachAccount(config, labelPrefix, mailops.DefaultSpan, func(acc cfg_acc.AccountConfig, prefix string) (bool, error) {
 		client, err := mailops.NewMailClient(acc, config, rep)
 		if err != nil {
 			return true, err
@@ -176,6 +182,19 @@ func RunShowOnAccounts(opts show.Options, out io.Writer, config *cfg_g.Config, l
 		return show.MarshalListings(out, listings)
 	}
 	return nil
+}
+
+// runShowVirtualMailbox lists a saved result set. A saved set belongs to the
+// account that produced it -- the selected one -- so it is read there rather
+// than across every account, and from its cache rather than from a server
+// folder that does not exist.
+func runShowVirtualMailbox(opts show.Options, out io.Writer, config *cfg_g.Config, name, targetMsgID string, rep report.Reporter) error {
+	client, err := mailops.GetClientForSelected(config, rep)
+	if err != nil {
+		return err
+	}
+	_, err = show.VirtualMailbox(opts, out, client, client.Config(), name, targetMsgID)
+	return err
 }
 
 // RunLastOnAccounts prints the last N messages for the selected account.

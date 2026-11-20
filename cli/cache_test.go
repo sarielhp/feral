@@ -1,24 +1,24 @@
 package cli
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func TestCachePruneWithFolder(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "mail_cli_cache_prune_test_*")
+	tempDir, err := os.MkdirTemp(testTempRoot(), "feral_cache_prune_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestCachePruneWithFolder(t *testing.T) {
 }
 
 func TestCacheReset(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "mail_cli_cache_reset_test_*")
+	tempDir, err := os.MkdirTemp(testTempRoot(), "feral_cache_reset_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

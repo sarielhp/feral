@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // checksVersion changes whenever the checks themselves change -- a new

@@ -5,7 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/terminal"
+	"github.com/sarielhp/feral/terminal"
+	"html"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -46,7 +47,10 @@ func renderHTMLToText(htmlStr string) (string, error) {
 	// w3m numbers each link inline and lists the targets under References.
 	// Keep URLs intact while w3m wraps the surrounding HTML into text.
 	// Restore them before callers sanitize escapes and embed hyperlinks.
+	// The end of each anchor is marked too, so labelLinks can put the
+	// number and the target on the anchor text rather than beside it.
 	htmlStr, restoreURLs := protectHTMLURLs(htmlStr)
+	htmlStr, endMarker := markAnchorEnds(htmlStr)
 	cmd := exec.CommandContext(ctx, "w3m", "-dump", "-cols", fmt.Sprintf("%d", cols), "-T", "text/html", "-no-cookie", "-o", "display_link_number=1")
 	cmd.Stdin = strings.NewReader(htmlStr)
 	var out bytes.Buffer
@@ -63,7 +67,7 @@ func renderHTMLToText(htmlStr string) (string, error) {
 	if result == "" {
 		return "", fmt.Errorf("w3m -dump produced empty output for %d bytes of HTML content", len(htmlStr))
 	}
-	return restoreURLs(result), nil
+	return labelLinks(restoreURLs(result), endMarker), nil
 }
 
 const (
@@ -123,9 +127,9 @@ func appendPartContentDepth(part *multipart.Part, plainParts, htmlParts []string
 	}
 	switch partMediaType {
 	case "text/plain":
-		plainParts = append(plainParts, string(partBytes))
+		plainParts = append(plainParts, string(TextToUTF8(partBytes, part.Header.Get("Content-Type"))))
 	case "text/html":
-		htmlParts = append(htmlParts, string(partBytes))
+		htmlParts = append(htmlParts, string(TextToUTF8(partBytes, part.Header.Get("Content-Type"))))
 	}
 	return plainParts, htmlParts, nil
 }
@@ -179,6 +183,7 @@ func extractRawPlainBodyText(msg *mail.Message) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	bodyBytes = TextToUTF8(bodyBytes, msg.Header.Get("Content-Type"))
 
 	if mediaType == "text/html" {
 		return renderHTMLWithFallback(string(bodyBytes)), nil
@@ -254,8 +259,63 @@ func extractAlternativeBodyPartsRaw(data []byte) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	bodyBytes = TextToUTF8(bodyBytes, msg.Header.Get("Content-Type"))
 	if mediaType == "text/html" {
 		return "", string(bodyBytes), nil
 	}
 	return string(bodyBytes), "", nil
+}
+
+// ExtractHTMLBodyText extracts the HTML body from a parsed message, or wraps
+// single-part plain text in <pre> tags so a browser can display it.
+func ExtractHTMLBodyText(msg *mail.Message) (string, error) {
+	mediaType, params, err := mime.ParseMediaType(msg.Header.Get("Content-Type"))
+	if err != nil {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(msg.Body, maxMIMEPartBytes))
+		return string(bodyBytes), nil
+	}
+
+	if strings.HasPrefix(mediaType, "multipart/") {
+		mr := multipart.NewReader(msg.Body, params["boundary"])
+		var htmlParts []string
+		_, htmlParts, err = ExtractNestedMultipartParts(mr)
+		if err != nil {
+			return "", err
+		}
+		if len(htmlParts) > 0 {
+			return strings.Join(htmlParts, "\n"), nil
+		}
+		return "", nil
+	}
+
+	encoding := msg.Header.Get("Content-Transfer-Encoding")
+	var bodyBytes []byte
+	bodyBytes, err = DecodePartBody(msg.Body, encoding)
+	if err != nil {
+		return "", err
+	}
+	bodyBytes = TextToUTF8(bodyBytes, msg.Header.Get("Content-Type"))
+
+	if mediaType == "text/html" {
+		return string(bodyBytes), nil
+	}
+	return fmt.Sprintf("<html><body><pre>%s</pre></body></html>", string(bodyBytes)), nil
+}
+
+// HTMLForDisplay returns HTML content to display in a browser for raw MIME
+// message data. If an HTML body is present, it is returned. If only plain
+// text is present, the plain text is escaped and wrapped in HTML <pre> tags.
+func HTMLForDisplay(data []byte) string {
+	plain, htmlStr, err := ExtractAlternativeBodyParts(data)
+	if err != nil {
+		return ""
+	}
+	if strings.TrimSpace(htmlStr) != "" {
+		return htmlStr
+	}
+	if strings.TrimSpace(plain) != "" {
+		return fmt.Sprintf("<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"></head>\n<body><pre style=\"white-space: pre-wrap; font-family: monospace;\">%s</pre></body>\n</html>",
+			html.EscapeString(plain))
+	}
+	return ""
 }
