@@ -2,15 +2,17 @@ package outlook
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/label"
+
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 const maxErrorBodyBytes = 4096
@@ -25,6 +27,9 @@ type client struct {
 	account cfg_acc.AccountConfig
 	client  *http.Client
 	rep     report.Reporter
+	// immutableIDs is set by init when the account's cache is keyed by
+	// Graph's immutable IDs. See usesImmutableIDs.
+	immutableIDs bool
 }
 
 // NewClient builds a client that reports progress through rep. A nil rep
@@ -41,8 +46,29 @@ func (c *client) init() error {
 	if c.client != nil {
 		return nil
 	}
-	c.client = getOutlookClient(c.config, c.account.Name, c.rep)
+	c.immutableIDs = c.usesImmutableIDs()
+	c.client = getOutlookClient(c.config, c.account.Name, c.rep, c.immutableIDs)
 	return nil
+}
+
+// usesImmutableIDs reports whether this account's cache is keyed by Graph's
+// immutable IDs, as its manifest says. A cache keyed by the default IDs keeps
+// them until `utils cache outlook-ids` migrates it: mixing the two would split
+// every message in two. A client built without the factory, which writes the
+// manifest, finds none: an empty cache then starts with immutable IDs.
+func (c *client) usesImmutableIDs() bool {
+	acct := c.config.AccountCache
+	if acct.IsZero() {
+		return false
+	}
+	m, ok, err := meta.Read(acct)
+	if err != nil {
+		return false
+	}
+	if ok {
+		return m.IDScheme == meta.SchemeGraphImmutable
+	}
+	return !meta.HoldsMessages(acct)
 }
 
 func (c *client) Validate() error {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 // PlaceholderEmail is the row a listing shows in place of a message it could

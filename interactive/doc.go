@@ -1,4 +1,4 @@
-// Package interactive holds the tests that drive mail_cli in a real terminal.
+// Package interactive holds the tests that drive feral in a real terminal.
 //
 // They exist for what a unit test cannot see: the escapes a terminal actually
 // receives, and input -- keys, mouse clicks -- arriving the way a person sends
@@ -11,7 +11,7 @@
 // when a change touches what only a terminal shows -- mouse handling, links,
 // escape output:
 //
-//	MAIL_CLI_INTERACTIVE=1 go test ./interactive/ -v -count=1   (or: make interactive)
+//	FERAL_INTERACTIVE=1 go test ./interactive/ -v -count=1   (or: make interactive)
 //
 // With the variable set, a missing tool (xvfb-run, kitty, xdotool, ImageMagick,
 // w3m) fails the run and names the packages to install.

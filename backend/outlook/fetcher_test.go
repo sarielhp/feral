@@ -3,7 +3,7 @@ package outlook
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/backend/backendtest"
+	"github.com/sarielhp/feral/backend/backendtest"
 )
 
 func TestOutlookClient_MessageAccessorContextCancellation(t *testing.T) {

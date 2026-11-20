@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam pol audit'
-parent: 'mail_cli spam pol'
+title: 'feral spam pol audit'
+parent: 'feral spam pol'
 ---
 
-# mail\_cli spam pol audit
+# feral spam pol audit
 
 Scan Spam folder for political fundraising emails and print scoring details.
 
 ## Usage
 
 ```
-mail_cli spam pol audit
+feral spam pol audit
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli spam pol audit
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli spam pol audit
 
 ## Examples
 
-- `mail_cli spam pol audit` — Report political mail in Spam, changing nothing
+- `feral spam pol audit` — Report political mail in Spam, changing nothing
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

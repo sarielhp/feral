@@ -1,0 +1,300 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# demo_gif -- record the README's demo GIF (docs/assets/demo.gif).
+#
+# feral runs `--read-only tui` on two mbox accounts made from the synthetic
+# mailbox in testdata/demo/mailbox.yml (tools/demo_mbox.rb), inside kitty on a
+# private Xvfb display -- the isolation of the interactive test harness
+# (interactive/harness_test.go): HOME is a directory of the run with its own
+# config.json, kitty reads no config file (--config NONE), WAYLAND_DISPLAY and
+# the rest of the user's environment are not passed through, the session bus
+# points at a socket that does not exist, and the configured browser only
+# records the URLs it is given. Nothing opens on the desktop, no network is
+# used, and the user's config and cache are never read.
+#
+# The recording is a sequence of scenes, not a screen capture in real time:
+# after each key the script waits for the screen to settle, takes one frame
+# (ImageMagick `import`) and gives it the scene's hold time; ffmpeg assembles
+# the frames with a shared palette.
+#
+# Usage:
+#   tools/demo_gif [--out FILE] [--bin FILE] [--keep]
+#
+#   --out FILE   where the GIF goes (default docs/assets/demo.gif)
+#   --bin FILE   record this binary instead of building one
+#   --keep       keep the work directory (frames, config, logs) and print it
+#
+# Needs xvfb-run, Xvfb, kitty, ImageMagick (import) and ffmpeg, and go unless
+# --bin is given. Run it under `nice -n 19`; it takes about a minute.
+
+require 'fileutils'
+require 'json'
+require 'open3'
+require 'optparse'
+require_relative 'demo_mbox'
+require_relative 'tmp_space'
+
+ProjectTmp.project = 'feral'
+
+ROOT = File.expand_path('..', __dir__)
+TOOLS = %w[xvfb-run Xvfb kitty import ffmpeg].freeze
+# The window, in pixels, and the private display it fills exactly, so a
+# capture of the display's root window is a capture of the terminal.
+WIDTH = 1100
+HEIGHT = 520
+
+# Runs inside xvfb-run: records the display it was given, then becomes kitty.
+LAUNCHER = <<~SH.freeze
+  #!/bin/sh
+  printf 'DISPLAY=%s\\nXAUTHORITY=%s\\n' "$DISPLAY" "$XAUTHORITY" > "$1"
+  sock=$2
+  shift 2
+  exec kitty --config NONE -o allow_remote_control=yes --listen-on "$sock" \\
+    -o font_size=12 -o remember_window_size=no -o cursor_blink_interval=0 \\
+    -o window_padding_width=4 -o linux_display_server=x11 \\
+    -o initial_window_width=#{WIDTH} -o initial_window_height=#{HEIGHT} "$@"
+SH
+
+# One scene per step: the input that starts it, text the screen must show
+# before the frame is taken, and how long the frame is held, in seconds.
+# `key` is a kitty key name (send-key); `text` is typed one character per
+# frame (send-text), which is also how a shifted letter or `=` is sent.
+SCENES = [
+  { wait: 'Q4 planning kickoff', hold: 2.2 },
+  *Array.new(4) { { key: 'k', hold: 0.35 } },
+  { key: 'space', wait: 'From:', hold: 2.2 },
+  { key: 'left', hold: 1.2 },
+  { key: 'left', hold: 1.6 },
+  { key: 'space', hold: 0.6 },
+  { key: 'home', hold: 0.5 },
+  *Array.new(2) { { key: 'j', hold: 0.4 } },
+  { key: 'enter', wait: 'Amount due', hold: 3.0 },
+  { key: 'esc', hold: 0.6 },
+  { text: 'f', wait: 'All Inboxes', hold: 1.2 },
+  { key: 'j', hold: 0.8 },
+  { key: 'enter', wait: 'Rosa Ibarra', hold: 2.6 },
+  { text: 'f', wait: 'All Inboxes', hold: 0.6 },
+  { key: 'k', hold: 0.5 },
+  { key: 'enter', wait: 'work', hold: 1.0 },
+  { text: '/', hold: 0.5 },
+  { text: 'agenda', hold: 0.15 },
+  { key: 'enter', hold: 1.8 },
+  { key: 'esc', hold: 0.8 },
+  *Array.new(2) { { key: 'j', hold: 0.4 } },
+  { text: '=', wait: 'list:', hold: 2.4 },
+  { text: '=', hold: 0.8 },
+  { key: 'f1', wait: 'Messages', hold: 2.6 },
+  { key: 'esc', hold: 1.2 }
+].freeze
+
+SETTLE_POLL = 0.12
+SETTLE_LIMIT = 15
+
+def parse_options
+  opts = { out: File.join(ROOT, 'docs/assets/demo.gif'), bin: nil, keep: false }
+  OptionParser.new do |o|
+    o.banner = 'usage: tools/demo_gif [--out FILE] [--bin FILE] [--keep]'
+    o.on('--out FILE', 'where the GIF goes') { |v| opts[:out] = File.expand_path(v) }
+    o.on('--bin FILE', 'record this feral binary instead of building one') { |v| opts[:bin] = File.expand_path(v) }
+    o.on('--keep', 'keep the work directory') { opts[:keep] = true }
+  end.parse!
+  opts
+end
+
+def require_tools(names)
+  missing = names.reject { |name| ENV.fetch('PATH', '').split(':').any? { |dir| File.executable?(File.join(dir, name)) } }
+  abort "demo_gif: missing #{missing.join(', ')} (xvfb, kitty, imagemagick, ffmpeg)" if missing.any?
+end
+
+def run!(*cmd, **)
+  out, status = Open3.capture2e(*cmd, **)
+  abort "demo_gif: #{cmd.first(3).join(' ')} failed:\n#{out}" unless status.success?
+  out
+end
+
+def build_binary(work)
+  bin = File.join(work, 'feral')
+  run!('nice', '-n', '19', 'go', 'build', '-o', bin, '.', chdir: ROOT)
+  bin
+end
+
+# The whole environment of everything the recording starts (spawned with
+# unsetenv_others, since Ruby otherwise merges it into its own): no
+# WAYLAND_DISPLAY (kitty would open on the desktop), no credentials, a session
+# bus that does not exist (an autolaunched one started desktop services), and
+# temporary files -- xvfb-run's Xauthority among them -- inside the run.
+def clean_env(work)
+  run = File.join(work, 'run')
+  tmp = File.join(work, 'tmp')
+  FileUtils.mkdir_p([run, tmp], mode: 0o700)
+  { 'PATH' => ENV.fetch('PATH'), 'HOME' => File.join(work, 'home'), 'USER' => ENV.fetch('USER', 'demo'),
+    'LANG' => 'C.UTF-8', 'TZ' => 'UTC', 'TMPDIR' => tmp, 'XDG_RUNTIME_DIR' => run,
+    'LIBGL_ALWAYS_SOFTWARE' => '1', 'DBUS_SESSION_BUS_ADDRESS' => "unix:path=#{File.join(work, 'no-bus')}",
+    'NO_AT_BRIDGE' => '1', 'GIO_USE_VFS' => 'local', 'GVFS_DISABLE_FUSE' => '1' }
+end
+
+# The private HOME: a config.json naming the demo's mbox accounts, read-only,
+# a download directory inside the run and a browser that only records URLs.
+def write_home(work)
+  cfg_dir = File.join(work, 'home', '.config', 'feral')
+  FileUtils.mkdir_p(cfg_dir, mode: 0o700)
+  mail_dir = File.join(work, 'mail')
+  FileUtils.mkdir_p(mail_dir)
+  accounts = DemoMbox.write(mail_dir).map do |name, path|
+    { 'name' => name, 'type' => 'mbox', 'path' => path, 'read_only' => true }
+  end
+  browser = File.join(work, 'browser')
+  File.write(browser, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '#{File.join(work, 'opened.txt')}'\n")
+  File.chmod(0o700, browser)
+  config = { 'download_dir' => File.join(work, 'cache'), 'browser' => browser,
+             'accounts' => accounts, 'tui_watch' => false }
+  File.write(File.join(cfg_dir, 'config.json'), JSON.pretty_generate(config))
+end
+
+# A running recording: the process group of xvfb-run, kitty and feral, and
+# the remote-control socket that drives it.
+class Session
+  def initialize(work, bin)
+    @work = work
+    @sock = "unix:#{File.join(work, 'kitty.sock')}"
+    @env_file = File.join(work, 'display.env')
+    @frames = []
+    launch(bin)
+  end
+
+  attr_reader :frames
+
+  def launch(bin)
+    launcher = File.join(@work, 'launch.sh')
+    File.write(launcher, LAUNCHER)
+    File.chmod(0o700, launcher)
+    log = File.join(@work, 'xvfb.log')
+    @pid = Process.spawn(clean_env(@work), 'xvfb-run', '-a', '-s', "-screen 0 #{WIDTH}x#{HEIGHT}x24",
+                         launcher, @env_file, @sock, bin, '--read-only', 'tui',
+                         chdir: @work, pgroup: true, unsetenv_others: true, in: File::NULL, %i[out err] => [log, 'w'])
+    wait_ready
+  end
+
+  def wait_ready
+    deadline = Time.now + 20
+    until File.exist?(@env_file) && kitty_ok?('ls')
+      abort "demo_gif: kitty did not start; see #{File.join(@work, 'xvfb.log')}" if Time.now > deadline
+      sleep 0.2
+    end
+    @display = File.read(@env_file).split.to_h { |kv| kv.split('=', 2) }
+  end
+
+  def kitty_ok?(*)
+    _, status = Open3.capture2e('kitty', '@', '--to', @sock, *)
+    status.success?
+  end
+
+  def kitty(*)
+    run!('kitty', '@', '--to', @sock, *)
+  end
+
+  def screen
+    kitty('get-text', '--match', 'id:1', '--ansi')
+  end
+
+  # Plays one scene: its input, then one frame per typed character or one for
+  # the key, each held for the scene's time.
+  def play(scene)
+    if scene[:text]
+      scene[:text].each_char { |ch| capture_after(scene, hold: scene[:hold]) { kitty('send-text', '--match', 'id:1', '--', ch) } }
+      return
+    end
+    capture_after(scene, hold: scene[:hold]) { kitty('send-key', '--match', 'id:1', scene[:key]) if scene[:key] }
+  end
+
+  def capture_after(scene, hold:)
+    yield
+    settle(scene[:wait])
+    path = File.join(@work, 'frames', format('%03d.png', @frames.length))
+    FileUtils.mkdir_p(File.dirname(path))
+    run!(@display, 'import', '-window', 'root', path)
+    @frames << [path, hold]
+  end
+
+  # Waits until the screen shows `want` (if given) and two reads in a row
+  # agree, colours included, so a moved cursor counts as a change.
+  def settle(want)
+    sleep 0.3
+    deadline = Time.now + SETTLE_LIMIT
+    last = nil
+    loop do
+      now = screen
+      return if now == last && (want.nil? || now.include?(want))
+
+      abort "demo_gif: the screen never showed #{want.inspect}:\n#{now}" if Time.now > deadline
+
+      last = now
+      sleep SETTLE_POLL
+    end
+  end
+
+  # Stops the process group, then anything that escaped it but still carries
+  # the run's directory in its environment.
+  def stop
+    Process.kill('TERM', -@pid)
+    Process.wait(@pid)
+  rescue Errno::ESRCH, Errno::ECHILD
+    nil
+  ensure
+    reap_strays
+  end
+
+  def reap_strays
+    sleep 0.5
+    Dir.glob('/proc/[0-9]*/environ').each do |path|
+      env = File.binread(path)
+      next unless env.include?(@work)
+
+      warn "demo_gif: killing stray process #{File.basename(File.dirname(path))}"
+      Process.kill('KILL', File.basename(File.dirname(path)).to_i)
+    rescue SystemCallError
+      next
+    end
+  end
+end
+
+# Assembles the frames: each shown for its hold time, one palette for all.
+def assemble(work, frames, out)
+  list = File.join(work, 'frames.txt')
+  lines = frames.flat_map { |path, hold| ["file '#{path}'", "duration #{hold}"] }
+  File.write(list, "#{(lines + ["file '#{frames.last.first}'"]).join("\n")}\n")
+  filter = 'split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];' \
+           '[b][p]paletteuse=dither=none:diff_mode=rectangle'
+  FileUtils.mkdir_p(File.dirname(out))
+  run!('nice', '-n', '19', 'ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list,
+       '-lavfi', filter, '-fps_mode', 'vfr', '-loop', '0', out)
+end
+
+def record(work, opts)
+  write_home(work)
+  bin = opts[:bin] || build_binary(work)
+  session = Session.new(work, bin)
+  begin
+    SCENES.each { |scene| session.play(scene) }
+  ensure
+    session.stop
+  end
+  assemble(work, session.frames, opts[:out])
+  seconds = session.frames.sum { |_, hold| hold }
+  puts format('%<out>s: %<kb>d KB, %<frames>d frames, %<secs>.1f s',
+              out: opts[:out], kb: File.size(opts[:out]) / 1024, frames: session.frames.length, secs: seconds)
+end
+
+opts = parse_options
+require_tools(TOOLS + (opts[:bin] ? [] : ['go']))
+work = ProjectTmp.mktmpdir('demo-gif')
+begin
+  record(work, opts)
+ensure
+  if opts[:keep]
+    puts "work directory kept: #{work}"
+  else
+    FileUtils.rm_rf(work)
+  end
+end

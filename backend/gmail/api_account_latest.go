@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 )

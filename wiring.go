@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/runner"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/runner"
+	"github.com/sarielhp/feral/ui"
 	"os"
 )
 
@@ -16,7 +16,7 @@ import (
 // neither imports the other. A missing binding is a compile error here rather
 // than a nil check in every handler.
 func buildSession(config *cfg_g.Config) *cli.Session {
-	// Progress goes to stderr, a command's product to stdout, so `mail_cli
+	// Progress goes to stderr, a command's product to stdout, so `feral
 	// label list > labels.txt` captures the labels and not the chatter about
 	// fetching them. The TUI builds its own reporter when it starts, and there
 	// the same calls become bubbletea messages rather than bytes.
@@ -36,8 +36,10 @@ func buildSession(config *cfg_g.Config) *cli.Session {
 			TUI:      runner.TUIService{},
 			Contacts: runner.ContactService{Rep: rep, Out: os.Stdout},
 			Send:     runner.SendService{Rep: rep, Out: os.Stdout, TUI: runner.TUIService{}},
+			Unsub:    runner.UnsubscribeService{Rep: rep, Out: os.Stdout},
 			Outbox:   runner.OutboxService{Rep: rep, Out: os.Stdout},
 			Watch:    runner.WatchService{Rep: rep},
+			Snooze:   runner.SnoozeService{Rep: rep},
 		},
 	}
 }

@@ -3,15 +3,15 @@ package scan
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/ui"
 	"io"
 	"mime"
 	"net/mail"
@@ -297,6 +297,9 @@ func printScanFolderAdvisories(rep report.Reporter, config *cfg_g.Config, matche
 
 func scanSingleLabel(out io.Writer, opts Options, rep report.Reporter, client Client, config *cfg_g.Config, matchedLabel label.Folder) (int, *FolderReport, error) {
 	cacheDirName := cfg_g.SanitizeLabelForCache(matchedLabel.String())
+	// Decided once per folder: IsAuthoredFolder may ask the server for its
+	// label list, and both the classification and the listing need the answer.
+	authored := organize.IsAuthoredFolder(client, matchedLabel)
 	downloadedIDs, totalBeforePattern, err := fetchAndFilterEmails(opts, rep, client, config, matchedLabel, cacheDirName)
 	if err != nil {
 		return 0, nil, err
@@ -345,7 +348,7 @@ func scanSingleLabel(out io.Writer, opts Options, rep report.Reporter, client Cl
 		return movedCount, folderReport, nil
 	}
 
-	spamIDs, blacklistedIDs, scanResults, err := classifyFolder(rep, client, config, matchedLabel, downloadedIDs)
+	spamIDs, blacklistedIDs, scanResults, err := classifyFolder(rep, config, matchedLabel, downloadedIDs, authored)
 	if err != nil {
 		return movedCount, folderReport, err
 	}
@@ -369,7 +372,7 @@ func scanSingleLabel(out io.Writer, opts Options, rep report.Reporter, client Cl
 
 	if !opts.JSON {
 		folderTitle := fmt.Sprintf("Folder: %s:%s (scan).", config.GetSelectedAccountDisplayName(), matchedLabel)
-		ui.FormatFolderSummary(out, folderTitle, "", downloadedIDs, spamIDs, scanResults, config, cacheDirName, rulesMoved, totalBeforePattern)
+		ui.FormatFolderSummary(out, folderTitle, "", downloadedIDs, spamIDs, scanResults, config, cacheDirName, rulesMoved, totalBeforePattern, authored)
 	}
 	printScanFolderAdvisories(rep, config, matchedLabel, downloadedIDs, spamIDs, blacklistedIDs, opts.MoveSpam)
 	return movedCount, folderReport, nil
@@ -377,9 +380,10 @@ func scanSingleLabel(out io.Writer, opts Options, rep report.Reporter, client Cl
 
 // classifyFolder gives each message in folder a spam verdict. Mail in the
 // account's Sent or Drafts folder was written by the user and gets none: any
-// verdict cached for it is cleared, and nothing is reported as spam.
-func classifyFolder(rep report.Reporter, client Client, config *cfg_g.Config, folder label.Folder, ids []email.ID) ([]email.ID, []email.ID, map[email.ID]*Response, error) {
-	if organize.IsAuthoredFolder(client, folder) {
+// verdict cached for it is cleared, and nothing is reported as spam. authored
+// is that folder test, decided once by the caller.
+func classifyFolder(rep report.Reporter, config *cfg_g.Config, folder label.Folder, ids []email.ID, authored bool) ([]email.ID, []email.ID, map[email.ID]*Response, error) {
+	if authored {
 		for _, id := range ids {
 			_ = msg.ForgetEvidence(config.AccountCache, id)
 		}

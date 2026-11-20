@@ -5,13 +5,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -44,6 +45,9 @@ func runAccountList(session *Session) error {
 		if accType == "" {
 			accType = "regular"
 		}
+		if acc.IsDefault {
+			selected += " (default)"
+		}
 		displayName := acc.GetDisplayName()
 		if displayName != acc.Name {
 			fmt.Fprintf(session.out(), "%d. %s [%s] (%s, type: %s)%s\n", i+1, displayName, acc.Name, acc.Type, accType, selected)
@@ -51,6 +55,7 @@ func runAccountList(session *Session) error {
 			fmt.Fprintf(session.out(), "%d. %s (%s, type: %s)%s\n", i+1, acc.Name, acc.Type, accType, selected)
 		}
 	}
+	warnAccountNames(session, *fc.Accounts, fc.DefaultAccount)
 	return nil
 }
 
@@ -74,7 +79,14 @@ func runAccountAssociate(session *Session, accountName, progName string) error {
 			if err := cfg_g.SaveConfigFile(configPath, fc); err != nil {
 				return err
 			}
-			fmt.Fprintf(session.errOut(), "%s Successfully associated program name %q with account %q.\n", app.PrefixSuccess, progName, accountName)
+			fmt.Fprintf(session.errOut(), "%s %q is now an alias of account %q: -A %s selects it.\n",
+				app.PrefixSuccess, progName, acc.Name, progName)
+			// Starting feral under an alias selected its account until links
+			// replaced that; say how to get it now.
+			if fc.Links != nil && cfg_g.ValidateLinkName(progName) == nil {
+				fmt.Fprintf(session.errOut(), "%s To run feral as %q on it, add a link: feral link add %s -- -A %s\n",
+					app.PrefixInfo, progName, progName, acc.Name)
+			}
 			return nil
 		}
 	}
@@ -160,6 +172,61 @@ func cleanupAccountToken(session *Session, configPath string, targetAcc *cfg_acc
 	fmt.Fprintf(session.errOut(), "%s Deleted old token file: %s\n", app.PrefixInfo, tokenPath)
 }
 
+// setAsideSuffix names a token moved out of the way while a login runs.
+const setAsideSuffix = ".prev"
+
+// setAsideAccountToken moves the account's token aside so the login after it
+// signs in afresh, and returns what to do once the login has ended: drop the
+// old token if a new one was written, put it back otherwise.
+//
+// Login used to delete the token first. Abandoning the sign-in -- Esc,
+// Ctrl-C, closing the window, or a stray "l" in the TUI's account list --
+// then left a working account with no credentials at all. A process killed
+// mid-login cannot run the returned function; restoreSetAsideTokens, which
+// every command runs at start, puts the token back then.
+func setAsideAccountToken(session *Session, configPath string, acc *cfg_acc.AccountConfig) func() {
+	tokenPath, err := session.accounts().TokenPath(filepath.Dir(configPath), *acc)
+	if err != nil || tokenPath == "" {
+		return func() {}
+	}
+	prev := tokenPath + setAsideSuffix
+	if err := os.Rename(tokenPath, prev); err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(session.errOut(), "%s Could not set the old token aside: %v\n", app.PrefixWarn, err)
+		}
+		return func() {}
+	}
+	return func() { settleSetAsideToken(tokenPath) }
+}
+
+// settleSetAsideToken resolves a set-aside token: a new token at tokenPath
+// wins and the old one goes; with none, the old one comes back.
+func settleSetAsideToken(tokenPath string) {
+	prev := tokenPath + setAsideSuffix
+	if _, err := os.Stat(prev); err != nil {
+		return
+	}
+	if _, err := os.Stat(tokenPath); err == nil {
+		_ = os.Remove(prev)
+		return
+	}
+	_ = os.Rename(prev, tokenPath)
+}
+
+// restoreSetAsideTokens settles any token a killed login left aside.
+func restoreSetAsideTokens(session *Session) {
+	if session.Config == nil || session.Config.ConfigDir == "" {
+		return
+	}
+	for _, acc := range session.Config.Accounts {
+		tokenPath, err := session.accounts().TokenPath(session.Config.ConfigDir, acc)
+		if err != nil || tokenPath == "" {
+			continue
+		}
+		settleSetAsideToken(tokenPath)
+	}
+}
+
 func runAccountLogin(session *Session, args []string) error {
 	_, configPath, err := cfg_g.ResolveConfigPath(session.Config)
 	if err != nil {
@@ -192,9 +259,13 @@ func runAccountLogin(session *Session, args []string) error {
 	if invalid := cfg_g.ValidateAccountParams(*targetAcc); invalid != nil {
 		return accountSettingsError(targetAcc.Name, invalid)
 	}
+	if targetAcc.IsMbox() {
+		return fmt.Errorf("account %s is a local mbox file: it has no credentials to sign in with", targetAcc.Name)
+	}
 
 	session.Config.SelectedAccount = cfg_g.NameOf(*targetAcc)
-	cleanupAccountToken(session, configPath, targetAcc)
+	settle := setAsideAccountToken(session, configPath, targetAcc)
+	defer settle()
 
 	client, err := session.clients().ForSelected(session.Config)
 	if err != nil {
@@ -245,50 +316,6 @@ func validateAfterLogin(w io.Writer, client mailclient.Reader) error {
 			"The credential has been saved, so try `%s account test` before signing in again",
 			retryErr, app.AppName)
 	}
-	return nil
-}
-
-func runAccountRename(session *Session, oldName, newName string) error {
-	if strings.TrimSpace(newName) == "" {
-		return fmt.Errorf("new account name cannot be empty")
-	}
-
-	_, configPath, err := cfg_g.ResolveConfigPath(session.Config)
-	if err != nil {
-		return err
-	}
-	fc, err := cfg_g.LoadConfigFile(configPath)
-	if err != nil {
-		return err
-	}
-
-	oldAccIdx := -1
-	for i, acc := range *fc.Accounts {
-		if strings.EqualFold(acc.Name, oldName) || (acc.DisplayName != "" && strings.EqualFold(acc.DisplayName, oldName)) {
-			oldAccIdx = i
-			break
-		}
-	}
-
-	if oldAccIdx == -1 {
-		return ErrAccountNotFound(oldName)
-	}
-
-	for i, acc := range *fc.Accounts {
-		if i == oldAccIdx {
-			continue
-		}
-		if strings.EqualFold(acc.Name, newName) || (acc.DisplayName != "" && strings.EqualFold(acc.DisplayName, newName)) {
-			return ErrAccountExists(newName)
-		}
-	}
-
-	(*fc.Accounts)[oldAccIdx].DisplayName = newName
-	if err := cfg_g.SaveConfigFile(configPath, fc); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(session.errOut(), "%s Successfully renamed account %q to %q (display name updated).\n", app.PrefixSuccess, oldName, newName)
 	return nil
 }
 
@@ -379,6 +406,12 @@ func runAccountDelete(session *Session, name string) error {
 
 	targetAcc := (*fc.Accounts)[foundIdx]
 	*fc.Accounts = append((*fc.Accounts)[:foundIdx], (*fc.Accounts)[foundIdx+1:]...)
+	// Neither may go on naming an account that is gone.
+	for _, ref := range []*string{&fc.DefaultAccount, &fc.DefaultSendAccount} {
+		if *ref != "" && (strings.EqualFold(*ref, targetAcc.Name) || strings.EqualFold(*ref, targetAcc.DisplayName)) {
+			*ref = ""
+		}
+	}
 
 	if err := cfg_g.SaveConfigFile(configPath, fc); err != nil {
 		return err
@@ -387,6 +420,14 @@ func runAccountDelete(session *Session, name string) error {
 	cleanupAccountToken(session, configPath, &targetAcc)
 
 	fmt.Fprintf(session.errOut(), "%s Successfully deleted account %q and cleaned up associated token files.\n", app.PrefixSuccess, targetAcc.Name)
+	// Its links are kept -- an account given the name again makes them work
+	// again -- so the user hears about them now, not when one fails.
+	if fc.Links != nil {
+		if names := cfg_g.LinksNaming(*fc.Links, targetAcc.Name); len(names) > 0 {
+			fmt.Fprintf(session.errOut(), "%s Links still naming it: %s; remove them with `feral link rm`.\n",
+				app.PrefixWarn, strings.Join(names, ", "))
+		}
+	}
 	return nil
 }
 
@@ -394,35 +435,38 @@ func newAccountListCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
 		Name:        "list",
 		Description: "List configured accounts.",
-		UsageLine:   "mail_cli account list",
+		UsageLine:   "feral account list",
 		Args:        clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
 			return runAccountList(session)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account list"},
+			{Line: "feral account list"},
 		},
 	}
 }
 
 func newAccountAssociateCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
-		Name:            "link",
-		Aliases:         []string{"associate"},
-		Title:           "account link <name> <program>",
-		Description:     "Link program name for auto-selection.",
-		LongDescription: "Associate a program/symlink name with an account for automatic account selection.",
-		UsageLine:       "mail_cli account link <account_name> <program_name>",
+		Name:        "link",
+		Aliases:     []string{"associate"},
+		Title:       "account link <name> <program>",
+		Description: "Add a name -A accepts for an account.",
+		LongDescription: "Add an alias to an account: a name -A accepts for it, besides its name and display name. " +
+			"An alias used to select its account when feral was started under that name; that is now a link's " +
+			"job (`feral link add <name> -- -A <account>`), and the first run that may write turns every alias " +
+			"into a link once.",
+		UsageLine: "feral account link <account_name> <program_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<account_name>", Description: "The existing account name to associate with.", Complete: CompleteAccountNames},
-			{Name: "<program_name>", Description: "Program name that selects this account."},
+			{Name: "<program_name>", Description: "The alias: another name for the account."},
 		},
 		Args: clihelp.ExactArgs(2),
 		Run: func(ctx *clihelp.Context) error {
 			return runAccountAssociate(session, ctx.Args[0], ctx.Args[1])
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account link work-account work_mail"},
+			{Line: "feral account link work-account work_mail"},
 		},
 	}
 }
@@ -432,7 +476,7 @@ func newAccountTestCmd(session *Session) clihelp.Command {
 		Name:        "test",
 		Title:       "account test [account_name]",
 		Description: "Check an account's config and connection.",
-		UsageLine:   "mail_cli account test [account_name]",
+		UsageLine:   "feral account test [account_name]",
 		Parameters: []clihelp.Param{
 			{Name: "[account_name]", Description: "Account name to test (defaults to currently selected account).", Complete: CompleteAccountNames},
 		},
@@ -441,8 +485,8 @@ func newAccountTestCmd(session *Session) clihelp.Command {
 			return runAccountTest(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account test"},
-			{Line: "mail_cli account test work-fastmail"},
+			{Line: "feral account test"},
+			{Line: "feral account test work-fastmail"},
 		},
 	}
 }
@@ -453,7 +497,7 @@ func newAccountCalendarCmd(session *Session) clihelp.Command {
 		Aliases:     []string{"cal"},
 		Title:       "account calendar [account_name]",
 		Description: "Show or set the calendar manager account.",
-		UsageLine:   "mail_cli account calendar [account_name]",
+		UsageLine:   "feral account calendar [account_name]",
 		Parameters: []clihelp.Param{
 			{Name: "[account_name]", Description: "Account name to configure calendar for.", Complete: CompleteAccountNames},
 		},
@@ -462,8 +506,8 @@ func newAccountCalendarCmd(session *Session) clihelp.Command {
 			return runAccountCalendar(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account calendar"},
-			{Line: "mail_cli account calendar personal-gmail"},
+			{Line: "feral account calendar"},
+			{Line: "feral account calendar personal-gmail"},
 		},
 	}
 }
@@ -474,7 +518,7 @@ func newAccountLoginCmd(session *Session) clihelp.Command {
 		Title:           "account login [account_name]",
 		Description:     "OAuth login for Gmail or Outlook.",
 		LongDescription: "Perform interactive OAuth login for a Gmail or Outlook account.",
-		UsageLine:       "mail_cli account login [account_name]",
+		UsageLine:       "feral account login [account_name]",
 		Parameters: []clihelp.Param{
 			{Name: "[account_name]", Description: "Account name to re-authenticate (defaults to active account).", Complete: CompleteAccountNames},
 		},
@@ -483,28 +527,8 @@ func newAccountLoginCmd(session *Session) clihelp.Command {
 			return runAccountLogin(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account login"},
-			{Line: "mail_cli account login personal-gmail"},
-		},
-	}
-}
-
-func newAccountRenameCmd(session *Session) clihelp.Command {
-	return clihelp.Command{
-		Name:        "rename",
-		Title:       "account rename <old_name> <new_name>",
-		Description: "Rename an existing account's display name.",
-		UsageLine:   "mail_cli account rename <old_name> <new_name>",
-		Parameters: []clihelp.Param{
-			{Name: "<old_name>", Description: "The current name of the account to rename.", Complete: CompleteAccountNames},
-			{Name: "<new_name>", Description: "The new name for the account."},
-		},
-		Args: clihelp.ExactArgs(2),
-		Run: func(ctx *clihelp.Context) error {
-			return runAccountRename(session, ctx.Args[0], ctx.Args[1])
-		},
-		Examples: []clihelp.Example{
-			{Line: "mail_cli account rename old-gmail new-gmail"},
+			{Line: "feral account login"},
+			{Line: "feral account login personal-gmail"},
 		},
 	}
 }
@@ -529,7 +553,7 @@ func newAccountUserFieldCmd(session *Session, spec accountUserFieldSpec) clihelp
 		Title:           spec.title,
 		Description:     spec.description,
 		LongDescription: spec.longDesc,
-		UsageLine:       "mail_cli account " + spec.name + " <account_name> " + spec.valueName,
+		UsageLine:       "feral account " + spec.name + " <account_name> " + spec.valueName,
 		Parameters: []clihelp.Param{
 			{Name: "<account_name>", Description: spec.accountDesc, Complete: CompleteAccountNames},
 			{Name: spec.valueName, Description: spec.valueDesc},
@@ -553,7 +577,7 @@ func newAccountUserNameCmd(session *Session) clihelp.Command {
 		valueName:   "<user_name>",
 		valueDesc:   "Name to show in the From header, e.g. \"Sariel Har-Peled\".",
 		accountDesc: "The account whose outgoing name to set.",
-		example:     "mail_cli account user-name fastmail \"Sariel Har-Peled\"",
+		example:     "feral account user-name fastmail \"Sariel Har-Peled\"",
 		set:         runAccountUserName,
 	})
 }
@@ -567,7 +591,7 @@ func newAccountUserEmailCmd(session *Session) clihelp.Command {
 		valueName:   "<email>",
 		valueDesc:   "Address to send from, e.g. an alias of the account.",
 		accountDesc: "The account whose send address to set.",
-		example:     "mail_cli account user-email fastmail sariel@sarielhp.org",
+		example:     "feral account user-email fastmail sariel@sarielhp.org",
 		set:         runAccountUserEmail,
 	})
 }
@@ -579,7 +603,7 @@ func newAccountDeleteCmd(session *Session) clihelp.Command {
 		Aliases:     []string{"delete", "del"},
 		Title:       "account rm <account_name>",
 		Description: "Delete an account and its credentials.",
-		UsageLine:   "mail_cli account rm <account_name>",
+		UsageLine:   "feral account rm <account_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<account_name>", Description: "The name of the account to delete.", Complete: CompleteAccountNames},
 		},
@@ -595,8 +619,23 @@ func newAccountDeleteCmd(session *Session) clihelp.Command {
 			return runAccountDelete(session, ctx.Args[0])
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account rm temp-account"},
+			{Line: "feral account rm temp-account"},
 		},
+	}
+}
+
+// accountIdentityCmds are the commands that set who an account is to the
+// people it writes to and to the user: its name and the label it is shown
+// under, its signature, whether it is the default, and the sender name and
+// address its mail carries.
+func accountIdentityCmds(session *Session) []clihelp.Command {
+	return []clihelp.Command{
+		newAccountRenameCmd(session),
+		newAccountDisplayNameCmd(session),
+		newAccountSignatureCmd(session),
+		newAccountDefaultCmd(session),
+		newAccountUserNameCmd(session),
+		newAccountUserEmailCmd(session),
 	}
 }
 
@@ -606,25 +645,25 @@ func AccountsCmd(session *Session) clihelp.Command {
 		Name:        "account",
 		Group:       "Setup",
 		Description: "Manage and list configured mail accounts.",
-		UsageLine:   "mail_cli account <subcommand> [args...]",
-		Subcommands: []clihelp.Command{
+		UsageLine:   "feral account <subcommand> [args...]",
+		Subcommands: slices.Concat([]clihelp.Command{
 			newAccountListCmd(session),
 			accountNewCmd(session),
 			newAccountAssociateCmd(session),
 			newAccountTestCmd(session),
 			newAccountCalendarCmd(session),
 			newAccountLoginCmd(session),
-			newAccountRenameCmd(session),
-			newAccountUserNameCmd(session),
-			newAccountUserEmailCmd(session),
+		}, accountIdentityCmds(session), []clihelp.Command{
+			newAccountStaleCmd(session),
+			newAccountInboxMaxAgeCmd(session),
 			newAccountDeleteCmd(session),
-		},
+		}),
 		Examples: []clihelp.Example{
-			{Line: "mail_cli account list"},
-			{Line: "mail_cli account new personal-gmail"},
-			{Line: "mail_cli account test"},
-			{Line: "mail_cli account rename old-gmail new-gmail"},
-			{Line: "mail_cli account rm temp-account"},
+			{Line: "feral account list"},
+			{Line: "feral account new personal-gmail"},
+			{Line: "feral account test"},
+			{Line: "feral account rename old-gmail new-gmail"},
+			{Line: "feral account rm temp-account"},
 		},
 	}
 }
@@ -636,6 +675,7 @@ type accountJSON struct {
 	Type        string `json:"type"`
 	AccountType string `json:"account_type"`
 	Selected    bool   `json:"selected"`
+	Default     bool   `json:"default"`
 }
 
 // accountListing renders the accounts for --json.
@@ -652,6 +692,7 @@ func accountListing(session *Session, accounts []cfg_acc.AccountConfig) []accoun
 			Type:        acc.Type,
 			AccountType: accType,
 			Selected:    session.Config.IsSelected(acc),
+			Default:     acc.IsDefault,
 		})
 	}
 	return out

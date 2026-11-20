@@ -97,12 +97,18 @@ func personToContact(p *people.Person, source string, groupMap map[string]string
 	nicknames := extractPersonNicknames(p)
 	groups := extractPersonGroups(p, groupMap)
 
-	id := p.ResourceName
-	if id == "" {
-		id = fmt.Sprintf("%s:%d", source, len(emails))
-	} else {
-		id = fmt.Sprintf("%s:%s", source, id)
+	// The resource name is stable across syncs, which is what lets the user's
+	// edits find the contact again. Without one, the primary address is the
+	// steadiest thing the person has; the count of addresses this used to use
+	// gave every such contact with one address the same ID.
+	key := p.ResourceName
+	if key == "" && len(emails) > 0 {
+		key = "email:" + strings.ToLower(emails[0])
 	}
+	if key == "" {
+		key = "name:" + name
+	}
+	id := fmt.Sprintf("%s:%s", source, key)
 
 	return Contact{
 		ID:        id,
@@ -166,7 +172,7 @@ func checkScopeError(err error, accountName string) error {
 	if gErr, ok := err.(*googleapi.Error); ok {
 		if gErr.Code == http.StatusForbidden {
 			return fmt.Errorf("insufficient authentication scopes to read Google Contacts for account %q: "+
-				"please run 'mail_cli account login %s' to authorize Contacts access", accountName, accountName)
+				"please run 'feral account login %s' to authorize Contacts access", accountName, accountName)
 		}
 	}
 	return fmt.Errorf("failed to fetch Google Contacts: %w", err)

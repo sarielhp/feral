@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account link'
-parent: 'mail_cli account'
+title: 'feral account link'
+parent: 'feral account'
 ---
 
-# mail\_cli account link
+# feral account link
 
-Associate a program/symlink name with an account for automatic account selection.
+Add an alias to an account: a name -A accepts for it, besides its name and display name. An alias used to select its account when feral was started under that name; that is now a link's job (`feral link add <name> -- -A <account>`), and the first run that may write turns every alias into a link once.
 
 ## Usage
 
 ```
-mail_cli account link <account_name> <program_name>
+feral account link <account_name> <program_name>
 ```
 
 ## Parameters
@@ -18,7 +18,7 @@ mail_cli account link <account_name> <program_name>
 | Parameter | Description |
 |-----------|-------------|
 | `<account_name>` | The existing account name to associate with. |
-| `<program_name>` | Program name that selects this account. |
+| `<program_name>` | The alias: another name for the account. |
 
 ## Flags
 
@@ -27,7 +27,7 @@ mail_cli account link <account_name> <program_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli account link <account_name> <program_name>
 
 ## Examples
 
-- `mail_cli account link work-account work_mail`
+- `feral account link work-account work_mail`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/ui"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -33,7 +33,7 @@ func newSenderListRemoveCmd(session *Session, spec senderListRemoveSpec) clihelp
 		Aliases:     []string{"del"},
 		Title:       spec.path + " rm <email...>",
 		Description: spec.description,
-		UsageLine:   "mail_cli " + spec.path + " rm <email...>",
+		UsageLine:   "feral " + spec.path + " rm <email...>",
 		Parameters: []clihelp.Param{
 			{Name: "<email...>", Description: spec.paramDesc, Variadic: true},
 		},
@@ -42,7 +42,7 @@ func newSenderListRemoveCmd(session *Session, spec senderListRemoveSpec) clihelp
 			return whitelistOrBlacklist(session, spec.listType, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + spec.path + " rm " + spec.example},
+			{Line: "feral " + spec.path + " rm " + spec.example},
 		},
 	}
 }
@@ -52,13 +52,13 @@ func newSenderListListCmd(session *Session, path, description, listType string) 
 	return clihelp.Command{
 		Name:        "list",
 		Description: description,
-		UsageLine:   "mail_cli " + path + " list",
+		UsageLine:   "feral " + path + " list",
 		Args:        clihelp.NoArgs,
 		Run: func(ctx *clihelp.Context) error {
 			return whitelistOrBlacklist(session, listType, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " list"},
+			{Line: "feral " + path + " list"},
 		},
 	}
 }
@@ -70,13 +70,13 @@ func wlistCmd(session *Session, name, path string) clihelp.Command {
 		Group:           "Spam",
 		Description:     "Manage sender allowlist to bypass spam.",
 		LongDescription: "Manage the personal sender whitelist to bypass spam checks.",
-		UsageLine:       "mail_cli " + path + " <subcommand> [args...]",
+		UsageLine:       "feral " + path + " <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			{
 				Name:        "add",
 				Title:       path + " add <email...>",
 				Description: "Add email addresses to allowlist.",
-				UsageLine:   "mail_cli " + path + " add <email...>",
+				UsageLine:   "feral " + path + " add <email...>",
 				Parameters: []clihelp.Param{
 					{Name: "<email...>", Description: "Email addresses to add to whitelist.", Variadic: true},
 				},
@@ -85,7 +85,7 @@ func wlistCmd(session *Session, name, path string) clihelp.Command {
 					return whitelistOrBlacklist(session, "whitelistadd", ctx.Args)
 				},
 				Examples: []clihelp.Example{
-					{Line: "mail_cli " + path + " add friend@example.com"},
+					{Line: "feral " + path + " add friend@example.com"},
 				},
 			},
 			newSenderListRemoveCmd(session, senderListRemoveSpec{
@@ -98,8 +98,8 @@ func wlistCmd(session *Session, name, path string) clihelp.Command {
 			newSenderListListCmd(session, path, "List allowed email addresses.", "whitelistlist"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " list"},
-			{Line: "mail_cli " + path + " add friend@example.com"},
+			{Line: "feral " + path + " list"},
+			{Line: "feral " + path + " add friend@example.com"},
 		},
 	}
 }
@@ -111,13 +111,13 @@ func blistCmd(session *Session, name, path string) clihelp.Command {
 		Group:           "Spam",
 		Description:     "Manage sender blocklist to classify as spam.",
 		LongDescription: "Manage the personal sender blacklist to instantly classify messages as spam.",
-		UsageLine:       "mail_cli " + path + " <subcommand> [args...]",
+		UsageLine:       "feral " + path + " <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			{
 				Name:        "add",
 				Title:       path + " add <email...>",
 				Description: "Add email addresses to blocklist.",
-				UsageLine:   "mail_cli " + path + " add <email...>",
+				UsageLine:   "feral " + path + " add <email...>",
 				Parameters: []clihelp.Param{
 					{Name: "<email...>", Description: "Email addresses to add to blacklist.", Variadic: true},
 				},
@@ -130,7 +130,7 @@ func blistCmd(session *Session, name, path string) clihelp.Command {
 					return whitelistOrBlacklist(session, "blacklistadd", ctx.Args)
 				},
 				Examples: []clihelp.Example{
-					{Line: "mail_cli " + path + " add spammer@example.com"},
+					{Line: "feral " + path + " add spammer@example.com"},
 				},
 			},
 			newSenderListRemoveCmd(session, senderListRemoveSpec{
@@ -143,8 +143,8 @@ func blistCmd(session *Session, name, path string) clihelp.Command {
 			newSenderListListCmd(session, path, "List blocked email addresses.", "blacklistlist"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " list"},
-			{Line: "mail_cli " + path + " add spammer@example.com"},
+			{Line: "feral " + path + " list"},
+			{Line: "feral " + path + " add spammer@example.com"},
 		},
 	}
 }
@@ -156,28 +156,28 @@ func remoteCmd(session *Session, name, path string) clihelp.Command {
 		Group:       "Rules",
 		Description: "Manage remote server-side filters.",
 		LongDescription: "Manage remote Gmail server-side filters and forwarding rules.\n\n" +
-			"Remote filters are server-side mail rules enforced directly on incoming messages by the mail provider (e.g. Gmail) before mail_cli ever connects. In mail_cli, filters and rules share the same conceptual model:\n\n" +
+			"Remote filters are server-side mail rules enforced directly on incoming messages by the mail provider (e.g. Gmail) before feral ever connects. In feral, filters and rules share the same conceptual model:\n\n" +
 			"  1. Define rules locally in config.json using 'rule add' or 'rule add-title'.\n" +
 			"  2. Export rules to the server as remote filters using 'rule push' (or 'rule export'). This translates local rules into server filters (auto-labeling, archiving, or forwarding) and marks them as exported.\n" +
 			"  3. If a remote filter already exists with a different action, overwrite it with 'rule push --force'.\n" +
 			"  4. Inspect active server-side filters with 'rule remote list'.\n" +
 			"  5. Delete an active server filter and its matching local rule with 'rule remote rm'.",
-		UsageLine: "mail_cli " + path + " <subcommand>",
+		UsageLine: "feral " + path + " <subcommand>",
 		Notes: []clihelp.Note{
 			{
 				Heading: "Filters are Server-Side Rules",
-				Text:    "Gmail filters run on Google servers 24/7 as incoming mail arrives. mail_cli manages them declaratively: you create routing rules locally with 'rule add', then push them to Gmail with 'rule push'.",
+				Text:    "Gmail filters run on Google servers 24/7 as incoming mail arrives. feral manages them declaratively: you create routing rules locally with 'rule add', then push them to Gmail with 'rule push'.",
 			},
 			{
 				Heading: "Creating Filters via Export / Push",
-				Text:    "Run 'mail_cli rule push' to export all unexported local rules to Gmail server filters. If a remote filter conflicts with a local rule, pass '--force' (or 'rule push force') to overwrite the remote filter.",
+				Text:    "Run 'feral rule push' to export all unexported local rules to Gmail server filters. If a remote filter conflicts with a local rule, pass '--force' (or 'rule push force') to overwrite the remote filter.",
 			},
 		},
 		Subcommands: []clihelp.Command{
 			{
 				Name:        "list",
 				Description: "List server-side filters for this account.",
-				UsageLine:   "mail_cli " + path + " list",
+				UsageLine:   "feral " + path + " list",
 				Args:        clihelp.NoArgs,
 				Run: func(_ *clihelp.Context) error {
 					client, err := GetValidatedClient(session)
@@ -192,14 +192,14 @@ func remoteCmd(session *Session, name, path string) clihelp.Command {
 					return nil
 				},
 				Examples: []clihelp.Example{
-					{Line: "mail_cli " + path + " list"},
+					{Line: "feral " + path + " list"},
 				},
 			},
 			newRuleRemoteDelCmd(session, path),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " list"},
-			{Line: "mail_cli " + path + " rm 1"},
+			{Line: "feral " + path + " list"},
+			{Line: "feral " + path + " rm 1"},
 		},
 	}
 }
@@ -209,7 +209,7 @@ func newRuleRemoteDelCmd(session *Session, path string) clihelp.Command {
 		Name:        "rm",
 		Title:       "rule remote rm <target>",
 		Description: "Delete a server filter and its local rule.",
-		UsageLine:   "mail_cli " + path + " rm <target> [flags]",
+		UsageLine:   "feral " + path + " rm <target> [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<target>", Description: "The filter index, filter ID, or sender/subject to delete."},
 		},
@@ -222,9 +222,9 @@ func newRuleRemoteDelCmd(session *Session, path string) clihelp.Command {
 			return deleteRemoteRule(session, ctx.Args[0], flagRuleRemoteRmYes, flagRuleRemoteKeepLocal)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " rm 1"},
-			{Line: "mail_cli " + path + " rm AN63b9f"},
-			{Line: "mail_cli " + path + " rm alerts@github.com"},
+			{Line: "feral " + path + " rm 1"},
+			{Line: "feral " + path + " rm AN63b9f"},
+			{Line: "feral " + path + " rm alerts@github.com"},
 		},
 	}
 }

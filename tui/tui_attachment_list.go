@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -287,7 +287,7 @@ func (m *tuiModel) openAttachmentExternally(idx int, openedPrefix, errorPrefix s
 	att := m.attachments[idx]
 	tmpFile, err := writeTempAttachment(att)
 	if err == nil {
-		go openSystemFile(tmpFile)
+		m.openAttachmentFile(att, tmpFile)
 		m.saveStatus = openedPrefix + att.Filename
 	} else {
 		m.saveStatus = errorPrefix + err.Error()
@@ -352,7 +352,19 @@ func (m *tuiModel) renderAttachmentListView() string {
 	return m.renderAttachmentListMenu()
 }
 
+func (m *tuiModel) syncAttachmentViewerViewport() {
+	vw := max(20, m.width-4)
+	if m.attachmentViewerVp.Width != vw {
+		m.attachmentViewerVp.Width = vw
+		if m.attachmentListCursor >= 0 && m.attachmentListCursor < len(m.attachments) {
+			att := m.attachments[m.attachmentListCursor]
+			m.attachmentViewerVp.SetContent(renderCodeAttachmentPreview(att, vw))
+		}
+	}
+}
+
 func (m *tuiModel) renderAttachmentViewer() string {
+	m.syncAttachmentViewerViewport()
 	t := m.theme.Theme()
 	bg := lipgloss.Color("#1a1a35")
 	boxW := max(20, m.width)

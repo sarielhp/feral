@@ -5,15 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	cal "github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	cal "github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 	"net/http"
 	"net/mail"
 	"time"
@@ -58,7 +58,33 @@ func findCalendarManagerAccount(config *cfg_g.Config) (*cfg_acc.AccountConfig, e
 			return &config.Accounts[i], nil
 		}
 	}
-	return nil, fmt.Errorf("no calendar manager account designated. Use 'mail_cli account calendar <name>' to designate one")
+	return nil, fmt.Errorf("no calendar manager account designated. Use 'feral account calendar <name>' to designate one")
+}
+
+// ErrCalendarWriteBlocked is the refusal of a calendar write under --read-only
+// or --dry-run. Calendar writes bypass the mail client, so the
+// ReadOnlyMailClient decorator never sees them; the guard has to live here.
+var ErrCalendarWriteBlocked = errors.New("calendar write blocked: running read-only or dry-run")
+
+// getWritableCalendarService is getCalendarService for a caller that will add
+// or change events. It refuses under --read-only and --dry-run, which used to
+// stop mail but not calendar writes: `--read-only tui` could still add an
+// invitation to Google Calendar.
+func (s *Service) getWritableCalendarService(config *cfg_g.Config) (*calendar.Service, error) {
+	if err := calendarWriteAllowed(config); err != nil {
+		return nil, err
+	}
+	return s.getCalendarService(config)
+}
+
+// calendarWriteAllowed refuses a write under --read-only and --dry-run. The
+// commands that scan mail before writing call it first, so a refused run does
+// not read the inbox for nothing.
+func calendarWriteAllowed(config *cfg_g.Config) error {
+	if config != nil && (config.ReadOnly || config.DryRun) {
+		return ErrCalendarWriteBlocked
+	}
+	return nil
 }
 
 // getCalendarService returns the authenticated Google Calendar service.
@@ -250,6 +276,9 @@ func findICSDataForMessage(client mailclient.Reader, localCfg *cfg_g.Config, mat
 
 // PerformCalendarAdd extracts an .ics file from a message and inserts it into the designated calendar manager's calendar.
 func (s *Service) PerformCalendarAdd(config *cfg_g.Config, client mailclient.Reader, labelPrefix string, targetMsgID string) error {
+	if err := calendarWriteAllowed(config); err != nil {
+		return err
+	}
 	localCfg := client.Config()
 
 	matchedLabels, err := client.GetMatchingLabels(labelPrefix)
@@ -273,7 +302,7 @@ func (s *Service) PerformCalendarAdd(config *cfg_g.Config, client mailclient.Rea
 	s.rep.Infof("Found calendar event in message %s (folder %s):\n", targetMsgID, foundLabel)
 	printEventSummary(s.rep, event)
 
-	srv, err := s.getCalendarService(config)
+	srv, err := s.getWritableCalendarService(config)
 	if err != nil {
 		return fmt.Errorf("failed to load calendar service: %w", err)
 	}
@@ -305,7 +334,7 @@ func (s *Service) AddICSDataToCalendar(config *cfg_g.Config, icsData []byte) (st
 		return "", false, fmt.Errorf("failed to parse ICS event: %w", err)
 	}
 
-	srv, err := s.getCalendarService(config)
+	srv, err := s.getWritableCalendarService(config)
 	if err != nil {
 		return "", false, fmt.Errorf("failed to load calendar service: %w", err)
 	}
@@ -371,6 +400,9 @@ func processCalendarMessage(rep report.Reporter, srv *calendar.Service, _ *cfg_g
 
 // PerformCalAddAll scans the inbox for messages with .ics attachments and adds them if not already present.
 func (s *Service) PerformCalAddAll(config *cfg_g.Config, client mailclient.Reader) error {
+	if err := calendarWriteAllowed(config); err != nil {
+		return err
+	}
 	localCfg := client.Config()
 
 	matchedLabels, err := client.GetMatchingLabels(client.InboxFolder().String())
@@ -381,7 +413,7 @@ func (s *Service) PerformCalAddAll(config *cfg_g.Config, client mailclient.Reade
 		return fmt.Errorf("no inbox label found")
 	}
 
-	srv, err := s.getCalendarService(config)
+	srv, err := s.getWritableCalendarService(config)
 	if err != nil {
 		return fmt.Errorf("failed to load calendar service: %w", err)
 	}

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule push'
-parent: 'mail_cli rule'
+title: 'feral rule push'
+parent: 'feral rule'
 ---
 
-# mail\_cli rule push
+# feral rule push
 
 Export local rules to mail server filters (e.g. Gmail filters or Sieve script).
 
 ## Usage
 
 ```
-mail_cli rule push [force] [flags]
+feral rule push [force] [flags]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli rule push [force] [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,9 +36,9 @@ mail_cli rule push [force] [flags]
 
 ## Examples
 
-- `mail_cli rule push`
-- `mail_cli rule push --sieve ~/rules.sieve`
+- `feral rule push`
+- `feral rule push --sieve ~/rules.sieve`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

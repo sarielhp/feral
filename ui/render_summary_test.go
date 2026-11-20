@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"io"
 	"strings"
 	"testing"
@@ -154,6 +154,22 @@ func TestRenderSummaryRowMarksSpam(t *testing.T) {
 	row := renderSummaryRow(io.Discard, eml, nil, summaryColumnsFor(120, false), false, false)
 	if !strings.Contains(row, "[SPAM]") {
 		t.Errorf("row %q does not mark the message as spam", row)
+	}
+}
+
+// A row from a folder the owner wrote shows the recipient, marked, in place of
+// the sender.
+func TestRenderSummaryRowShowsRecipientForAuthoredMail(t *testing.T) {
+	eml := testEmail("id1", "me@example.com", "the plan")
+	eml.ToRaw = "Bob <bob@example.com>"
+	eml.IsAuthored = true
+
+	row := renderSummaryRow(io.Discard, eml, nil, summaryColumnsFor(120, false), true, false)
+	if !strings.Contains(row, email.RecipientMarker+"Bob") {
+		t.Errorf("row %q does not show the marked recipient", row)
+	}
+	if strings.Contains(row, "me@example.com") {
+		t.Errorf("row %q still shows the sender", row)
 	}
 }
 

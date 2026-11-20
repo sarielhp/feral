@@ -3,13 +3,13 @@ package outlook
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"net/http"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // closeTrackingBody wraps a response body and records when it was closed.

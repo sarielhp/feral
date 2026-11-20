@@ -3,7 +3,19 @@
 
 require_relative 'tooling'
 
-Tooling.entry do
+HELP = <<~TEXT
+  Usage: tools/install
+
+  Build bin/feral and install it as ~/bin/feral, then verify the installed
+  copy. The binary is swapped in by rename, so a running feral keeps working
+  and the next launch gets the new one. ~/bin/mail_cli, the name before the
+  rename, becomes a symlink to feral (INSTALL_LINKS in tools/settings.rb).
+
+  Options:
+    -h, --help  Show this help; nothing is run.
+TEXT
+
+Tooling.entry(HELP) do
   abort 'Usage: tools/install' unless ARGV.empty?
   Tooling.install
 end

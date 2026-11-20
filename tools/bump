@@ -3,8 +3,34 @@
 
 require_relative 'tooling'
 
-Tooling.entry do
-  abort 'Usage: tools/bump [--resume]' unless ARGV.empty? || ARGV == ['--resume']
+HELP = <<~TEXT
+  Usage: tools/bump [--resume|--abandon]
+
+  Release the committed tree. The working tree must be clean.
+
+    1. Move go.mod to the latest patch of its Go toolchain.
+    2. Bump the patch version in VERSION, sync app/constants.go and
+       regenerate docs/clihelp.
+    3. Run the full gate, commit "chore: bump version to X.Y.Z", and push it,
+       verified.
+    4. Publish the vX.Y.Z tag, verified; GitHub then creates the release
+       (tools/tag).
+
+  This changes the remote repository. It does not install; tools/release
+  does both.
+
+  Options:
+    --resume    Finish a bump that stopped after its local commit, without
+                bumping the version again. Refused if HEAD has moved.
+    --abandon   Drop a stopped bump that published nothing: remove its
+                unpushed commit, or restore the version file.
+    -h, --help  Show this help; nothing is run.
+TEXT
+
+Tooling.entry(HELP) do
+  abort 'Usage: tools/bump [--resume|--abandon]' unless ARGV.empty? || [['--resume'], ['--abandon']].include?(ARGV)
+  next Tooling.abandon if ARGV == ['--abandon']
+
   ARGV.empty? ? Tooling.bump : Tooling.resume
   # The Go profile stops at a verified push; this repository releases on a tag,
   # so publish it after the push (see tools/tag).

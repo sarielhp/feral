@@ -29,7 +29,7 @@ func FormatTable(w io.Writer, contacts []Contact) error {
 		if email == "" {
 			email = "-"
 		}
-		aliases := strings.Join(c.Nicknames, ", ")
+		aliases := strings.Join(c.AllAliases(), ", ")
 		if aliases == "" {
 			aliases = "-"
 		}

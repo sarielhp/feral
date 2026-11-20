@@ -149,8 +149,11 @@ func TestRenderHTMLToText_KeepsLinkTargets(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	// Each target must stand alone on its reference line: a placeholder w3m
-	// took for a relative link once came back as file:///<cwd>/<url>.
-	for _, want := range []string{"[1]Sign in", "\n[1] " + button + "\n", "\n[2] " + icon} {
+	// took for a relative link once came back as file:///<cwd>/<url>. The
+	// anchor text carries its number, and an image link is named by its host:
+	// the image's own URL is a placeholder while w3m runs, so w3m's name for
+	// the image says nothing.
+	for _, want := range []string{"[Sign in][1]", "[example.com][2]", "\n[1]: " + button + " \"Sign in\"\n", "\n[2]: " + icon + " \"example.com\""} {
 		if !strings.Contains(res, want) {
 			t.Errorf("rendered text lacks %q:\n%s", want, res)
 		}
@@ -256,5 +259,78 @@ func TestExtractAlternativeBodyParts_StripsEscapeSequences(t *testing.T) {
 	}
 	if strings.Contains(html, "\x1b") {
 		t.Errorf("html part still contains an escape byte: %q", html)
+	}
+}
+
+func TestExtractHTMLBodyText(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantHTML string
+	}{
+		{
+			name:     "html part",
+			raw:      "Content-Type: text/html; charset=utf-8\r\n\r\n<p>Hello HTML</p>",
+			wantHTML: "<p>Hello HTML</p>",
+		},
+		{
+			name:     "plain part wrapped in pre",
+			raw:      "Content-Type: text/plain; charset=utf-8\r\n\r\nHello Plain",
+			wantHTML: "<pre>Hello Plain</pre>",
+		},
+		{
+			name: "multipart with html",
+			raw: "Content-Type: multipart/alternative; boundary=\"bnd\"\r\n\r\n" +
+				"--bnd\r\nContent-Type: text/plain\r\n\r\nplain\r\n" +
+				"--bnd\r\nContent-Type: text/html\r\n\r\n<div>html part</div>\r\n" +
+				"--bnd--\r\n",
+			wantHTML: "<div>html part</div>",
+		},
+		{
+			name: "multipart without html returns empty",
+			raw: "Content-Type: multipart/mixed; boundary=\"bnd\"\r\n\r\n" +
+				"--bnd\r\nContent-Type: text/plain\r\n\r\nonly plain\r\n" +
+				"--bnd--\r\n",
+			wantHTML: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, err := mail.ReadMessage(strings.NewReader(tc.raw))
+			if err != nil {
+				t.Fatalf("mail.ReadMessage: %v", err)
+			}
+			got, err := ExtractHTMLBodyText(msg)
+			if err != nil {
+				t.Fatalf("ExtractHTMLBodyText: %v", err)
+			}
+			if tc.wantHTML == "" {
+				if got != "" {
+					t.Errorf("got %q, want empty", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantHTML) {
+				t.Errorf("got %q, want it to contain %q", got, tc.wantHTML)
+			}
+		})
+	}
+}
+
+func TestHTMLForDisplay(t *testing.T) {
+	htmlMsg := "Content-Type: text/html\r\n\r\n<h1>Title</h1>"
+	gotHTML := HTMLForDisplay([]byte(htmlMsg))
+	if !strings.Contains(gotHTML, "<h1>Title</h1>") {
+		t.Errorf("expected HTML content, got %q", gotHTML)
+	}
+
+	plainMsg := "Content-Type: text/plain\r\n\r\nHello <world> & friends"
+	gotPlain := HTMLForDisplay([]byte(plainMsg))
+	if !strings.Contains(gotPlain, "&lt;world&gt; &amp; friends") {
+		t.Errorf("expected escaped plain content in pre tag, got %q", gotPlain)
+	}
+	if !strings.Contains(gotPlain, "<pre style=") {
+		t.Errorf("expected <pre> tag, got %q", gotPlain)
 	}
 }

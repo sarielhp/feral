@@ -6,9 +6,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/llm"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/llm"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -30,12 +30,12 @@ func LLMCmd(session *Session) clihelp.Command {
 		Name:        "llm",
 		Group:       "Setup",
 		Description: "Test the configured LLM endpoint.",
-		UsageLine:   "mail_cli config llm <subcommand>",
+		UsageLine:   "feral config llm <subcommand>",
 		Subcommands: []clihelp.Command{
 			llmTestCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli config llm test", Description: "Send a harmless sample and check the answer"},
+			{Line: "feral config llm test", Description: "Send a harmless sample and check the answer"},
 		},
 	}
 }
@@ -53,13 +53,13 @@ func llmTestCmd(session *Session) clihelp.Command {
 			"and report whether the reply carries the urgency and TL;DR " +
 			"fields the summarizer parses. Use it to confirm an endpoint, model or " +
 			"reasoning-effort change before scanning real mail.",
-		UsageLine: "mail_cli config llm test",
+		UsageLine: "feral config llm test",
 		Args:      clihelp.NoArgs,
 		Run: func(ctx *clihelp.Context) error {
 			return runLLMTest(session, ctxStdout(ctx))
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli config llm test", Description: "Check the endpoint, model and answer format"},
+			{Line: "feral config llm test", Description: "Check the endpoint, model and answer format"},
 		},
 	}
 }
@@ -67,7 +67,7 @@ func llmTestCmd(session *Session) clihelp.Command {
 func runLLMTest(session *Session, w io.Writer) error {
 	cfg := session.Config.LLM
 	if strings.TrimSpace(cfg.Endpoint) == "" {
-		return fmt.Errorf("LLM endpoint is not configured; set one with %q", "mail_cli config set llm_endpoint <url>")
+		return fmt.Errorf("LLM endpoint is not configured; set one with %q", "feral config set llm_endpoint <url>")
 	}
 
 	printLLMTestHeader(w, cfg)

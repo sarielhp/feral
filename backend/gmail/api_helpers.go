@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
+
 	"sync"
+
+	"github.com/sarielhp/feral/cache/msg"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
@@ -42,10 +44,7 @@ func HandleScopeError(rep report.Reporter, config *Config, err error) error {
 	if IsInsufficientScopeError(err) {
 		configDir := config.ConfigDir
 		if configDir == "" {
-			homeDir, errHome := os.UserHomeDir()
-			if errHome == nil {
-				configDir = filepath.Join(homeDir, ".config", app.AppName)
-			}
+			configDir, _ = cfg_g.UserConfigDir()
 		}
 		if configDir != "" {
 			tokenPath := GetTokenPath(config)
@@ -66,22 +65,29 @@ func HandleScopeError(rep report.Reporter, config *Config, err error) error {
 func GetTokenPath(config *Config) string {
 	configDir := config.ConfigDir
 	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			configDir = filepath.Join(homeDir, ".config", app.AppName)
-		}
+		configDir, _ = cfg_g.UserConfigDir()
 	}
 	tokenName := "token.json"
 	if config.SelectedAccount != "" {
-		tokenName = fmt.Sprintf("token_%s.json", cfg_g.SanitizeLabelForCache(string(config.SelectedAccount)))
+		names := TokenFileNames(string(config.SelectedAccount))
+		tokenName = names[0]
 		// H4 changed what this filename resolves to for any account name
 		// holding a character outside [A-Za-z0-9_-]; move a token saved
 		// under the old name forward rather than leave it looking missing
 		// and forcing an unnecessary re-authentication.
-		oldName := fmt.Sprintf("token_%s.json", cfg_g.LegacySanitizeLabelForCache(string(config.SelectedAccount)))
-		cfg_g.MigrateFileSanitization(filepath.Join(configDir, oldName), filepath.Join(configDir, tokenName))
+		cfg_g.MigrateFileSanitization(filepath.Join(configDir, names[1]), filepath.Join(configDir, tokenName))
 	}
 	return filepath.Join(configDir, tokenName)
+}
+
+// TokenFileNames are the names, in the configuration directory, the account
+// accName's token may be under: the current one first, then the one from
+// before H4's sanitizer. Computing them changes nothing on disk.
+func TokenFileNames(accName string) []string {
+	return []string{
+		fmt.Sprintf("token_%s.json", cfg_g.SanitizeLabelForCache(accName)),
+		fmt.Sprintf("token_%s.json", cfg_g.LegacySanitizeLabelForCache(accName)),
+	}
 }
 
 // DecodeGmailRaw decodes Gmail's raw message Base64 string, retrying with the

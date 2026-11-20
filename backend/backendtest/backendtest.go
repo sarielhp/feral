@@ -19,8 +19,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // AssertAccessorHonorsCancellation checks that every MessageAccessor method

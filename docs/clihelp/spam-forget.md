@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam forget'
-parent: 'mail_cli spam'
+title: 'feral spam forget'
+parent: 'feral spam'
 ---
 
-# mail\_cli spam forget
+# feral spam forget
 
 Drop your spam/not-spam decision on messages, made by mark, unmark or learn --ham, so the next scan judges them. Training is kept and nothing changes on the server; a %folder reference covers every message the cache lists in that folder.
 
 ## Usage
 
 ```
-mail_cli spam forget <message_id...|%folder>
+feral spam forget <message_id...|%folder>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli spam forget <message_id...|%folder>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli spam forget <message_id...|%folder>
 
 ## Examples
 
-- `mail_cli spam forget abc123de` — Let the filter decide about this one again
-- `mail_cli spam forget %received` — Undo a learn --ham on a whole folder
+- `feral spam forget abc123de` — Let the filter decide about this one again
+- `feral spam forget %received` — Undo a learn --ham on a whole folder
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/label"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,12 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/transfer"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func TestSpliceDestPath(t *testing.T) {
@@ -524,55 +525,6 @@ func TestSpliceExamplesSubcommand(t *testing.T) {
 	}
 }
 
-func TestIsEmailMatch(t *testing.T) {
-	t1 := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
-	t2 := time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC)
-
-	// Distinct Message-IDs must NEVER match, even if Subject and Date are identical
-	e1 := &email.Email{
-		MessageID: "<msg1@example.com>",
-		Subject:   "Delivery Status Notification (Failure)",
-		EmailDate: t1,
-	}
-	e2 := &email.Email{
-		MessageID: "<msg2@example.com>",
-		Subject:   "Delivery Status Notification (Failure)",
-		EmailDate: t2,
-	}
-	if isEmailMatch(e1, e2) {
-		t.Errorf("expected emails with different Message-IDs to NOT match")
-	}
-
-	// Same Message-ID matches
-	e3 := &email.Email{
-		MessageID: "<msg1@example.com>",
-		Subject:   "Different Subject",
-	}
-	if !isEmailMatch(e1, e3) {
-		t.Errorf("expected emails with same Message-ID to match")
-	}
-
-	// Fallback: one lacks Message-ID, but subjects and dates match
-	e4 := &email.Email{
-		Subject:   "Delivery Status Notification (Failure)",
-		EmailDate: t1,
-	}
-	if !isEmailMatch(e1, e4) {
-		t.Errorf("expected fallback match when one Message-ID is missing")
-	}
-
-	// Zero dates must NOT match under fallback
-	e5 := &email.Email{
-		Subject: "Some Subject",
-	}
-	e6 := &email.Email{
-		Subject: "Some Subject",
-	}
-	if isEmailMatch(e5, e6) {
-		t.Errorf("expected zero-date emails without Message-ID to NOT match")
-	}
-}
-
 // seedCachedBatch stores batchSize messages named msg001..msgNNN in accDir,
 // rendering each one's raw bytes with eml, and returns their IDs in order.
 func seedCachedBatch(t *testing.T, accDir string, when time.Time, batchSize int, eml func(i int) string) []string {
@@ -589,9 +541,9 @@ func seedCachedBatch(t *testing.T, accDir string, when time.Time, batchSize int,
 }
 
 func TestSpliceBatchSameSubjectDifferentMessageIDs(t *testing.T) {
-	oldDelay := confirmRetryDelay
-	confirmRetryDelay = 1 * time.Millisecond
-	defer func() { confirmRetryDelay = oldDelay }()
+	oldDelay := transfer.ConfirmRetryDelay
+	transfer.ConfirmRetryDelay = 1 * time.Millisecond
+	defer func() { transfer.ConfirmRetryDelay = oldDelay }()
 
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "config")
@@ -659,62 +611,3 @@ func TestSpliceSameAccountAtomicBulkMove(t *testing.T) {
 // See splice_readonly_test.go for
 // TestSpliceSameAccountMove_PerAccountReadOnlySkipsLocalReindex, the H2
 // per-account-ReadOnly regression test.
-
-func TestSpliceJournalRecovery(t *testing.T) {
-	tempDir := t.TempDir()
-	journal, err := OpenSpliceJournal(cachedir.At(tempDir), "source_folder")
-	if err != nil {
-		t.Fatalf("failed to open journal: %v", err)
-	}
-
-	_ = journal.RecordUpload("src_001", "dest_001", "dest_folder")
-	_ = journal.RecordUpload("src_002", "dest_002", "dest_folder")
-
-	mockClient := &mailclient.MockMailClient{
-		DownloadedIDs: map[string][]email.ID{"source_folder": {"src_001", "src_002"}},
-		Cfg:           &cfg_g.Config{Paths: cfg_g.Paths{CacheRoot: tempDir}, AccountCache: cachedir.At(tempDir)},
-	}
-
-	session := &Session{
-		Deps: Deps{
-			Organize: stubOrganize{
-				ResolveTrashTargetFn: func(_ mailclient.MailClient) (string, error) {
-					return "Trash", nil
-				},
-			},
-		},
-	}
-
-	reopened, err := OpenSpliceJournal(cachedir.At(tempDir), "source_folder")
-	if err != nil {
-		t.Fatalf("failed to reopen journal: %v", err)
-	}
-	if len(reopened.Entries) != 2 {
-		t.Fatalf("expected 2 journal entries, got %d", len(reopened.Entries))
-	}
-
-	err = RecoverSpliceJournal(reopened, mockClient, session, label.FromServer("source_folder"))
-	if err != nil {
-		t.Fatalf("unexpected error during journal recovery: %v", err)
-	}
-
-	if len(reopened.Entries) != 0 {
-		t.Errorf("expected journal to be empty after recovery, got %d entries", len(reopened.Entries))
-	}
-}
-
-func TestOpenSpliceJournal_CorruptedJSON(t *testing.T) {
-	tempDir := t.TempDir()
-	journalPath := filepath.Join(tempDir, "splice_journal.json")
-	if err := os.WriteFile(journalPath, []byte(`{invalid-json`), 0600); err != nil {
-		t.Fatalf("failed to write corrupted journal: %v", err)
-	}
-
-	_, err := OpenSpliceJournal(cachedir.At(tempDir), "source_folder")
-	if err == nil {
-		t.Fatal("expected error opening corrupted journal, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to parse existing splice journal") {
-		t.Fatalf("unexpected error message: %v", err)
-	}
-}

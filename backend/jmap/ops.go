@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/backend/political"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	myme "github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/backend/political"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	myme "github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 	"mime"
 	"net/mail"
 	"net/url"
@@ -88,7 +88,7 @@ func (c *client) MoveAllSpam(dest label.Folder) error {
 
 	// Never escalate a move into a permanent purge (see gmail equivalent).
 	if strings.EqualFold(spamFolder, destLabel) {
-		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'mail_cli spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
+		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'feral spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
 	}
 
 	spamID, err := c.getMailboxID(spamFolder)

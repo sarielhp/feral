@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/lipgloss"
 )

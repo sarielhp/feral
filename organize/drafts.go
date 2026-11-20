@@ -2,14 +2,14 @@ package organize
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // ServerDraft is one message in the account's Drafts folder as the drafts

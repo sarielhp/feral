@@ -11,7 +11,7 @@ cat << 'EOF' > "$TEMPLATE_PATH"
   "username": "your-email@example.com",
   "password": "your-password-or-app-password",
   "imap_host": "imap.example.com:993",
-  "download_dir": "~/.cache/mail_cli",
+  "download_dir": "~/.cache/feral",
   "limit": 1000,
   "score_threshold": 0,
   "spam_folder": "Spam",
@@ -23,6 +23,9 @@ cat << 'EOF' > "$TEMPLATE_PATH"
   ],
   "block_political": true,
   "auto_unsubscribe": false,
+  "my_emails": [
+    "you@other-address.org"
+  ],
   "accounts": [
     {
       "name": "personal",
@@ -41,9 +44,21 @@ cat << 'EOF' > "$TEMPLATE_PATH"
       "whitelist": [],
       "blacklist": [],
       "rules": []
+    },
+    {
+      "name": "relay",
+      "type": "outlook",
+      "username": "forwarded-from@outlook.com",
+      "inbox_max_age": "15m"
     }
   ],
   "browser": "browser-name",
+  "attachment_save_dir": "~/Downloads",
+  "tui_watch": true,
+  "save_locations": [
+    "~/Downloads",
+    "~"
+  ],
   "llm": {
     "endpoint": "http://localhost:4000/v1/chat/completions",
     "api_key": "sk-litellm-master-key",

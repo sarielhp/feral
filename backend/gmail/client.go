@@ -3,16 +3,16 @@ package gmail
 import (
 	"context"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 )
@@ -57,6 +57,23 @@ func (c *client) FetchAndDownloadEmails(folder label.Folder, cacheSubdir string)
 
 func (c *client) FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageFolderRef, error) {
 	return fetchLatestAccountEmailsREST(c.rep, c.config, limit)
+}
+
+func (c *client) LatestInboxIDs(ctx context.Context, limit int) ([]email.ID, error) {
+	srv, err := GetGmailServiceContext(ctx, c.rep, c.config)
+	if err != nil {
+		return nil, err
+	}
+	res, err := srv.Users.Messages.List("me").LabelIds("INBOX").MaxResults(int64(limit)).
+		Fields("messages/id").Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("list inbox: %w", err)
+	}
+	ids := make([]email.ID, 0, len(res.Messages))
+	for _, m := range res.Messages {
+		ids = append(ids, email.ID(m.Id))
+	}
+	return ids, nil
 }
 
 func (c *client) CheckAndApplyRules(messageIDs []email.ID, source label.Folder, cacheSubdir string) ([]email.ID, error) {
@@ -108,7 +125,11 @@ func (c *client) GetLabelItems() ([]item, error) {
 }
 
 func (c *client) MarkAsRead(messageIDs []email.ID) error {
-	return markAsReadGmailREST(c.rep, c.config, messageIDs)
+	return setReadGmailREST(c.rep, c.config, messageIDs, true)
+}
+
+func (c *client) MarkAsUnread(messageIDs []email.ID) error {
+	return setReadGmailREST(c.rep, c.config, messageIDs, false)
 }
 
 func (c *client) RenameLabel(oldFolder label.Folder, newFolder label.Folder) error {

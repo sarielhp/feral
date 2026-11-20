@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -114,5 +117,41 @@ func TestParseTarget(t *testing.T) {
 	u2, h2 := parseTarget("hostonly.local")
 	if u2 != "" || h2 != "hostonly.local" {
 		t.Errorf("unexpected result: user=%q, host=%q", u2, h2)
+	}
+}
+
+// The remote's directory is chosen as cfg_g.ConfigDirIn chooses one locally,
+// so a migration never leaves the remote with a feral directory beside a real
+// mail_cli one -- which every run there would refuse.
+func TestRemoteConfigDirScript(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	home := t.TempDir()
+	cfg := filepath.Join(home, ".config")
+	answer := func() string {
+		cmd := exec.Command(sh, "-c", remoteConfigDirScript)
+		cmd.Dir = home
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := answer(); got != ".config/feral" {
+		t.Errorf("fresh remote: %q", got)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg, "mail_cli"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := answer(); got != ".config/mail_cli" {
+		t.Errorf("remote with only the old directory: %q", got)
+	}
+	if err := os.Symlink("mail_cli", filepath.Join(cfg, "feral")); err != nil {
+		t.Fatal(err)
+	}
+	if got := answer(); got != ".config/feral" {
+		t.Errorf("remote already migrated: %q", got)
 	}
 }

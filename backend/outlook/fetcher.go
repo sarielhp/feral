@@ -3,8 +3,8 @@ package outlook
 import (
 	"context"
 
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/email"
 )
 
 // rawFetcher retrieves raw messages from Microsoft Graph. Graph serves the MIME

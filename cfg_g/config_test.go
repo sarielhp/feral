@@ -25,8 +25,9 @@ func TestLoadOrInitFileConfig_FirstRunSucceeds(t *testing.T) {
 	if fc.Accounts == nil || len(*fc.Accounts) == 0 {
 		t.Fatalf("expected a seeded default account, got %+v", fc.Accounts)
 	}
-	if (*fc.Accounts)[0].Name != "default" {
-		t.Errorf("expected the seeded account to be named %q, got %q", "default", (*fc.Accounts)[0].Name)
+	// Never "default": that name is reserved (ValidateAccountName).
+	if got := (*fc.Accounts)[0].Name; got != "gmail" || ValidateAccountName(got) != nil {
+		t.Errorf("expected the seeded account to be named %q, a legal name, got %q", "gmail", got)
 	}
 	if _, statErr := os.Stat(configPath); statErr != nil {
 		t.Fatalf("expected config file to be written, stat failed: %v", statErr)

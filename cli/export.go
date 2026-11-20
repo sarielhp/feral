@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -16,7 +16,7 @@ func ExportCmd(session *Session) clihelp.Command {
 		Group:           "Messages",
 		Description:     "Export emails or threads to mbox or eml.",
 		LongDescription: "Export an email or conversation thread to standard mbox or eml format.",
-		UsageLine:       "mail_cli msg export [flags] <message-id>",
+		UsageLine:       "feral msg export [flags] <message-id>",
 		Parameters: []clihelp.Param{
 			{Name: "<message-id>", Description: "Message ID or prefix hash of an email in the thread to export."},
 		},
@@ -30,11 +30,11 @@ func ExportCmd(session *Session) clihelp.Command {
 			return runExport(session, ctx.Args)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg export 18fb1234abcd > thread.mbox", Description: "Export full thread to mbox file via stdout"},
-			{Line: "mail_cli msg export -o thread.mbox 18fb1234abcd", Description: "Export full thread directly to mbox file"},
-			{Line: "mail_cli msg export --format eml -o ./emails/ 18fb1234abcd", Description: "Export each message in thread to individual .eml files"},
-			{Line: "mail_cli msg export --single 18fb1234abcd | git am", Description: "Pipe single message patch directly into git am"},
-			{Line: "mail_cli msg export --dry-run 18fb1234abcd", Description: "Preview thread messages and sizes without writing"},
+			{Line: "feral msg export 18fb1234abcd > thread.mbox", Description: "Export full thread to mbox file via stdout"},
+			{Line: "feral msg export -o thread.mbox 18fb1234abcd", Description: "Export full thread directly to mbox file"},
+			{Line: "feral msg export --format eml -o ./emails/ 18fb1234abcd", Description: "Export each message in thread to individual .eml files"},
+			{Line: "feral msg export --single 18fb1234abcd | git am", Description: "Pipe single message patch directly into git am"},
+			{Line: "feral msg export --dry-run 18fb1234abcd", Description: "Preview thread messages and sizes without writing"},
 		},
 	}
 }

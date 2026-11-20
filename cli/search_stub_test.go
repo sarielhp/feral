@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // stubSearchClient supplies the one method saveSearchMailbox reaches. Embedding

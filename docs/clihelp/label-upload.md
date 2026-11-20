@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label upload'
-parent: 'mail_cli label'
+title: 'feral label upload'
+parent: 'feral label'
 ---
 
-# mail\_cli label upload
+# feral label upload
 
 Upload messages from mbox file to folder.
 
 ## Usage
 
 ```
-mail_cli label upload <label> <file_name>
+feral label upload <label> <file_name>
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli label upload <label> <file_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli label upload <label> <file_name>
 
 ## Examples
 
-- `mail_cli label upload %receipts ~/archive/receipts.mbox`
+- `feral label upload %receipts ~/archive/receipts.mbox`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

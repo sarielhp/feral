@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/last"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/scan"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/last"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/scan"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -131,7 +131,7 @@ func TestCommandPrefixesYieldUsage(t *testing.T) {
 // something. Two details differ from the wrapper this replaced, and both are
 // deliberate on the library's side: the help goes to stderr, because it is a
 // response to an error and stdout belongs to whatever is reading the command's
-// output; and the error is still returned, so "mail_cli label download" with an empty
+// output; and the error is still returned, so "feral label download" with an empty
 // shell variable fails a script instead of reporting success.
 func TestDownloadShowsUsageWithoutArgs(t *testing.T) {
 	var outBuf, errBuf bytes.Buffer
@@ -146,7 +146,7 @@ func TestDownloadShowsUsageWithoutArgs(t *testing.T) {
 	}
 
 	out := errBuf.String()
-	if !strings.Contains(out, "Usage:  mail_cli label download") {
+	if !strings.Contains(out, "Usage:  feral label download") {
 		t.Errorf("expected usage output, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Examples:") {
@@ -168,12 +168,12 @@ func TestSubcommandsShowUsageWithoutRequiredArgs(t *testing.T) {
 		path     []string
 		expected []string
 	}{
-		{[]string{"label", "upload"}, []string{"Usage:  mail_cli label upload", "<label>", "<file_name>"}},
-		{[]string{"migrate"}, []string{"Usage:  mail_cli migrate", "[user@]host"}},
-		{[]string{"label", "sort"}, []string{"Usage:  mail_cli label sort", "<folder>"}},
-		{[]string{"last"}, []string{"Usage:  mail_cli last", "<N>"}},
-		{[]string{"rule", "add"}, []string{"Usage:  mail_cli rule add", "<email|message_id>"}},
-		{[]string{"config", "set"}, []string{"Usage:  mail_cli config set", "<key>", "<value>"}},
+		{[]string{"label", "upload"}, []string{"Usage:  feral label upload", "<label>", "<file_name>"}},
+		{[]string{"migrate"}, []string{"Usage:  feral migrate", "[user@]host"}},
+		{[]string{"label", "sort"}, []string{"Usage:  feral label sort", "<folder>"}},
+		{[]string{"last"}, []string{"Usage:  feral last", "<N>"}},
+		{[]string{"rule", "add"}, []string{"Usage:  feral rule add", "<email|message_id>"}},
+		{[]string{"config", "set"}, []string{"Usage:  feral config set", "<key>", "<value>"}},
 	}
 
 	for _, tc := range testCases {

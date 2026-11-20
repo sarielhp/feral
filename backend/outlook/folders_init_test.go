@@ -3,9 +3,9 @@ package outlook
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 )
 
 // The TUI's compose account switch builds a brand-new client and hands

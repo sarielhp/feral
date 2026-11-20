@@ -1,17 +1,19 @@
 package mailclient
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 )
 
 // CheckingMailClient decorates a MailClient with the local label cache and the
@@ -109,9 +111,9 @@ func (c *CheckingMailClient) fixReceivedFolder() error {
 		accName = string(config.SelectedAccount)
 	}
 	if accName != "" {
-		return fmt.Errorf("received_folder cannot be inbox for account %q; run 'mail_cli config check --fix' to repair it automatically, or edit received_folder in config.json", accName)
+		return fmt.Errorf("received_folder cannot be inbox for account %q; run 'feral config check --fix' to repair it automatically, or edit received_folder in config.json", accName)
 	}
-	return fmt.Errorf("received_folder cannot be inbox; run 'mail_cli config check --fix' to repair it automatically, or edit received_folder in config.json")
+	return fmt.Errorf("received_folder cannot be inbox; run 'feral config check --fix' to repair it automatically, or edit received_folder in config.json")
 }
 
 // FetchAndDownloadEmails delegates the fetch and clears the folder's cached
@@ -142,6 +144,18 @@ func (c *CheckingMailClient) FetchAndDownloadEmails(folder label.Folder, cacheSu
 // needs no cache reconciliation.
 func (c *CheckingMailClient) FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageFolderRef, error) {
 	return c.Delegate.FetchLatestAccountEmails(limit)
+}
+
+// LatestInboxIDs delegates to the backend; a listing of IDs changes nothing
+// in the cache.
+func (c *CheckingMailClient) LatestInboxIDs(ctx context.Context, limit int) ([]email.ID, error) {
+	return c.Delegate.LatestInboxIDs(ctx, limit)
+}
+
+// InboxMessageBefore delegates to the backend; it reads one message header
+// and changes nothing in the cache.
+func (c *CheckingMailClient) InboxMessageBefore(ctx context.Context, cutoff time.Time) (InboxEntry, bool, error) {
+	return c.Delegate.InboxMessageBefore(ctx, cutoff)
 }
 
 // CheckAndApplyRules delegates unchanged; the decorator adds no cache
@@ -257,7 +271,35 @@ func (c *CheckingMailClient) reindexMoved(messageIDs []email.ID, from, to label.
 // decided not to create. Under --read-only the ReadOnlyMailClient, which sits
 // inside this decorator, still simulates it.
 func (c *CheckingMailClient) EnsureLabelExists(name label.Folder) error {
-	return c.Delegate.EnsureLabelExists(name)
+	return c.forgetLabelsAfter(c.Delegate.EnsureLabelExists(name))
+}
+
+// RenameLabel renames and forgets the cached listing. Every folder change
+// (create, rename, delete, repair) drops it: kept for up to a day, it made
+// `label create X` then `label rm %X` answer "no label matches", the lookup
+// reading a listing taken before X existed.
+func (c *CheckingMailClient) RenameLabel(oldName, newName label.Folder) error {
+	return c.forgetLabelsAfter(c.Delegate.RenameLabel(oldName, newName))
+}
+
+// DeleteLabel deletes and forgets the cached listing; see RenameLabel.
+func (c *CheckingMailClient) DeleteLabel(name label.Folder) error {
+	return c.forgetLabelsAfter(c.Delegate.DeleteLabel(name))
+}
+
+// FixLabels repairs and forgets the cached listing; see RenameLabel.
+func (c *CheckingMailClient) FixLabels() error {
+	return c.forgetLabelsAfter(c.Delegate.FixLabels())
+}
+
+// forgetLabelsAfter drops the cached listing after a folder change, whether or
+// not it succeeded: a failure part-way may still have changed the tree. The
+// change's own error wins over a failure to forget.
+func (c *CheckingMailClient) forgetLabelsAfter(changeErr error) error {
+	if err := c.GetCacheStore().ForgetLabelItems(); err != nil {
+		slog.Warn("forgetting the cached label listing", slog.String("accName", c.AccName), slog.Any("error", err))
+	}
+	return changeErr
 }
 
 const maxLabelCacheAge = 24 * time.Hour
@@ -293,6 +335,42 @@ func (c *CheckingMailClient) GetLabelItems() ([]cfg_acc.Item, error) {
 	}
 
 	return nil, err
+}
+
+// GetMatchingLabels answers from the local cache when it is fresh and holds a
+// match, and otherwise asks the backend. A stale cache, or one that predates a
+// label just created, would report "no such label"; the backend also owns the
+// well-known-name fallbacks (inbox, sent, ...) the cache cannot reproduce.
+func (c *CheckingMailClient) GetMatchingLabels(prefix string) ([]string, error) {
+	store := c.GetCacheStore()
+	if age, err := store.CachedLabelItemsAge(); err == nil && age <= maxLabelCacheAge {
+		if matched := matchCachedLabels(store, prefix); len(matched) > 0 {
+			return matched, nil
+		}
+	}
+	return c.Delegate.GetMatchingLabels(prefix)
+}
+
+// matchCachedLabels lists the cached label names starting with prefix, sorted
+// like the backends' answers.
+func matchCachedLabels(store cache.Store, prefix string) []string {
+	items, err := store.GetLabelItems()
+	if err != nil {
+		return nil
+	}
+	var matched []string
+	prefixLower := strings.ToLower(prefix)
+	for _, item := range items {
+		name := item.FullName
+		if name == "" {
+			name = item.Name
+		}
+		if strings.HasPrefix(strings.ToLower(name), prefixLower) {
+			matched = append(matched, name)
+		}
+	}
+	sort.Strings(matched)
+	return matched
 }
 
 // BackendType reports the wrapped client's backend type -- "gmail", "jmap",

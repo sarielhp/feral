@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli utils cache'
+title: 'feral utils cache'
 has_children: true
-parent: 'mail_cli utils'
+parent: 'feral utils'
 ---
 
-# mail\_cli utils cache
+# feral utils cache
 
 Manage the local email download cache.
 
 ## Usage
 
 ```
-mail_cli utils cache <subcommand> [args...]
+feral utils cache <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -21,6 +21,7 @@ mail_cli utils cache <subcommand> [args...]
 | [prune](utils-cache-prune.md) | Prune cached emails older than N days. |
 | [clear (reset)](utils-cache-clear.md) | Recreate cache directory and wipe data. |
 | [repair](utils-cache-repair.md) | Check and rewrite this account's index. |
+| [outlook-ids](utils-cache-outlook-ids.md) | Key an Outlook cache by stable message IDs. |
 
 ## Flags
 
@@ -29,7 +30,7 @@ mail_cli utils cache <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,11 +38,11 @@ mail_cli utils cache <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli utils cache prune`
-- `mail_cli utils cache prune 7`
-- `mail_cli utils cache prune --wipe`
-- `mail_cli utils cache clear`
+- `feral utils cache prune`
+- `feral utils cache prune 7`
+- `feral utils cache prune --wipe`
+- `feral utils cache clear`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

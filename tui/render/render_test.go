@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 func TestRenderEmailRow_ColumnOrder(t *testing.T) {
@@ -116,5 +116,58 @@ func TestAccountColorDistinguishesAccounts(t *testing.T) {
 	}
 	if badgeFg(accountColors) != badgeFg(0) {
 		t.Errorf("the palette should wrap after %d accounts", accountColors)
+	}
+}
+
+// A row from a Sent folder shows the recipient, marked, in the sender column; a
+// received row shows the sender.
+func TestRenderSenderShowsRecipientForAuthoredMail(t *testing.T) {
+	sent := email.Email{FromRaw: "Me <me@example.com>", ToRaw: "Bob <bob@example.com>", IsAuthored: true}
+	got := renderSender(sent, false).Plain()
+	if !strings.Contains(got, email.RecipientMarker+"Bob") {
+		t.Errorf("authored sender column = %q; want the marked recipient", got)
+	}
+	if strings.Contains(got, "me@example.com") {
+		t.Errorf("authored sender column = %q; still shows the sender", got)
+	}
+
+	received := email.Email{FromRaw: "Alice <alice@example.com>", ToRaw: "Me <me@example.com>"}
+	if got := renderSender(received, false).Plain(); !strings.Contains(got, "Alice") {
+		t.Errorf("received sender column = %q; want the sender", got)
+	}
+}
+
+// A message from a list carries the list's tag ahead of its subject, inside
+// the subject column, so the columns before it keep their place and a row
+// still fits its width. A subject that already names the list is not tagged
+// twice.
+func TestRenderEmailRowListBadge(t *testing.T) {
+	theme := NewDefaultTheme()
+	plain := email.Email{ID: "m1", Subject: "release plan", FromRaw: "Alice <alice@example.com>", FormattedDate: "12:00"}
+	listed := plain
+	listed.ListID = "dev.lists.example.org"
+
+	plainRow := EmailRow(plain, 80, 30, 1, theme, false, false).Plain()
+	listedRow := EmailRow(listed, 80, 30, 1, theme, false, false).Plain()
+	if !strings.Contains(listedRow, "[dev] release plan") {
+		t.Errorf("list row = %q, want the [dev] tag before the subject", listedRow)
+	}
+	if strings.Contains(plainRow, "[dev]") {
+		t.Errorf("a message from no list was tagged: %q", plainRow)
+	}
+	if strings.Index(listedRow, "[dev]") != strings.Index(plainRow, "release plan") {
+		t.Errorf("the tag moved the subject column: %q vs %q", listedRow, plainRow)
+	}
+	for _, width := range []int{80, 60} {
+		row := EmailRow(listed, width, 30, 1, theme, true, false)
+		if got := row.Width(); got > width {
+			t.Errorf("width %d: row is %d cells wide", width, got)
+		}
+	}
+
+	tagged := listed
+	tagged.Subject = "[DEV] release plan"
+	if row := EmailRow(tagged, 80, 30, 1, theme, false, false).Plain(); strings.Count(strings.ToLower(row), "[dev]") != 1 {
+		t.Errorf("a subject carrying the tag was tagged again: %q", row)
 	}
 }

@@ -1,6 +1,6 @@
 package gmail
 
-import "github.com/sarielhp/mail_cli/report"
+import "github.com/sarielhp/feral/report"
 
 // gmailSystemLabels contains the Gmail system labels to include in the TUI folder tree.
 var gmailSystemLabels = map[string]bool{

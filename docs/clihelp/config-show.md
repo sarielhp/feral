@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli config show'
-parent: 'mail_cli config'
+title: 'feral config show'
+parent: 'feral config'
 ---
 
-# mail\_cli config show
+# feral config show
 
 Display the active configuration values.
 
 ## Usage
 
 ```
-mail_cli config show
+feral config show
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli config show
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,9 +28,9 @@ mail_cli config show
 
 ## Examples
 
-- `mail_cli config show`
-- `mail_cli config`
+- `feral config show`
+- `feral config`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

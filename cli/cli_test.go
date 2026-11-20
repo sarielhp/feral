@@ -3,19 +3,19 @@ package cli
 import (
 	"bytes"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/scan"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/scan"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -374,7 +374,7 @@ func TestArchiveCmd_ErrorMentionsArchiveAll(t *testing.T) {
 }
 
 // A label reference is unambiguous -- only a label starts with the sigil -- so
-// naming one at the root is taken as a request to scan it. `mail_cli %` is the
+// naming one at the root is taken as a request to scan it. `feral %` is the
 // inbox.
 func TestRootScansALabelReference(t *testing.T) {
 	tests := []struct {
@@ -419,7 +419,7 @@ func TestRootScansALabelReference(t *testing.T) {
 
 // The bare `%label` form runs scan, so it must accept scan's flags, not just
 // -p. It once bound only -p while scanLabelRef still read -m, --move-from and
-// --inbox-move, so `mail_cli % -m` died as an unknown flag.
+// --inbox-move, so `feral % -m` died as an unknown flag.
 func TestRootBareFormAcceptsScanFlags(t *testing.T) {
 	t.Cleanup(func() {
 		flagMoveSpam, flagMoveSpamFrom, flagMoveInboxStr = false, "", ""

@@ -4,10 +4,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // Every command that takes a label argument completes it as `%label`, so

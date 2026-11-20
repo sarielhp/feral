@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 )
 
 // The failure this whole change exists to prevent. With folders `Work` and

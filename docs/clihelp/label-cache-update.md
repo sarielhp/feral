@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label cache update'
-parent: 'mail_cli label cache'
+title: 'feral label cache update'
+parent: 'feral label cache'
 ---
 
-# mail\_cli label cache update
+# feral label cache update
 
 Fetch the latest labels and folder hierarchies from the server and refresh the local cache.
 
 ## Usage
 
 ```
-mail_cli label cache update
+feral label cache update
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli label cache update
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli label cache update
 
 ## Examples
 
-- `mail_cli label cache update`
+- `feral label cache update`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -4,23 +4,33 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/report"
 )
 
 // OutboxService manages inspection and flushing of the offline outbox spool.
 type OutboxService struct {
 	Rep report.Reporter
 	Out io.Writer
+	// Now is the clock a flush judges due times by; nil means time.Now.
+	Now func() time.Time
 }
 
 func (s OutboxService) rep() report.Reporter { return report.Or(s.Rep) }
+
+func (s OutboxService) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
 
 // List returns all queued outbox messages for the configured cache root.
 func (s OutboxService) List(config *cfg_g.Config) ([]outbox.Entry, error) {
@@ -44,7 +54,11 @@ func (s OutboxService) Remove(config *cfg_g.Config, id string) error {
 // transmits mail, which --read-only and --dry-run both exist to prevent.
 var ErrFlushRefused = errors.New("outbox flush sends mail; refused under --read-only and --dry-run")
 
-// Flush attempts transmission of all queued messages in the outbox.
+// Flush attempts transmission of every queued message that is due. One with
+// a due time still ahead is left alone and is not in the results, so a flush
+// run from cron does not fail merely because something is scheduled. One in a
+// format newer than this build reads is always in them, as a failure: it is
+// refused, never sent.
 //
 // It holds the outbox directory's lock for the whole run, so two flushes --
 // say a cron job and an interactive one -- cannot both read the same entry and
@@ -69,12 +83,12 @@ func (s OutboxService) Flush(config *cfg_g.Config) ([]outbox.FlushResult, error)
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) == 0 {
-		return nil, nil
-	}
-
+	now := s.now()
 	var results []outbox.FlushResult
 	for _, e := range entries {
+		if !e.TooNew() && !e.Due(now) {
+			continue
+		}
 		res := s.flushEntry(config, dir, e)
 		results = append(results, res)
 	}

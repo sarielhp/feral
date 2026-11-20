@@ -3,7 +3,7 @@ package cfg_g
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // An account written without spam_folder or received_folder -- by an older
@@ -34,5 +34,18 @@ func TestEvaluateAccountDefaultsFillsMissingFolders(t *testing.T) {
 	}
 	if got[2].SpamFolder != "" || got[2].ReceivedFolder != "" {
 		t.Errorf("an unknown type was given folders: %q/%q", got[2].SpamFolder, got[2].ReceivedFolder)
+	}
+}
+
+// An mbox account needs only its file: no username, password or folders.
+func TestValidateAccountParamsMbox(t *testing.T) {
+	if err := ValidateAccountParams(cfg_acc.AccountConfig{Name: "a", Type: "mbox", Path: "/var/mail/a"}); err != nil {
+		t.Errorf("an mbox account with a path was refused: %v", err)
+	}
+	if err := ValidateAccountParams(cfg_acc.AccountConfig{Name: "a", Type: "mbox"}); err == nil {
+		t.Error("an mbox account with no path was accepted")
+	}
+	if isPlaceholderAccount(cfg_acc.AccountConfig{Name: "a", Type: "mbox", Path: "/var/mail/a"}) {
+		t.Error("an mbox account with a path counts as an unconfigured placeholder")
 	}
 }

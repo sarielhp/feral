@@ -108,3 +108,17 @@ func TestFormatSuggestTable(t *testing.T) {
 		t.Errorf("expected score 1550 in output, got:\n%s", out)
 	}
 }
+
+// A group whose first member is also a contact does not displace that contact
+// in the suggestions, nor is it displaced by them, whichever comes first.
+func TestSuggest_GroupAndItsFirstMemberBothListed(t *testing.T) {
+	alice := Contact{ID: "1", Name: "Alice", Emails: []string{"alice@example.com"}}
+	team := Contact{ID: GroupID("mutt", "team"), Name: "Group: team",
+		Emails: []string{"alice@example.com", "bob@example.com"}, Nicknames: []string{"team"}}
+	for _, order := range [][]Contact{{alice, team}, {team, alice}} {
+		got := Suggest(&Book{Contacts: order}, nil, nil, "", 10)
+		if len(got) != 2 {
+			t.Errorf("order %s first: %d suggestions, want both", order[0].ID, len(got))
+		}
+	}
+}

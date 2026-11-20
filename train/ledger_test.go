@@ -2,14 +2,14 @@ package train
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
+	"github.com/sarielhp/feral/cache/dirlock"
 )
 
 func ledgerPath(t *testing.T) string {

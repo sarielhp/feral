@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // A dropped binding would leave the command that needs it failing at runtime

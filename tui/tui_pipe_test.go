@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 func TestPipePromptFlow(t *testing.T) {

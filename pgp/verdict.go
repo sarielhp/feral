@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 // failedOutcome is how a signature that is not good is reported. The rank

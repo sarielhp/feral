@@ -3,16 +3,16 @@ package mbox
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
 )
 
 func TestParseMboxStream_DuplicateMessageIDs(t *testing.T) {
@@ -697,5 +697,17 @@ func TestIngestMbox_RebuildClearsStaleIndexRecords(t *testing.T) {
 	}
 	if len(seenPost) != 0 || len(latestPost) != 0 {
 		t.Errorf("expected empty index records after rebuild, got seen: %+v, latest: %+v", seenPost, latestPost)
+	}
+	// The rebuilt file shares no message with the old one, so nothing from the
+	// first import may survive on disk.
+	for _, id := range idsInitial {
+		if exists, _ := msg.Exists(cachedir.At(cacheDir), id); exists {
+			t.Errorf("stale message %q still cached after rebuild", id)
+		}
+	}
+	for _, id := range idsRebuilt {
+		if exists, _ := msg.Exists(cachedir.At(cacheDir), id); !exists {
+			t.Errorf("rebuilt message %q not cached", id)
+		}
 	}
 }

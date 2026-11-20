@@ -2,19 +2,19 @@ package mailops
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/report"
 )
 
 // TestNewMailClient_MigratesAccountCacheDirectory is H4's cache-layout
@@ -102,7 +102,9 @@ func TestMigrateAccountCacheLayout_MovesFolderIndexesAndVirtualMailboxes(t *test
 		t.Fatalf("seeding old virtual mailbox: %v", writeErr)
 	}
 
-	migrateAccountCacheLayout(cachedir.At(dir))
+	if migErr := migrateAccountCacheLayout(cachedir.At(dir)); migErr != nil {
+		t.Fatalf("migrateAccountCacheLayout: %v", migErr)
+	}
 
 	ids, err := folderindex.IDs(cachedir.At(dir), folderName)
 	if err != nil || !has(email.IDStrings(ids), "m1") {

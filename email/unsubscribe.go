@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sarielhp/feral/fileformat"
 )
 
 // UnsubscriptionEntry stores metadata about an unsubscribe attempt.
@@ -123,6 +126,14 @@ func ExecuteHTTPUnsubscribe(urlStr string) error {
 }
 
 func executeHTTPUnsubscribeWithClient(client *http.Client, urlStr string, allowLoopback bool) error {
+	return sendUnsubscribeRequest(client, http.MethodGet, urlStr, "", allowLoopback, 400)
+}
+
+// sendUnsubscribeRequest sends one request to a sender-chosen URL through
+// client, which must be one newSafeHTTPClient built. The URL is checked here
+// as written and again, by the dialer, at the address it resolves to. Any
+// status from 200 up to below okBelow is success.
+func sendUnsubscribeRequest(client *http.Client, method, urlStr, form string, allowLoopback bool, okBelow int) error {
 	parsed, err := url.Parse(urlStr)
 	if err != nil {
 		return fmt.Errorf("invalid unsubscribe URL: %w", err)
@@ -130,17 +141,25 @@ func executeHTTPUnsubscribeWithClient(client *http.Client, urlStr string, allowL
 	if validErr := validateUnsubscribeURL(parsed, allowLoopback); validErr != nil {
 		return validErr
 	}
-	req, err := http.NewRequest("GET", urlStr, nil)
+	var body io.Reader
+	if form != "" {
+		body = strings.NewReader(form)
+	}
+	req, err := http.NewRequest(method, urlStr, body)
 	if err != nil {
 		return err
+	}
+	if form != "" {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= okBelow {
 		return fmt.Errorf("HTTP unsubscribe returned status %d: %s", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -153,9 +172,17 @@ func LogUnsubscription(configDir, sender, method, destination string, unsubErr e
 	}
 	logPath := filepath.Join(configDir, "unsubscriptions.json")
 
+	// A log that cannot be read, or that a newer build wrote, is left alone:
+	// it used to be read as empty and the one new entry written over it.
 	var entries []UnsubscriptionEntry
-	if data, err := os.ReadFile(logPath); err == nil {
-		_ = json.Unmarshal(data, &entries)
+	data, err := os.ReadFile(logPath)
+	switch {
+	case err == nil:
+		if fileformat.RefuseWrapped(logPath, data) != nil || json.Unmarshal(data, &entries) != nil {
+			return
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return
 	}
 
 	errStr := ""

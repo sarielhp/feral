@@ -9,7 +9,7 @@ package spamlearn
 import (
 	"log/slog"
 
-	"github.com/sarielhp/mail_cli/train"
+	"github.com/sarielhp/feral/train"
 )
 
 // RecordTrained records every ID marked done in trained into the training

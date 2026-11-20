@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils doctor run'
-parent: 'mail_cli utils doctor'
+title: 'feral utils doctor run'
+parent: 'feral utils doctor'
 ---
 
-# mail\_cli utils doctor run
+# feral utils doctor run
 
 Execute connection and integration tests.
 
 ## Usage
 
 ```
-mail_cli utils doctor run
+feral utils doctor run
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli utils doctor run
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli utils doctor run
 
 ## Examples
 
-- `mail_cli utils doctor run`
+- `feral utils doctor run`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

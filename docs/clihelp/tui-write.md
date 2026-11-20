@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli tui write'
-parent: 'mail_cli tui'
+title: 'feral tui write'
+parent: 'feral tui'
 ---
 
-# mail\_cli tui write
+# feral tui write
 
 Write a message in your editor, then review.
 
 ## Usage
 
 ```
-mail_cli tui write [flags] [recipient...]
+feral tui write [flags] [recipient...]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli tui write [flags] [recipient...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -41,13 +41,14 @@ mail_cli tui write [flags] [recipient...]
 
 ## Examples
 
-- `mail_cli tui write` — Open interactive editor to compose a new message
-- `mail_cli tui write boss@company.com -s "Status Report"` — Compose email with pre-filled recipient and subject
-- `mail_cli tui write -s "Patch review" -a fix.patch dev-list` — Compose with attachment and contact alias
-- `mail_cli tui write -i notes.txt colleague@example.com` — Compose starting with body from file in editor
-- `mail_cli tui write -a "*.pdf" -a notes.txt boss@company.com` — Attach every PDF here, quoted so mail_cli expands it, and one more file
-- `mail_cli tui write --resume 2026/09/30/125` — Reopen a saved draft on the review screen
+- `feral tui write` — Open interactive editor to compose a new message
+- `feral tui write boss@company.com -s "Status Report"` — Compose email with pre-filled recipient and subject
+- `feral tui write -s "Patch review" -a fix.patch dev-list` — Compose with attachment and contact alias
+- `feral tui write -i notes.txt colleague@example.com` — Compose starting with body from file in editor
+- `feral tui write -a "*.pdf" -a notes.txt boss@company.com` — Attach every PDF here, quoted so feral expands it, and one more file
+- `feral tui write boss < notes.txt` — Start the body from a file redirected to stdin; boss is a contact alias
+- `feral tui write --resume 2026/09/30/125` — Reopen a saved draft on the review screen
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

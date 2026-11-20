@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils cache prune'
-parent: 'mail_cli utils cache'
+title: 'feral utils cache prune'
+parent: 'feral utils cache'
 ---
 
-# mail\_cli utils cache prune
+# feral utils cache prune
 
 Prune cached emails and spam scores older than the specified number of days (default: 30). With --wipe, purges all cached messages regardless of age.
 
 ## Usage
 
 ```
-mail_cli utils cache prune [days] [-w, --wipe]
+feral utils cache prune [days] [-w, --wipe]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli utils cache prune [days] [-w, --wipe]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,10 +35,10 @@ mail_cli utils cache prune [days] [-w, --wipe]
 
 ## Examples
 
-- `mail_cli utils cache prune`
-- `mail_cli utils cache prune 7`
-- `mail_cli utils cache prune --wipe`
+- `feral utils cache prune`
+- `feral utils cache prune 7`
+- `feral utils cache prune --wipe`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

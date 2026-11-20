@@ -64,13 +64,13 @@ def parse_env_file(file_path)
   env
 end
 
-def find_mail_cli_command
+def find_feral_command
   root = Pathname.new(__dir__).parent
-  binary = root.join('mail_cli')
+  binary = root.join('feral')
   return binary.to_s if binary.executable?
 
   # Check PATH
-  path_bin = `which mail_cli 2>/dev/null`.strip
+  path_bin = `which feral 2>/dev/null`.strip
   return path_bin unless path_bin.empty?
 
   # Fallback to `go run main.go`
@@ -89,7 +89,7 @@ def run_config_set(cmd_base, key, val)
 end
 
 def main
-  puts "#{Color::BOLD}=== mail_cli Local LLM Setup ===#{Color::RESET}\n"
+  puts "#{Color::BOLD}=== feral Local LLM Setup ===#{Color::RESET}\n"
 
   env_file = find_env_file(ARGV[0])
   unless env_file
@@ -106,8 +106,8 @@ def main
   Color.info("Reading configuration from #{env_file}...")
   env_vars = parse_env_file(env_file)
 
-  mail_cli_cmd = find_mail_cli_command
-  Color.info("Using mail_cli runner: #{mail_cli_cmd}")
+  feral_cmd = find_feral_command
+  Color.info("Using feral runner: #{feral_cmd}")
 
   key_mappings = {
     'LLM_ENDPOINT'      => 'llm_endpoint',
@@ -131,7 +131,7 @@ def main
     val = env_vars[env_key]
     next unless val && !val.empty?
 
-    run_config_set(mail_cli_cmd, config_key, val)
+    run_config_set(feral_cmd, config_key, val)
     applied_keys[config_key] = true
   end
 
@@ -142,7 +142,7 @@ def main
   end
 
   Color.info("Displaying updated configuration:\n")
-  system("#{mail_cli_cmd} config show")
+  system("#{feral_cmd} config show")
 end
 
 main if __FILE__ == $PROGRAM_NAME

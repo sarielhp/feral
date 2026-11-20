@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/lipgloss"
 )

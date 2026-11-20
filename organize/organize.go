@@ -1,16 +1,17 @@
 package organize
 
 import (
+	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 // All archives every folder matching sourcePrefix into target, moving each
@@ -70,6 +71,9 @@ func archiveTargetName(client interface {
 	mailclient.BackendInfo
 	mailclient.ConfigProvider
 }) (string, error) {
+	if client.BackendType() == "gmail" {
+		return "Archive", nil
+	}
 	labels, err := client.GetMatchingLabels("")
 	if err != nil {
 		return "", err
@@ -106,12 +110,6 @@ func archiveTargetName(client interface {
 		if strings.HasSuffix(strings.ToLower(l), "/received") {
 			return l, nil
 		}
-	}
-
-	// Fallback for Gmail: if it's Gmail, we can use "Archive" even if it doesn't exist on the server
-	isGmail := client.BackendType() == "gmail"
-	if isGmail {
-		return "Archive", nil
 	}
 
 	return "", fmt.Errorf("archive target folder not found on server (neither 'Archive' nor 'Received' exists)")
@@ -154,6 +152,9 @@ func draftsTargetName(client interface {
 	mailclient.LabelReader
 	mailclient.BackendInfo
 }) (string, error) {
+	if client.BackendType() == "gmail" {
+		return "DRAFTS", nil
+	}
 	labels, err := client.GetMatchingLabels("")
 	if err == nil {
 		for _, l := range labels {
@@ -168,9 +169,6 @@ func draftsTargetName(client interface {
 			}
 		}
 	}
-	if client.BackendType() == "gmail" {
-		return "DRAFTS", nil
-	}
 	return "Drafts", nil
 }
 
@@ -178,6 +176,9 @@ func sentTargetName(client interface {
 	mailclient.LabelReader
 	mailclient.BackendInfo
 }) (string, error) {
+	if client.BackendType() == "gmail" {
+		return "SENT", nil
+	}
 	labels, err := client.GetMatchingLabels("")
 	if err == nil {
 		for _, l := range labels {
@@ -191,9 +192,6 @@ func sentTargetName(client interface {
 				return l, nil
 			}
 		}
-	}
-	if client.BackendType() == "gmail" {
-		return "SENT", nil
 	}
 	return "Sent", nil
 }
@@ -265,6 +263,29 @@ func ResolveDraftsTarget(client interface {
 	return label.FromServer(name), nil
 }
 
+// ResolveSpamTarget names the folder ReportSpam files a message into, as each
+// backend's ReportSpam names it: Gmail's SPAM label (the configured
+// "[Gmail]/Spam" is not a label the API resolves), Outlook's "Junk Email",
+// which its ReportSpam uses whatever is configured, and otherwise the
+// account's spam folder or "Spam". An mbox account has none.
+func ResolveSpamTarget(client interface {
+	mailclient.BackendInfo
+	mailclient.ConfigProvider
+}) (label.Folder, error) {
+	switch client.BackendType() {
+	case "gmail":
+		return label.FromServer("SPAM"), nil
+	case "outlook":
+		return label.FromServer("Junk Email"), nil
+	case "mbox":
+		return label.Folder{}, errors.New("an mbox account has no spam folder")
+	}
+	if cfg := client.Config(); cfg != nil && cfg.SpamFolder != "" {
+		return label.FromServer(cfg.SpamFolder), nil
+	}
+	return label.FromServer("Spam"), nil
+}
+
 // ResolveSentTarget names the folder sent mail is kept in. The name comes from the server's
 // listing, or is the backend's well-known default.
 func ResolveSentTarget(client interface {
@@ -278,6 +299,22 @@ func ResolveSentTarget(client interface {
 	return label.FromServer(name), nil
 }
 
+// isGmailAuthoredName reports whether a Gmail folder name is Sent or Drafts.
+// The API calls them SENT and DRAFT, but a cached index or a typed reference
+// can carry the IMAP spellings the backend also resolves: "Sent Mail",
+// "[Gmail]/Sent Mail", "[Google Mail]/Drafts".
+func isGmailAuthoredName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	for _, prefix := range []string{"[gmail]/", "[google mail]/"} {
+		lower = strings.TrimPrefix(lower, prefix)
+	}
+	switch lower {
+	case "sent", "sent mail", "draft", "drafts":
+		return true
+	}
+	return false
+}
+
 // IsAuthoredFolder reports whether folder holds mail the account's owner wrote
 // -- its Sent or Drafts folder -- which no spam or political verdict applies
 // to. Deciding by folder rather than by sender is deliberate: spam routinely
@@ -288,6 +325,12 @@ func IsAuthoredFolder(client interface {
 	mailclient.BackendInfo
 }, folder label.Folder) bool {
 	name := folder.String()
+	if strings.EqualFold(name, "inbox") || strings.EqualFold(name, "trash") || strings.EqualFold(name, "spam") {
+		return false
+	}
+	if client.BackendType() == "gmail" {
+		return isGmailAuthoredName(name)
+	}
 	if sent, err := sentTargetName(client); err == nil && strings.EqualFold(sent, name) {
 		return true
 	}

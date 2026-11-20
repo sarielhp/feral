@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 )
 
 func TestMouseIndexSelectsThenOpens(t *testing.T) {

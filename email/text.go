@@ -7,40 +7,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-runewidth"
-	"golang.org/x/text/unicode/bidi"
 )
-
-func hasRTL(s string) bool {
-	for _, r := range s {
-		if r >= 0x0590 && r <= 0x06FF {
-			return true
-		}
-	}
-	return false
-}
-
-// BidiDisplay reorders the runs of an RTL (Hebrew or Arabic) string into visual
-// order for a terminal, and returns s unchanged when it holds no RTL characters
-// or cannot be processed.
-func BidiDisplay(s string) string {
-	if s == "" || !hasRTL(s) {
-		return s
-	}
-	var p bidi.Paragraph
-	if _, err := p.SetString(s, bidi.DefaultDirection(bidi.RightToLeft)); err != nil {
-		return s
-	}
-	o, err := p.Order()
-	if err != nil {
-		return s
-	}
-	var sb strings.Builder
-	for i := 0; i < o.NumRuns(); i++ {
-		r := o.Run(i)
-		sb.WriteString(r.String())
-	}
-	return sb.String()
-}
 
 // ReverseHebrewRuns reverses each run of Hebrew characters, keeping any
 // trailing neutral characters in place, so the run reads correctly in a
@@ -143,6 +110,60 @@ func parseSenderInfo(fromHeader string) (name string, email string) {
 		return strings.TrimSpace(addr.Name), strings.ToLower(strings.TrimSpace(addr.Address))
 	}
 	return "", strings.ToLower(strings.TrimSpace(fromHeader))
+}
+
+// FormatRecipient returns the display name from a To header, or the bare
+// address when it has none, and "" when the header is empty. Only the first
+// recipient is shown: a listing of a Sent folder gives this the width of a
+// sender name, and a message sent to several people must still read as one row.
+func FormatRecipient(toRaw string) string {
+	name, addr := firstRecipient(toRaw)
+	if name != "" {
+		return name
+	}
+	return addr
+}
+
+// FormatRecipientVerbose returns "Name <address>" for a To header's first
+// recipient, or just the address when it has no name.
+func FormatRecipientVerbose(toRaw string) string {
+	name, addr := firstRecipient(toRaw)
+	if name != "" {
+		return name + " <" + addr + ">"
+	}
+	return addr
+}
+
+func firstRecipient(toRaw string) (name, email string) {
+	toRaw = strings.TrimSpace(toRaw)
+	if toRaw == "" {
+		return "", ""
+	}
+	if addrs, err := mail.ParseAddressList(toRaw); err == nil && len(addrs) > 0 {
+		return strings.TrimSpace(addrs[0].Name), strings.ToLower(strings.TrimSpace(addrs[0].Address))
+	}
+	return parseSenderInfo(toRaw)
+}
+
+// RecipientMarker prefixes the recipient in a sender column, so a Sent-folder
+// row reads as a destination rather than a source.
+const RecipientMarker = "→ "
+
+// SenderColumn is what a listing shows in its sender column: the recipient of a
+// message the account's owner wrote, marked so the address is not mistaken for
+// the sender, and the sender for everything else. A message with no To header
+// falls back to its sender rather than showing an empty column.
+func (e Email) SenderColumn(verbose bool) string {
+	if e.IsAuthored && e.ToRaw != "" {
+		if verbose {
+			return RecipientMarker + FormatRecipientVerbose(e.ToRaw)
+		}
+		return RecipientMarker + FormatRecipient(e.ToRaw)
+	}
+	if verbose {
+		return FormatSenderVerbose(e.FromRaw)
+	}
+	return FormatSender(e.FromRaw)
 }
 
 // ParseSenderInfo splits a From header into its display name and its lowercased

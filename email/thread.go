@@ -158,3 +158,43 @@ func extractMessageIDs(header string) []HeaderID {
 	}
 	return ids
 }
+
+// ThreadRoot is the Message-ID at the root of e's thread: the first entry of
+// References, which RFC 5322 has every reply carry forward, else In-Reply-To,
+// else e's own Message-ID -- a message that starts a thread is its own root.
+// It is "" for a message that names none of them. It is how a muted thread is
+// recognized (package mute), on every backend alike.
+func ThreadRoot(e *Email) HeaderID {
+	if e == nil {
+		return ""
+	}
+	for _, header := range []string{e.References, e.InReplyTo, string(e.MessageID)} {
+		if ids := threadHeaderIDs(header); len(ids) > 0 {
+			return ids[0]
+		}
+	}
+	return ""
+}
+
+// ThreadIDs is every Message-ID e names as part of its thread: its
+// References, its In-Reply-To and its own.
+func ThreadIDs(e *Email) []HeaderID {
+	if e == nil {
+		return nil
+	}
+	ids := threadHeaderIDs(e.References)
+	ids = append(ids, threadHeaderIDs(e.InReplyTo)...)
+	return append(ids, threadHeaderIDs(string(e.MessageID))...)
+}
+
+// threadHeaderIDs is the bracketed Message-IDs of a header, leaving out an
+// empty "<>", which names nothing.
+func threadHeaderIDs(header string) []HeaderID {
+	var ids []HeaderID
+	for _, id := range extractMessageIDs(header) {
+		if len(id) > 2 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}

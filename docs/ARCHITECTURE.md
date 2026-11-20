@@ -102,7 +102,7 @@ therefore not reconcile, or it would record a move that never happened.
 - `cli/deps_stub_test.go` — stubs for every interface `cli` declares. A question
   about which flags a command accepts is answered by
   `InitCLI(session).Execute(argv)` here, with no network at all.
-- `integration/` — live suites behind `MAIL_CLI_LIVE=1`, never run by default.
+- `integration/` — live suites behind `FERAL_LIVE=1`, never run by default.
 
 ---
 
@@ -110,64 +110,75 @@ therefore not reconcile, or it would record a move that never happened.
 
 *Generated from `go list -json ./...`. Do not edit by hand; run `go run . docs`*
 
-55 packages.
+66 packages.
 
 | Package | Files | Purpose |
 |---|---:|---|
-| `.` | 5 | Command mail_cli is a command-line mail client. |
+| `.` | 6 | Command feral is a command-line mail client. |
 | `app` | 9 | Package app holds the small utilities every layer may use: colour styles and the [+]/[!] prefixes, the loggers, temporary directories, the version string, and ErrUsage. |
 | `backend/backendtest` | 1 | Package backendtest holds the test helpers the concrete mail backends share. |
-| `backend/gmail` | 21 | Package gmail implements the mail client interfaces against the Gmail REST API, including its OAuth flow. |
-| `backend/jmap` | 11 | Package jmap implements the mail client interfaces against a JMAP server. |
-| `backend/mbox` | 3 | Package mbox implements the mail client interfaces against a local mbox file, which makes it the backend that needs no account and no network. |
-| `backend/outlook` | 11 | Package outlook implements the mail client interfaces against the Microsoft Graph API. |
+| `backend/gmail` | 23 | Package gmail implements the mail client interfaces against the Gmail REST API, including its OAuth flow. |
+| `backend/jmap` | 12 | Package jmap implements the mail client interfaces against a JMAP server. |
+| `backend/mbox` | 5 | Package mbox implements the mail client interfaces against a local mbox file, which makes it the backend that needs no account and no network. |
+| `backend/outlook` | 13 | Package outlook implements the mail client interfaces against the Microsoft Graph API. |
 | `backend/paging` | 1 | Package paging converges a batched walk over a result set that the batch function itself is shrinking. |
 | `backend/political` | 1 | Package political classifies cached messages as political donation mail. |
 | `backend/spamlearn` | 1 | Package spamlearn records which messages a backend has trained the spam filter on. |
-| `bogofiltertest` | 1 | Package bogofiltertest installs a stand-in bogofilter executable for tests. |
+| `bogofiltertest` | 2 | Package bogofiltertest installs a stand-in bogofilter executable for tests. |
 | `browser` | 1 | Package browser launches a web browser on a URL or local file. |
-| `cache` | 4 | Package cache is the on-disk store for everything the server told us: which messages a folder holds, which have been read or replied to, and the cached label listing. |
+| `cache` | 7 | Package cache is the on-disk store for everything the server told us: which messages a folder holds, which have been read or replied to, and the cached label listing. |
 | `cache/cachedir` | 1 | Package cachedir names an account's cache directory. |
-| `cache/dirlock` | 4 | Package dirlock serializes read-modify-write access to a cache directory. |
+| `cache/dirlock` | 6 | Package dirlock serializes read-modify-write access to a cache directory. |
 | `cache/folderindex` | 3 | Package folderindex maintains the local record of which message IDs are in which folder, so a listing can be drawn without asking the server. |
-| `cache/msg` | 5 | Package msg stores raw message bodies on disk and the classification derived from them. |
+| `cache/meta` | 1 | Package meta keeps each account cache's manifest, cache_meta.json: which layout the cache has, which backend wrote it, and what kind of message ID it is keyed by. |
+| `cache/msg` | 6 | Package msg stores raw message bodies on disk and the classification derived from them. |
 | `cache/msgstore` | 1 | Package msgstore serves raw messages by ID, reading whatever the local cache already holds and downloading only what is missing. |
 | `cache/virtual` | 2 | Package virtual stores named result sets: a list of message IDs plus the folder each came from, saved under the cache directory. |
-| `calendar` | 3 | Package calendar reads the .ics attachments that arrive as meeting invitations, turning them into an ICSEvent the rest of the program can show or file. |
+| `calendar` | 4 | Package calendar reads the .ics attachments that arrive as meeting invitations, turning them into an ICSEvent the rest of the program can show or file. |
 | `calendar/google` | 5 | Package google integrates with the Google Calendar API: adding events parsed from .ics mail attachments, checking whether they are already present, and printing a week's schedule. |
 | `cfg_acc` | 2 | Package cfg_acc holds the per-account configuration types: the account itself, its routing rules, and its whitelist and blacklist. |
-| `cfg_g` | 7 | Package cfg_g is the global configuration: loading and saving the file, resolving which account a command acts on, and parsing the %label references the command line takes. |
+| `cfg_g` | 19 | Package cfg_g is the global configuration: loading and saving the file, resolving which account a command acts on, and parsing the %label references the command line takes. |
 | `cfghandler` | 3 | Package cfghandler implements the config subcommands: show, set, unset and check. |
-| `cli` | 50 | Package cli is the command-line front end: the command tree, the flags, and the translation from what the user typed into a call on an operation. |
-| `contacts` | 7 | Package contacts holds the local address book: the contacts file and its history, importers for mutt aliases and Google Contacts, recipient harvesting from mail, and the ranked suggestions offered while composing. |
+| `cli` | 64 | Package cli is the command-line front end: the command tree, the flags, and the translation from what the user typed into a call on an operation. |
+| `contacts` | 10 | Package contacts holds the local address book: the contacts file and its history, importers for mutt aliases and Google Contacts, recipient harvesting from mail, and the ranked suggestions offered while composing. |
+| `contactsui` | 13 | Package contactsui holds the full-screen contacts screens: the picker that `contacts pick` runs for other programs, the manager that `contacts tui` runs, and the List they share with the compose screen's F5 picker. |
 | `draft` | 1 | Package draft is the local copy of every message being composed: one draft.eml per compose session under <root>/YYYY/MM/DD/N. It knows nothing about servers. |
-| `email` | 23 | Package email parses messages: headers and their encoded words, MIME parts and attachments, HTML reduced to the words it displays, and the threading of a folder into conversations. |
+| `email` | 32 | Package email parses messages: headers and their encoded words, MIME parts and attachments, HTML reduced to the words it displays, and the threading of a folder into conversations. |
 | `filebrowser` | 3 | Package filebrowser is the interactive directory picker used when saving an attachment, built on bubbletea like the rest of the interface. |
 | `filebrowser/zonetest` | 1 | Package zonetest waits for bubblezone to record a zone a view has drawn. |
+| `fileformat` | 1 | Package fileformat is the version check every file the program writes goes through, so a build never reads -- and then overwrites -- a file in a format a newer build wrote. |
+| `inboxage` | 1 | Package inboxage checks relay accounts: accounts whose inbox something else empties on a schedule, such as a fetcher that moves their mail into another account every few minutes. |
 | `integration` | 1 | Package integration holds the tests that talk to a real account. |
-| `interactive` | 1 | Package interactive holds the tests that drive mail_cli in a real terminal. |
+| `interactive` | 1 | Package interactive holds the tests that drive feral in a real terminal. |
+| `keymap` | 2 | Package keymap is the TUI's configurable keys: which key runs which named action on which group of screens, the defaults the TUI declares, and the overrides a user writes in keys.json. |
 | `label` | 6 | Package label is about folder names: matching one the user typed against the ones the server has, ordering a listing, and nesting it into a tree. |
 | `last` | 2 | Package last implements the listing of the most recent messages across every folder of an account. |
-| `llm` | 2 | Package llm summarises a message through an OpenAI-compatible chat endpoint. |
-| `localdir` | 1 | Package localdir resolves the on-disk directory a subsystem keeps its own files in: <downloadDir>/<name> when a download directory is configured, and ~/.cache/mail_cli/<name> otherwise, so a subsystem still has somewhere to write when no account -- and therefore no download directory -- is selected. |
+| `llm` | 3 | Package llm summarises a message through an OpenAI-compatible chat endpoint. |
+| `localdir` | 1 | Package localdir resolves the on-disk directory a subsystem keeps its own files in: <downloadDir>/<name> when a download directory is configured, and ~/.cache/feral/<name> otherwise, so a subsystem still has somewhere to write when no account -- and therefore no download directory -- is selected. |
 | `mailclient` | 7 | Package mailclient defines what a mail backend must be able to do, and the decorators that wrap one. |
 | `mailops` | 3 | Package mailops builds backend clients: it resolves an account to its per-account config, instantiates the right backend for its type, and wraps it in the read-only and caching decorators. |
 | `message_info` | 1 | Package message_info stores the cache's per-message index: where a message sits on disk, and what classification it has been given. |
+| `mute` | 1 | Package mute is the record of the threads a user has muted, one file per account: muted_threads.json in the account's settings directory (cfg_g.AccountDir). |
 | `organize` | 3 | Package organize archives mail: moving everything under a label prefix into the account's archive folder. |
-| `outbox` | 1 | Package outbox provides an offline send queue: RFC822 messages spooled to disk when offline or when asynchronous queuing is requested. |
+| `outbox` | 1 | Package outbox provides an offline send queue: RFC822 messages spooled to disk when offline, when asynchronous queuing is requested, or to be sent at a later time. |
+| `outlookids` | 1 | Package outlookids moves an Outlook account's cache from Graph's default message IDs to its immutable ones. |
 | `pgp` | 7 | Package pgp is the mail program's OpenPGP layer: it shells out to the system gpg and knows how a PGP/MIME message is shaped. |
 | `report` | 1 | Package report is how the layers below the user interface say what they are doing, without deciding where it goes or what it looks like. |
-| `runner` | 11 | Package runner orchestrates whole commands: the account-spanning scan, show and last, rule import and export, and the service types that implement the interfaces cli and tui declare. |
+| `runner` | 16 | Package runner orchestrates whole commands: the account-spanning scan, show and last, rule import and export, and the service types that implement the interfaces cli and tui declare. |
 | `scan` | 10 | Package scan is the spam pass over a folder: download what is there, apply the account's routing rules, classify the remainder with bogofilter, and move what the rules and the classifier agree on. |
 | `show` | 3 | Package show renders one message for reading: headers, the decoded body, attachments, and any calendar invitation it carries. |
 | `sieve` | 2 | Package sieve exports an account's routing rules as a Sieve script, for a server that can filter mail without this program running. |
+| `snooze` | 3 | Package snooze hides a message until a time and then puts it back in the inbox, unread. |
 | `spam` | 6 | Package spam is the manual side of spam handling: marking a message, taking the mark back, and training bogofilter from either. |
 | `terminal` | 1 | Package terminal holds the low-level terminal queries that several packages need and none of them owns. |
+| `testenv` | 1 | Package testenv reads the environment variables that opt a test run into live, interactive or long-running suites. |
 | `train` | 1 | Package train records which messages the spam filter has already been trained on. |
-| `tui` | 46 | Package tui is the interactive front end, built on bubbletea. |
+| `transfer` | 6 | Package transfer moves and copies messages between accounts, or between folders of one: the dedup-upload-confirm-remove protocol behind splice and the TUI's cross-account move. |
+| `tui` | 70 | Package tui is the interactive front end, built on bubbletea. |
 | `tui/render` | 5 | Package render turns the TUI's model state into styled terminal output: themes, coloured segments, and the individual lines of the folder tree and message list. |
 | `ui` | 7 | Package ui formats the listings the command line prints: folder trees, label listings, message summaries, filter listings. |
 | `usage` | 3 | Package usage owns the generated documentation: the per-command Markdown tree under docs/clihelp, and the package inventory inside docs/ARCHITECTURE.md. |
-| `watcher` | 4 | Package watcher polls mail accounts in the background and announces what is new: a desktop notification, a user script, and a flush of the offline outbox. |
+| `watcher` | 6 | Package watcher polls mail accounts in the background and announces what is new: a desktop notification, a user script, and a flush of the offline outbox. |
+| `when` | 1 | Package when reads a point in time as a person types it on the command line -- "2026-11-20 08:00", "+2h", "tomorrow 8am" -- in the local time zone. |
 
 <!-- END GENERATED: package inventory -->

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule rm-all'
-parent: 'mail_cli rule'
+title: 'feral rule rm-all'
+parent: 'feral rule'
 ---
 
-# mail\_cli rule rm-all
+# feral rule rm-all
 
 Delete all routing rules for the selected account.
 
 ## Usage
 
 ```
-mail_cli rule rm-all [--yes]
+feral rule rm-all [--yes]
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli rule rm-all [--yes]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -29,8 +29,8 @@ mail_cli rule rm-all [--yes]
 
 ## Examples
 
-- `mail_cli rule rm-all`
+- `feral rule rm-all`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

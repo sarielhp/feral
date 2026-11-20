@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
 	"log/slog"
 	"os"
 	"path/filepath"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/fileformat"
+
+	"github.com/sarielhp/feral/cache/dirlock"
 )
 
 // stateFile names one of the two per-account boolean state caches -- read marks
@@ -42,6 +44,9 @@ func loadStateStrict(downloadDir string, sf stateFile) (map[email.ID]bool, error
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read %s cache: %w", sf.load, err)
+	}
+	if err := fileformat.RefuseWrapped(sf.path(downloadDir), data); err != nil {
+		return nil, err
 	}
 	state := make(map[email.ID]bool)
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -117,11 +122,20 @@ func LoadReadState(account cachedir.Account) map[email.ID]bool {
 	return loadReadState(downloadDir)
 }
 
-// UpdateReadState executes apply on the current read state under a directory lock,
-// reloading persistent state strictly so corrupted state is preserved rather than overwritten
-// and concurrent committed writes are not lost.
+// UpdateReadState writes a server's read state into the cache: it executes
+// apply on the current read state under a directory lock, reloading persistent
+// state strictly so corrupted state is preserved rather than overwritten and
+// concurrent committed writes are not lost. It is how a folder sync records
+// what the server reported, so a mark still pending in the ledger keeps its
+// local value: the listing may predate it, or its server call may have failed
+// and be waiting for a retry. See pendingreads.go.
 func UpdateReadState(account cachedir.Account, apply func(map[email.ID]bool)) error {
-	return updateState(account, readStateFile, apply)
+	return updateReadAndPending(account, func(state map[email.ID]bool, pending map[email.ID]PendingRead) {
+		apply(state)
+		for id, p := range pending {
+			setRead(state, id, p.Read)
+		}
+	})
 }
 
 func loadRepliedStateStrict(downloadDir string) (map[email.ID]bool, error) {
@@ -150,11 +164,27 @@ func UpdateRepliedState(account cachedir.Account, apply func(map[email.ID]bool))
 	return updateState(account, repliedStateFile, apply)
 }
 
-// MarkIDsRead records ids as read. It locks downloadDir, reloads persistent
-// state so concurrent committed writes are not lost, merges snapshot and ids,
-// and saves atomically.
+// MarkIDsRead records ids as read, a mark the user made here. It locks
+// downloadDir, reloads persistent state so concurrent committed writes are not
+// lost, merges snapshot and ids, and saves atomically. Each of ids is also
+// recorded as pending until ConfirmReads, so a server sync cannot undo it.
 func MarkIDsRead(account cachedir.Account, ids []email.ID, snapshot map[email.ID]bool) error {
-	return markIDs(account, readStateFile, ids, snapshot)
+	return updateReadAndPending(account, func(state map[email.ID]bool, pending map[email.ID]PendingRead) {
+		for id, marked := range snapshot {
+			if marked {
+				state[id] = true
+			}
+		}
+		recordPending(state, pending, ids, true)
+	})
+}
+
+// MarkIDsUnread clears ids from the read marks, so the messages read as new
+// again. It reloads persistent state under the directory lock before removing
+// them, so a concurrent committed write is not lost. Like MarkIDsRead, it
+// records each as pending until the server confirms it.
+func MarkIDsUnread(account cachedir.Account, ids []email.ID) error {
+	return recordLocalReads(account, ids, false)
 }
 
 // MarkIDsReplied records ids as replied-to. See MarkIDsRead.

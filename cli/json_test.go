@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // --json is only useful if nothing else lands on stdout. The status stream

@@ -3,9 +3,9 @@ package msg
 import (
 	"fmt"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/message_info"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/message_info"
 )
 
 // A message's spam status is two independent records, each with one writer:

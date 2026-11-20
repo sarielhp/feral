@@ -5,8 +5,10 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/contactsui"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,11 +24,10 @@ import (
 const contactPickerLimit = 200
 
 type contactPicker struct {
-	query   string
-	results []contacts.ScoredContact
-	cursor  int
-	marked  map[string]bool // keyed by formatted recipient
-	target  composeField
+	// List is the search, results, cursor and marks, shared with
+	// `contacts pick` and the contacts manager.
+	*contactsui.List
+	target composeField
 	// editing is set when the picker was opened from a field being edited:
 	// choices go into FieldInput and the edit continues.
 	editing bool
@@ -48,12 +49,16 @@ func (m *tuiModel) openContactPicker() {
 	case fieldSubject:
 		return
 	}
-	book, _ := contacts.LoadBook(contacts.DefaultPath(m.cfg))
+	book, err := contacts.LoadBook(contacts.DefaultPath(m.cfg))
+	if err != nil {
+		m.err = fmt.Errorf("contacts not loaded: %w", err)
+		m.showError = true
+	}
 	history, _ := contacts.LoadHistory(contacts.DefaultHistoryPath(m.cfg))
 	m.contactPick = &contactPicker{
+		List:    contactsui.NewList(nil),
 		target:  target,
 		editing: editing,
-		marked:  map[string]bool{},
 		book:    book,
 		history: history,
 	}
@@ -67,10 +72,7 @@ func (m *tuiModel) refreshContactPicker() {
 	if m.cfg != nil {
 		blacklist = m.cfg.Policy.Blacklist
 	}
-	p.results = contacts.Suggest(p.book, p.history, blacklist, p.query, contactPickerLimit)
-	if p.cursor >= len(p.results) {
-		p.cursor = max(0, len(p.results)-1)
-	}
+	p.SetSearch(contactsui.SuggestSearch(p.book, p.history, blacklist, contactPickerLimit))
 }
 
 // kContactPicker handles keys while the picker is open. Letters go to the
@@ -83,34 +85,15 @@ func (m *tuiModel) kContactPicker(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyEnter:
 		return m.insertPickedContacts()
-	case tea.KeyUp:
-		p.cursor = max(0, p.cursor-1)
-	case tea.KeyDown:
-		p.cursor = min(len(p.results)-1, p.cursor+1)
-	case tea.KeyPgUp:
-		p.cursor = max(0, p.cursor-m.contactPickerRows())
-	case tea.KeyPgDown:
-		p.cursor = min(len(p.results)-1, p.cursor+m.contactPickerRows())
 	case tea.KeyTab:
 		if !p.editing {
 			p.target = nextRecipientField(p.target)
 		}
-	case tea.KeySpace:
-		m.toggleContactMark()
-	case tea.KeyBackspace:
-		if p.query != "" {
-			r := []rune(p.query)
-			p.query = string(r[:len(r)-1])
-			m.refreshContactPicker()
-		}
-	case tea.KeyRunes:
-		p.query += string(k.Runes)
-		p.cursor = 0
-		m.refreshContactPicker()
+		return m, nil
+	case tea.KeyF6:
+		return m.openAliasBrowser(true, "", "")
 	}
-	if p.cursor < 0 {
-		p.cursor = 0
-	}
+	p.HandleKey(k, m.contactPickerRows())
 	return m, nil
 }
 
@@ -124,34 +107,12 @@ func nextRecipientField(f composeField) composeField {
 	return fieldTo
 }
 
-func (m *tuiModel) toggleContactMark() {
-	p := m.contactPick
-	if p.cursor < 0 || p.cursor >= len(p.results) {
-		return
-	}
-	r := formatCompletionString(p.results[p.cursor])
-	if r == "" {
-		return
-	}
-	if p.marked[r] {
-		delete(p.marked, r)
-	} else {
-		p.marked[r] = true
-	}
-	p.cursor = min(len(p.results)-1, p.cursor+1)
-}
-
-// pickedRecipients is the marked contacts in list order, or the highlighted
-// one when nothing is marked.
+// pickedRecipients is the marked contacts in the order they were marked, or
+// the highlighted one when nothing is marked, as recipient-field entries.
 func (p *contactPicker) pickedRecipients() []string {
 	var picked []string
-	for _, sc := range p.results {
-		if r := formatCompletionString(sc); r != "" && p.marked[r] {
-			picked = append(picked, r)
-		}
-	}
-	if len(picked) == 0 && p.cursor >= 0 && p.cursor < len(p.results) {
-		if r := formatCompletionString(p.results[p.cursor]); r != "" {
+	for _, sc := range p.Picked() {
+		if r := contactsui.Recipient(sc); r != "" {
 			picked = append(picked, r)
 		}
 	}
@@ -191,7 +152,7 @@ func (m *tuiModel) recipientField(f composeField) *string {
 // after the last comma that is not an address -- is replaced, since picking
 // is how that entry gets finished.
 func appendRecipients(list string, picked []string) string {
-	entries := splitRecipients(list)
+	entries := email.SplitAddressList(list)
 	if n := len(entries); n > 0 && !hasAddress(entries[n-1]) {
 		entries = entries[:n-1]
 	}
@@ -199,25 +160,18 @@ func appendRecipients(list string, picked []string) string {
 	for _, e := range entries {
 		have[addressKey(e)] = true
 	}
+	// A picked group is several recipients, each deduplicated on its own.
 	for _, r := range picked {
-		key := addressKey(r)
-		if key == "" || have[key] {
-			continue
+		for _, one := range email.SplitAddressList(r) {
+			key := addressKey(one)
+			if key == "" || have[key] {
+				continue
+			}
+			have[key] = true
+			entries = append(entries, one)
 		}
-		have[key] = true
-		entries = append(entries, r)
 	}
 	return strings.Join(entries, ", ")
-}
-
-func splitRecipients(list string) []string {
-	var out []string
-	for _, e := range strings.Split(list, ",") {
-		if e = strings.TrimSpace(e); e != "" {
-			out = append(out, e)
-		}
-	}
-	return out
 }
 
 func hasAddress(entry string) bool {
@@ -248,8 +202,11 @@ func fieldLabel(f composeField) string {
 func renderContactPicker(m *tuiModel) string {
 	t := m.theme.Theme()
 	p := m.contactPick
-	dialogWidth := min(100, max(50, m.width-4))
-	inner := dialogWidth - 4
+	dialogWidth := min(100, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	inner := max(10, dialogWidth-4)
 	head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.Get(render.ColorHighlightFg)))
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(t.Get(render.ColorDate)))
 	fg := lipgloss.NewStyle().Foreground(lipgloss.Color(t.Get(render.ColorFg)))
@@ -257,17 +214,17 @@ func renderContactPicker(m *tuiModel) string {
 	lines := []string{
 		head.Render(fmt.Sprintf("CONTACTS  → %s", fieldLabel(p.target))),
 		"",
-		fmt.Sprintf("Search: %s▏", p.query),
+		fmt.Sprintf("Search: %s▏", p.Query),
 		"",
 	}
 	lines = append(lines, contactRows(p, m.contactPickerRows(), inner, head, fg, dim)...)
 
-	help := "type: search  ↑/↓: move  Space: mark  Enter: add  Tab: To/Cc/Bcc  Esc: cancel"
+	help := "type: search  ↑/↓: move  Space: mark  Enter: add  Tab: To/Cc/Bcc  F6: aliases  Esc: cancel"
 	if p.editing {
-		help = "type: search  ↑/↓: move  Space: mark  Enter: add  Esc: cancel"
+		help = "type: search  ↑/↓: move  Space: mark  Enter: add  F6: aliases  Esc: cancel"
 	}
-	if len(p.marked) > 0 {
-		help = fmt.Sprintf("%d marked  │  %s", len(p.marked), help)
+	if n := p.MarkCount(); n > 0 {
+		help = fmt.Sprintf("%d marked  │  %s", n, help)
 	}
 	lines = append(lines, "", dim.Render(markHints(truncateTo(help, inner),
 		hint{"Enter: add", "enter"}, hint{"Tab: To/Cc/Bcc", "tab"}, hint{"Esc: cancel", "esc"})))
@@ -284,54 +241,34 @@ func renderContactPicker(m *tuiModel) string {
 
 // contactRows renders the visible window of results around the cursor.
 func contactRows(p *contactPicker, rows, width int, sel, fg, dim lipgloss.Style) []string {
-	if len(p.results) == 0 {
+	if len(p.Results) == 0 {
 		return []string{dim.Render("  No matching contacts.")}
 	}
-	start := 0
-	if p.cursor >= rows {
-		start = p.cursor - rows + 1
-	}
-	end := min(len(p.results), start+rows)
+	start, end := p.Window(rows)
 	var out []string
 	for i := start; i < end; i++ {
-		sc := p.results[i]
+		sc := p.Results[i]
 		mark := "  "
-		if p.marked[formatCompletionString(sc)] {
+		if p.IsMarked(sc) {
 			mark = "✓ "
 		}
 		row := truncateTo(mark+contactLine(sc), width-2)
-		if i == p.cursor {
+		if i == p.Cursor {
 			out = append(out, rowZone(frameContacts, i, 0, sel.Render("> "+row)))
 			continue
 		}
 		out = append(out, rowZone(frameContacts, i, 0, fg.Render("  "+row)))
 	}
-	if len(p.results) > rows {
-		out = append(out, dim.Render(fmt.Sprintf("  %d-%d of %d", start+1, end, len(p.results))))
+	if len(p.Results) > rows {
+		out = append(out, dim.Render(fmt.Sprintf("  %d-%d of %d", start+1, end, len(p.Results))))
 	}
 	return out
 }
 
 func contactLine(sc contacts.ScoredContact) string {
-	name := sc.Name
-	if name == "" {
-		name = sc.DisplayAlias()
-	}
-	addr := sc.PrimaryEmail()
-	if len(sc.Emails) > 1 && strings.Contains(sc.ID, "alias:group") {
-		addr = fmt.Sprintf("group of %d", len(sc.Emails))
-	}
-	extra := ""
-	if sc.Frequency > 0 {
-		extra = fmt.Sprintf("  (%d×)", sc.Frequency)
-	}
-	return fmt.Sprintf("%-28s %s%s", truncateTo(name, 28), addr, extra)
+	return contactsui.Line(sc)
 }
 
 func truncateTo(s string, width int) string {
-	r := []rune(s)
-	if width <= 1 || len(r) <= width {
-		return s
-	}
-	return string(r[:width-1]) + "…"
+	return contactsui.Truncate(s, width)
 }

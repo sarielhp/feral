@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam block list'
-parent: 'mail_cli spam block'
+title: 'feral spam block list'
+parent: 'feral spam block'
 ---
 
-# mail\_cli spam block list
+# feral spam block list
 
 List blocked email addresses.
 
 ## Usage
 
 ```
-mail_cli spam block list
+feral spam block list
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli spam block list
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli spam block list
 
 ## Examples
 
-- `mail_cli spam block list`
+- `feral spam block list`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

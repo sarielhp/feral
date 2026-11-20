@@ -1,15 +1,15 @@
 ---
-title: 'mail_cli scan'
+title: 'feral scan'
 ---
 
-# mail\_cli scan
+# feral scan
 
-Scan all folders starting with the given label prefix (case-insensitive) for spam emails using Bogofilter.
+Scan all folders starting with the given label prefix (case-insensitive) for spam emails using Bogofilter. The folders are in the default account (`account default`) unless the prefix names one (`%work:inbox`, or -A); `%all:inbox` scans every account. `feral %` is this command for the inbox.
 
 ## Usage
 
 ```
-mail_cli scan <lbl_prefix> [flags]
+feral scan <lbl_prefix> [flags]
 ```
 
 ## Parameters
@@ -25,7 +25,7 @@ mail_cli scan <lbl_prefix> [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,10 +37,10 @@ mail_cli scan <lbl_prefix> [flags]
 
 ## Examples
 
-- `mail_cli scan inbox`
-- `mail_cli scan inbox -m`
-- `mail_cli scan receipts --move-from spammer@example.com`
+- `feral scan inbox`
+- `feral scan inbox -m`
+- `feral scan receipts --move-from spammer@example.com`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

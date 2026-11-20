@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -101,8 +101,8 @@ func TestCLI_CompletionCommand_Generators(t *testing.T) {
 			t.Errorf("completion %s failed: %v", shell, err)
 		}
 		output := buf.String()
-		if len(output) < 50 || !strings.Contains(output, "mail_cli") {
-			t.Errorf("expected valid %s completion script for mail_cli, got:\n%s", shell, output)
+		if len(output) < 50 || !strings.Contains(output, "feral") {
+			t.Errorf("expected valid %s completion script for feral, got:\n%s", shell, output)
 		}
 	}
 }
@@ -137,8 +137,8 @@ func TestCLI_CompletionCommand_Install(t *testing.T) {
 	bashrcContent, err := os.ReadFile(bashrcPath)
 	if err != nil {
 		t.Errorf("expected .bashrc to exist: %v", err)
-	} else if !strings.Contains(string(bashrcContent), "mail_cli") {
-		t.Errorf("expected .bashrc to contain mail_cli integration: %s", string(bashrcContent))
+	} else if !strings.Contains(string(bashrcContent), "feral") {
+		t.Errorf("expected .bashrc to contain feral integration: %s", string(bashrcContent))
 	}
 
 	buf.Reset()
@@ -219,7 +219,7 @@ func TestCLI_CompletionCommand_Keys(t *testing.T) {
 		t.Fatalf("completion keys bash error: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "mail_cli") || !strings.Contains(output, "__explain") {
+	if !strings.Contains(output, "feral") || !strings.Contains(output, "__explain") {
 		t.Errorf("expected Alt-H key binding snippet, got:\n%s", output)
 	}
 }
@@ -236,7 +236,7 @@ func TestCLI_ManPageCommand(t *testing.T) {
 		t.Fatalf("manpage error: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, ".TH MAIL_CLI") && !strings.Contains(output, ".TH \"MAIL_CLI\"") {
+	if !strings.Contains(output, ".TH FERAL") && !strings.Contains(output, ".TH \"FERAL\"") {
 		t.Errorf("expected roff manpage header in output, got:\n%s", output)
 	}
 }

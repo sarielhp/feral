@@ -3,8 +3,8 @@ package msg
 import (
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"io"
 	"log/slog"
 	"os"
@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/message_info"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/message_info"
 )
 
 // Info is what the cache knows about a message: its date, the evidence the

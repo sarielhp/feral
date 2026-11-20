@@ -9,7 +9,19 @@ require_relative 'tooling'
 # (.github/workflows/release.yml compiles nothing; the Release carries only the
 # source GitHub generates for the tag). So tools/bump runs this once the
 # verified push has landed, and the tag names the commit that was pushed.
-Tooling.entry do
+HELP = <<~TEXT
+  Usage: tools/tag
+
+  Publish the vX.Y.Z tag for the version in VERSION, on the commit the last
+  verified push put on the remote branch, then verify it. GitHub creates the
+  release from the tag. tools/bump runs this; run it by hand only to retry a
+  tag push that failed. Refused when HEAD is not the released commit.
+
+  Options:
+    -h, --help  Show this help; nothing is run.
+TEXT
+
+Tooling.entry(HELP) do
   abort 'Usage: tools/tag' unless ARGV.empty?
 
   _path, version = Tooling.version

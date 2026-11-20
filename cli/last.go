@@ -2,8 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/last"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/last"
 	"strconv"
 
 	"github.com/sarielhp/clihelp"
@@ -16,14 +16,14 @@ func LastCmd(session *Session) clihelp.Command {
 		Group:           "Daily",
 		Description:     "Show recent emails across all folders.",
 		LongDescription: "Check all folders in the account, collect the last N emails received, save them to a virtual mailbox, and print each email with its folder name.",
-		UsageLine:       "mail_cli msg last <N>",
+		UsageLine:       "feral msg last <N>",
 		Parameters: []clihelp.Param{
 			{Name: "<N>", Description: "Number of most recent emails to retrieve and display."},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg last 10"},
-			{Line: "mail_cli msg last 25"},
-			{Line: "mail_cli -A work-jmap msg last 20"},
+			{Line: "feral msg last 10"},
+			{Line: "feral msg last 25"},
+			{Line: "feral -A work-jmap msg last 20"},
 		},
 		Args: clihelp.ExactArgs(1),
 		Run: func(ctx *clihelp.Context) error {

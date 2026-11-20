@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/pgp"
+	"github.com/sarielhp/feral/pgp"
 )
 
 // tuiGpgKeyring points the test process at a throwaway keyring holding one

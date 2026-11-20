@@ -4,17 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"mime"
 	"net/http"
 	"net/mail"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	myme "github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	myme "github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 type graphRule struct {

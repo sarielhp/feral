@@ -2,12 +2,12 @@ package mailclient
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"slices"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // MockMailClient carried a single Err field, which made every method fail at

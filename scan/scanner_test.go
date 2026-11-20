@@ -1,16 +1,16 @@
 package scan
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 )
 
 // TestScanEmails_DuplicateIDsAreProcessedOnce is a concurrency-race

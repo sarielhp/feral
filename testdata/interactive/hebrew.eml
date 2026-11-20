@@ -1,0 +1,14 @@
+From: Example <no-reply@example.com>
+To: tester@example.com
+Subject: Hebrew sample בדיקה
+Date: Sat, 10 Oct 2026 09:00:00 +0000
+Message-ID: <interactive-hebrew@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+שלום עולם, זו הודעת בדיקה.
+
+Hello from a left-to-right line.
+
+> סעיף 3.3 מצורף.

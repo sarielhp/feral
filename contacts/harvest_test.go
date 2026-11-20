@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestHarvestFromMessageStream_SentAndRecipients(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRecordSentRecipients(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &cfg_g.Config{
 		Paths: cfg_g.Paths{
-			CacheRoot: filepath.Join(tmpDir, "mail_cli"),
+			CacheRoot: filepath.Join(tmpDir, "feral"),
 		},
 	}
 

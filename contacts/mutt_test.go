@@ -105,3 +105,24 @@ func TestParseMuttFile_RealFileIfExists(t *testing.T) {
 		t.Errorf("expected at least 500 contacts, got %d", len(contacts))
 	}
 }
+
+// A mutt group alias is recognised as a group, a person is not: the TUI asked
+// for "alias:group" while the importer wrote "mutt:group:", so no group was
+// ever treated as one.
+func TestMuttGroupIsGroup(t *testing.T) {
+	got, err := ParseMuttAliases(strings.NewReader(
+		"alias alice Alice <alice@example.com>\nalias team alice, bob@example.com\n"), "mutt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := map[string]bool{}
+	for _, c := range got {
+		groups[c.DisplayAlias()] = c.IsGroup()
+	}
+	if groups["alice"] || !groups["team"] {
+		t.Fatalf("IsGroup by alias = %v", groups)
+	}
+	if id := GroupID("mutt", "team"); !(Contact{ID: id}).IsGroup() {
+		t.Fatalf("GroupID %q is not a group", id)
+	}
+}

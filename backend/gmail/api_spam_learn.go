@@ -3,20 +3,19 @@ package gmail
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/backend/spamlearn"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/spam"
-	"github.com/sarielhp/mail_cli/train"
 	"log"
 	"net/mail"
-	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/backend/spamlearn"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/spam"
+	"github.com/sarielhp/feral/train"
 
 	gmailapi "google.golang.org/api/gmail/v1"
 )
@@ -42,8 +41,7 @@ func fetchSpamIDsToTrain(rep report.Reporter, srv *gmailapi.Service, limit int, 
 
 func resolveTrainedSpamDBPath(configDir string) string {
 	if configDir == "" {
-		homeDir, _ := os.UserHomeDir()
-		configDir = filepath.Join(homeDir, ".config", app.AppName)
+		configDir, _ = cfg_g.UserConfigDir()
 	}
 	return train.MessageIDPath(configDir)
 }

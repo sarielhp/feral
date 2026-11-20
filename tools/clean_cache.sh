@@ -4,10 +4,10 @@ set -euo pipefail
 # Ensure we are in the repository root
 cd "$(dirname "$0")/.."
 
-# Check if mail_cli binary exists, compile if missing
-if [ ! -f "./mail_cli" ]; then
+# Check if feral binary exists, compile if missing
+if [ ! -f "./feral" ]; then
     make
 fi
 
 echo "Cleaning local email cache using built-in cache command..."
-./mail_cli cache prune --wipe
+./feral cache prune --wipe

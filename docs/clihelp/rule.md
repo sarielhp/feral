@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule'
+title: 'feral rule'
 has_children: true
 ---
 
-# mail\_cli rule
+# feral rule
 
 Configure local routing rules and sync them as remote server-side filters (e.g. Gmail filters or JMAP/Sieve scripts) to automatically label or discard incoming messages.
 
 ## Usage
 
 ```
-mail_cli rule <subcommand> [args...]
+feral rule <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -35,7 +35,7 @@ mail_cli rule <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -45,11 +45,11 @@ mail_cli rule <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli rule list`
-- `mail_cli rule add notifications@github.com %Dev/GitHub`
-- `mail_cli rule add-title "[ALERT]" "Alerts"`
-- `mail_cli rule push`
+- `feral rule list`
+- `feral rule add notifications@github.com %Dev/GitHub`
+- `feral rule add-title "[ALERT]" "Alerts"`
+- `feral rule push`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

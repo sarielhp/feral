@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestCalendarCmd_Structure(t *testing.T) {

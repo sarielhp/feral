@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils manpage'
-parent: 'mail_cli utils'
+title: 'feral utils manpage'
+parent: 'feral utils'
 ---
 
-# mail\_cli utils manpage
+# feral utils manpage
 
 Print the manual page, or install it for man(1)
 
 ## Usage
 
 ```
-mail_cli utils manpage [--man-install|--man-uninstall] [--man-force]
+feral utils manpage [--man-install|--man-uninstall] [--man-force]
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli utils manpage [--man-install|--man-uninstall] [--man-force]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -31,8 +31,8 @@ mail_cli utils manpage [--man-install|--man-uninstall] [--man-force]
 
 ## Examples
 
-- `mail_cli utils manpage > mail_cli.1` — Write the page for a package to install
-- `mail_cli utils manpage --man-install` — Install it for this user
+- `feral utils manpage > feral.1` — Write the page for a package to install
+- `feral utils manpage --man-install` — Install it for this user
 
 ## Installing
 
@@ -40,4 +40,4 @@ Installation refuses when a manual page for this program already exists elsewher
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

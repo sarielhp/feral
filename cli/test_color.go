@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 
 	"github.com/sarielhp/clihelp"
 	"github.com/xo/terminfo"
@@ -45,9 +45,9 @@ func ColorCmd(_ *Session) clihelp.Command {
 		Group:       "Other",
 		Aliases:     []string{"test-color"},
 		Description: "Test the terminal's true-color support.",
-		UsageLine:   "mail_cli utils color",
+		UsageLine:   "feral utils color",
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils color"},
+			{Line: "feral utils color"},
 		},
 		Args: clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {

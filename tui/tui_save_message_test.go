@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // pressF2 sends F2 through the full key dispatch and feeds the fetched

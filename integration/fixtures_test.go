@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sarielhp/feral/testenv"
 )
 
 // Fixtures are synthetic messages for tests that need real mail on a real
@@ -82,7 +84,7 @@ func fixtureSet() []fixture {
 // markedSubject tags a fixture so a test can find exactly its own messages and
 // a human can see at a glance where they came from.
 func (f fixture) markedSubject(runID string) string {
-	return fmt.Sprintf("[mail_cli-test %s] %s", runID, f.subject)
+	return fmt.Sprintf("[feral-test %s] %s", runID, f.subject)
 }
 
 // expectedSubject is what the subject should read as once the message has been
@@ -92,7 +94,7 @@ func (f fixture) expectedSubject(runID string) string {
 	if f.display != "" {
 		subject = f.display
 	}
-	return fmt.Sprintf("[mail_cli-test %s] %s", runID, subject)
+	return fmt.Sprintf("[feral-test %s] %s", runID, subject)
 }
 
 // raw renders the fixture as an RFC 5322 message.
@@ -126,7 +128,7 @@ func (f fixture) raw(runID string, index int) []byte {
 }
 
 // writeFixtureMbox renders the whole set as an mbox, for seeding a mailbox by
-// hand with `mail_cli upload <folder> <file>`.
+// hand with `feral upload <folder> <file>`.
 func writeFixtureMbox(path, runID string) error {
 	var b strings.Builder
 	for i, f := range fixtureSet() {
@@ -146,10 +148,10 @@ func writeFixtureMbox(path, runID string) error {
 // TestWriteFixtureMbox regenerates testdata/fixtures.mbox. It is opt-in because
 // it writes into the repository:
 //
-//	MAIL_CLI_WRITE_FIXTURES=1 go test ./integration/ -run TestWriteFixtureMbox
+//	FERAL_WRITE_FIXTURES=1 go test ./integration/ -run TestWriteFixtureMbox
 func TestWriteFixtureMbox(t *testing.T) {
-	if os.Getenv("MAIL_CLI_WRITE_FIXTURES") == "" {
-		t.Skip("set MAIL_CLI_WRITE_FIXTURES=1 to regenerate testdata/fixtures.mbox")
+	if testenv.Getenv(t, "FERAL_WRITE_FIXTURES") == "" {
+		t.Skip("set FERAL_WRITE_FIXTURES=1 to regenerate testdata/fixtures.mbox")
 	}
 	const path = "../testdata/fixtures.mbox"
 	if err := writeFixtureMbox(path, "manual"); err != nil {
@@ -169,7 +171,7 @@ func TestFixturesAreWellFormed(t *testing.T) {
 		seen[f.slug] = true
 
 		raw := f.raw("run1", i)
-		if !strings.Contains(string(raw), "[mail_cli-test run1]") {
+		if !strings.Contains(string(raw), "[feral-test run1]") {
 			t.Errorf("fixture %q is not marked with the run ID", f.slug)
 		}
 		if !strings.Contains(string(raw), "\r\n\r\n") {

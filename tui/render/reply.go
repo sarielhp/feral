@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"strings"
 )
 
@@ -79,9 +79,10 @@ func ColorReplyLinesWrap(rawBody string, wrapWidth int) ColoredString {
 		}
 
 		qPrefix := email.ExtractQuotePrefix(line)
+		dir := email.BaseDirection(line)
 		line = email.EmbedCompactOSC8Hyperlinks(line, min(60, max(10, wrapWidth-email.VisibleStringWidth(qPrefix))))
 		for _, sub := range email.WrapQuotedLine(line, qPrefix, wrapWidth) {
-			text := email.BidiDisplay(sub)
+			text := email.BidiDisplayIn(sub, dir)
 			if !isFirst {
 				text = "\n" + text
 			}
@@ -127,9 +128,10 @@ func ColorQuotedReplyLinesRaw(body string, wrapWidth int) ColoredString {
 		}
 
 		qPrefix := email.ExtractQuotePrefix(line)
+		dir := email.BaseDirection(line)
 		line = email.EmbedCompactOSC8Hyperlinks(line, min(60, max(10, wrapWidth-email.VisibleStringWidth(qPrefix))))
 		for _, sub := range email.WrapQuotedLine(line, qPrefix, wrapWidth) {
-			text := email.BidiDisplay(sub)
+			text := email.BidiDisplayIn(sub, dir)
 			if !isFirst {
 				text = "\n" + text
 			}

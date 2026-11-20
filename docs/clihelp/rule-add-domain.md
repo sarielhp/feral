@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule add-domain'
-parent: 'mail_cli rule'
+title: 'feral rule add-domain'
+parent: 'feral rule'
 ---
 
-# mail\_cli rule add-domain
+# feral rule add-domain
 
 Add an auto-labeling rule for a sender's domain from a cached message ID.
 
 ## Usage
 
 ```
-mail_cli rule add-domain <message_id> [lbl]
+feral rule add-domain <message_id> [lbl]
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli rule add-domain <message_id> [lbl]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,9 +35,9 @@ mail_cli rule add-domain <message_id> [lbl]
 
 ## Examples
 
-- `mail_cli rule add-domain 12345 %Sort/Newsletters`
-- `mail_cli rule add-domain 12345`
+- `feral rule add-domain 12345 %Sort/Newsletters`
+- `feral rule add-domain 12345`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

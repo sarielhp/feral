@@ -3,27 +3,34 @@ package runner
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"maps"
 	"mime"
 	"net/mail"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/pgp"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/pgp"
+	"github.com/sarielhp/feral/report"
 )
 
 // SendService implements cli.SendOps to deliver outbound emails.
@@ -60,11 +67,7 @@ func (s SendService) Send(config *cfg_g.Config, opts cli.SendOptions) error {
 		return err
 	}
 
-	sendAddr := acc.GetSendAddress()
-	from := sendAddr
-	if name := acc.GetSenderName(); name != "" && sendAddr != "" {
-		from = fmt.Sprintf("%s <%s>", name, sendAddr)
-	}
+	from := accountFromHeader(*acc)
 
 	toRecipients := expandRecipients(config, opts.To)
 	ccRecipients := expandRecipients(config, opts.Cc)
@@ -81,8 +84,11 @@ func (s SendService) Send(config *cfg_g.Config, opts cli.SendOptions) error {
 		Cc:          strings.Join(ccRecipients, ", "),
 		Bcc:         strings.Join(bccRecipients, ", "),
 		Subject:     opts.Subject,
-		Body:        opts.Body,
+		Body:        email.SignBody(opts.Body, s.signatureUnless(opts.NoSignature, config, *acc), ""),
 		Attachments: attachments,
+		// A message sent later is dated when it is due, not when it was
+		// written; zero (sent now) dates it at build time.
+		Date: opts.SendAfter,
 	}
 
 	recipients := pgp.Recipients{
@@ -98,6 +104,7 @@ func (s SendService) Send(config *cfg_g.Config, opts cli.SendOptions) error {
 		_, _ = s.out().Write(rawBytes)
 		fmt.Fprintln(s.out())
 		s.rep().Infof("[DRY-RUN] RFC822 message constructed (%d bytes) for delivery via %s (%s)", len(rawBytes), acc.Name, acc.Username)
+		s.noteDryRunSchedule(opts)
 		return nil
 	}
 
@@ -106,13 +113,8 @@ func (s SendService) Send(config *cfg_g.Config, opts cli.SendOptions) error {
 		cacheRoot = config.CacheRoot
 	}
 
-	if opts.Queue {
-		entry, err := outbox.Enqueue(outbox.Dir(cacheRoot), acc.Name, toRecipients, opts.Subject, rawBytes)
-		if err != nil {
-			return fmt.Errorf("queueing email to outbox: %w", err)
-		}
-		s.rep().Successf("Email queued to outbox (ID: %s, Account: %s)", entry.ID, acc.Name)
-		return nil
+	if opts.Queue || !opts.SendAfter.IsZero() {
+		return s.enqueue(config, outbox.Entry{Account: acc.Name, To: toRecipients, Subject: opts.Subject, SendAfter: opts.SendAfter}, rawBytes)
 	}
 
 	s.rep().Infof("Sending email via %s (%s)...", acc.Name, acc.Username)
@@ -222,50 +224,55 @@ func expandRecipients(config *cfg_g.Config, raw []string) []string {
 
 	var expanded []string
 	for _, item := range raw {
-		for _, part := range strings.Split(item, ",") {
-			trimmed := strings.TrimSpace(part)
-			if trimmed == "" {
-				continue
-			}
-			expanded = append(expanded, resolveSingleRecipient(book, trimmed))
+		for _, part := range email.SplitAddressList(item) {
+			expanded = append(expanded, resolveSingleRecipient(book, part)...)
 		}
 	}
 	return expanded
 }
 
-func resolveSingleRecipient(book *contacts.Book, item string) string {
+// resolveSingleRecipient is the addresses item stands for: a contact's name
+// or alias becomes "Name <addr>", a group alias every one of its members,
+// and anything else stays as typed.
+func resolveSingleRecipient(book *contacts.Book, item string) []string {
 	if strings.Contains(item, "@") || book == nil {
-		return item
+		return []string{item}
 	}
 	for _, c := range book.Contacts {
 		if matched, ok := matchContactRecipient(c, item); ok {
 			return matched
 		}
 	}
-	return item
+	return []string{item}
 }
 
-func matchContactRecipient(c contacts.Contact, item string) (string, bool) {
-	primary := c.PrimaryEmail()
-	if primary == "" {
-		return "", false
+func matchContactRecipient(c contacts.Contact, item string) ([]string, bool) {
+	if c.PrimaryEmail() == "" || !namesContact(c, item) {
+		return nil, false
 	}
+	// A group's name ("Group: 273ta") is a label, not a person: its members
+	// go out under their own addresses.
+	if c.IsGroup() {
+		return slices.Clone(c.Emails), true
+	}
+	return []string{formatRecipient(c.Name, c.PrimaryEmail())}, true
+}
+
+// namesContact reports whether item is c's name or one of its aliases.
+func namesContact(c contacts.Contact, item string) bool {
 	if strings.EqualFold(c.Name, item) {
-		return formatRecipient(c.Name, primary), true
+		return true
 	}
-	for _, nick := range c.Nicknames {
+	for _, nick := range c.AllAliases() {
 		if strings.EqualFold(nick, item) {
-			return formatRecipient(c.Name, primary), true
+			return true
 		}
 	}
-	return "", false
+	return false
 }
 
-func formatRecipient(name, email string) string {
-	if name != "" && email != "" {
-		return fmt.Sprintf("%s <%s>", name, email)
-	}
-	return email
+func formatRecipient(name, addr string) string {
+	return email.FormatAddress(name, addr)
 }
 
 func (s SendService) sendRaw(config *cfg_g.Config, opts cli.SendOptions) error {
@@ -288,6 +295,7 @@ func (s SendService) sendRaw(config *cfg_g.Config, opts cli.SendOptions) error {
 		_, _ = s.out().Write(opts.RawBytes)
 		fmt.Fprintln(s.out())
 		s.rep().Infof("[DRY-RUN] Raw RFC822 message (%d bytes) for delivery via %s (%s)", len(opts.RawBytes), acc.Name, acc.Username)
+		s.noteDryRunSchedule(opts)
 		return nil
 	}
 
@@ -301,13 +309,8 @@ func (s SendService) sendRaw(config *cfg_g.Config, opts cli.SendOptions) error {
 	}
 	subj := msg.Header.Get("Subject")
 
-	if opts.Queue {
-		entry, err := outbox.Enqueue(outbox.Dir(cacheRoot), acc.Name, []string{to}, subj, opts.RawBytes)
-		if err != nil {
-			return fmt.Errorf("queueing raw email to outbox: %w", err)
-		}
-		s.rep().Successf("Raw email queued to outbox (ID: %s, Account: %s)", entry.ID, acc.Name)
-		return nil
+	if opts.Queue || !opts.SendAfter.IsZero() {
+		return s.enqueue(config, outbox.Entry{Account: acc.Name, To: []string{to}, Subject: subj, SendAfter: opts.SendAfter}, opts.RawBytes)
 	}
 
 	s.rep().Infof("Sending raw email via %s (%s)...", acc.Name, acc.Username)
@@ -349,9 +352,24 @@ type replyPlan struct {
 	Opts          cli.ReplyOptions
 }
 
+// replyDetails is the reply's headers and quote: to the list alone for
+// --list, which is refused rather than sent to the sender when the message
+// names no list address or the list takes no posts; otherwise to the sender,
+// or to everyone for --group.
+func replyDetails(origMsg *mail.Message, own map[string]bool, opts cli.ReplyOptions, authored bool) (email.ReplyDetails, error) {
+	if !opts.List {
+		return email.BuildReplyDetails(origMsg, own, opts.Group, authored), nil
+	}
+	details, err := email.BuildListReplyDetails(origMsg)
+	if err != nil {
+		return email.ReplyDetails{}, fmt.Errorf("reply to the list: %w", err)
+	}
+	return details, nil
+}
+
 // Reply resolves the target message, formats reply headers and quote, and delivers or launches compose.
 func (s SendService) Reply(config *cfg_g.Config, opts cli.ReplyOptions) error {
-	client, acc, resolvedMsgID, rawBytes, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, s.rep())
+	client, acc, resolvedMsgID, rawBytes, folder, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, s.rep())
 	if err != nil {
 		return err
 	}
@@ -361,7 +379,18 @@ func (s SendService) Reply(config *cfg_g.Config, opts cli.ReplyOptions) error {
 		return fmt.Errorf("parsing original message: %w", err)
 	}
 
-	details := email.BuildReplyDetails(origMsg, acc.GetSendAddress(), opts.Group)
+	// Replying to the user's own mail -- a message the cache holds in the
+	// account's Sent folder -- addresses the people it was sent to. The folder
+	// is what decides it, not the From header, which spam forges.
+	authored := folder != "" && organize.IsAuthoredFolder(client, label.FromServer(folder))
+	// A group reply leaves out every address the user owns -- my_emails and
+	// every account's -- not only this account's, so no copy comes back.
+	own := config.OwnAddresses()
+	maps.Copy(own, email.OwnSet(acc.GetSendAddress()))
+	details, err := replyDetails(origMsg, own, opts, authored)
+	if err != nil {
+		return err
+	}
 	subject := details.Subject
 	if opts.Subject != "" {
 		subject = opts.Subject
@@ -388,19 +417,14 @@ func (s SendService) Reply(config *cfg_g.Config, opts cli.ReplyOptions) error {
 }
 
 func (s SendService) replyInteractive(config *cfg_g.Config, plan replyPlan) error {
-	composeBody := plan.Opts.Body
-	if composeBody != "" && plan.QuotedBody != "" {
-		composeBody = composeBody + "\n\n" + plan.QuotedBody
-	} else if plan.QuotedBody != "" {
-		composeBody = plan.QuotedBody
-	}
-
+	// The compose screen places the account's signature between the two.
 	composeOpts := cli.ComposeOptions{
 		To:          []string{plan.Details.To},
 		Cc:          plan.Cc,
 		Bcc:         plan.Opts.Bcc,
 		Subject:     plan.Subject,
-		Body:        composeBody,
+		Body:        plan.Opts.Body,
+		Quote:       plan.QuotedBody,
 		Attachments: plan.Opts.Attachments,
 		Account:     plan.Account.Name,
 		InReplyTo:   plan.Details.InReplyTo,
@@ -412,14 +436,8 @@ func (s SendService) replyInteractive(config *cfg_g.Config, plan replyPlan) erro
 }
 
 func (s SendService) replyHeadless(config *cfg_g.Config, plan replyPlan) error {
-	finalBody := plan.Opts.Body
-	if !plan.Opts.NoQuote && plan.QuotedBody != "" {
-		if finalBody != "" {
-			finalBody = finalBody + "\n\n" + plan.QuotedBody
-		} else {
-			finalBody = plan.QuotedBody
-		}
-	}
+	// Reply has already dropped the quote under --no-quote.
+	finalBody := email.SignBody(plan.Opts.Body, s.signatureUnless(plan.Opts.NoSignature, config, plan.Account), plan.QuotedBody)
 
 	attachments, err := loadAttachments(plan.Opts.Attachments)
 	if err != nil {
@@ -502,16 +520,24 @@ func findCandidateAccounts(config *cfg_g.Config, overrideAccount string) ([]cfg_
 	return ordered, nil
 }
 
+// accountCacheDir is the account's cache, or the zero value -- skipped by the
+// callers -- for a cache this build must not read (see cache/meta.Check).
 func accountCacheDir(config *cfg_g.Config, acc cfg_acc.AccountConfig) cachedir.Account {
-	return config.AccountCacheFor(acc)
+	acct := config.AccountCacheFor(acc)
+	if err := meta.Check(acct, acc.Type); err != nil {
+		slog.Warn("skipping an account cache this build does not understand", slog.String("account", acc.Name), slog.Any("error", err))
+		return cachedir.Account{}
+	}
+	return acct
 }
 
 // findMessageAcrossAccounts resolves ref, a message ID as the user typed it,
-// to the message and the account holding it.
-func findMessageAcrossAccounts(config *cfg_g.Config, accountName, ref string, rep report.Reporter) (mailclient.MailClient, cfg_acc.AccountConfig, email.ID, []byte, error) {
+// to the message and the account holding it. The folder it returned is the
+// cached one, empty when the message was found only on a server.
+func findMessageAcrossAccounts(config *cfg_g.Config, accountName, ref string, rep report.Reporter) (mailclient.MailClient, cfg_acc.AccountConfig, email.ID, []byte, string, error) {
 	candidates, err := findCandidateAccounts(config, accountName)
 	if err != nil {
-		return nil, cfg_acc.AccountConfig{}, "", nil, err
+		return nil, cfg_acc.AccountConfig{}, "", nil, "", err
 	}
 
 	for _, acc := range candidates {
@@ -519,7 +545,7 @@ func findMessageAcrossAccounts(config *cfg_g.Config, accountName, ref string, re
 		if dlDir.IsZero() {
 			continue
 		}
-		foundID, _, errFind := cache.FindCachedEmailByID(dlDir, ref)
+		foundID, folderName, errFind := cache.FindCachedEmailByID(dlDir, ref)
 		if errFind != nil || foundID == "" {
 			continue
 		}
@@ -531,12 +557,12 @@ func findMessageAcrossAccounts(config *cfg_g.Config, accountName, ref string, re
 		if errCl != nil {
 			continue
 		}
-		return client, *accCfg, foundID, raw, nil
+		return client, *accCfg, foundID, raw, folderName, nil
 	}
 
 	// Only a full ID can be asked of a server; a short one is a hash of it.
 	if short, ok := email.ParseShortID(ref); ok {
-		return nil, cfg_acc.AccountConfig{}, "", nil, errShortIDNotCached(short)
+		return nil, cfg_acc.AccountConfig{}, "", nil, "", errShortIDNotCached(short)
 	}
 
 	// Nothing local knows ref and it is not a short ID, so it can only be a
@@ -549,9 +575,76 @@ func findMessageAcrossAccounts(config *cfg_g.Config, accountName, ref string, re
 		}
 		raw, errRaw := client.GetRawMessage(id)
 		if errRaw == nil && len(raw) > 0 {
-			return client, *accCfg, id, raw, nil
+			return client, *accCfg, id, raw, "", nil
 		}
 	}
 
-	return nil, cfg_acc.AccountConfig{}, "", nil, fmt.Errorf("message %q not found in configured accounts", ref)
+	return nil, cfg_acc.AccountConfig{}, "", nil, "", fmt.Errorf("message %q not found in configured accounts", ref)
+}
+
+// ErrQueueReadOnly refuses --queue under --read-only. Queueing is not sending,
+// but the next run without the flag flushes the outbox: the message used to
+// be queued anyway and went out later.
+var ErrQueueReadOnly = errors.New("queueing refused under --read-only: the next run without it would send the message")
+
+func refuseQueueReadOnly(config *cfg_g.Config) error {
+	if config != nil && config.ReadOnly {
+		return ErrQueueReadOnly
+	}
+	return nil
+}
+
+// noteDryRunSchedule says, under --dry-run, when send --at would have sent.
+func (s SendService) noteDryRunSchedule(opts cli.SendOptions) {
+	if !opts.SendAfter.IsZero() {
+		s.rep().Infof("[DRY-RUN] Would be queued to send at %s", opts.SendAfter.Local().Format("Mon 2006-01-02 15:04 MST"))
+	}
+}
+
+// enqueue puts a built message in the outbox: to be sent by the next flush,
+// or, with a due time (send --at), by the first flush at or after it. Both are
+// refused under --read-only, since the next run without it would send it.
+func (s SendService) enqueue(config *cfg_g.Config, entry outbox.Entry, raw []byte) error {
+	if err := refuseQueueReadOnly(config); err != nil {
+		return err
+	}
+	cacheRoot := ""
+	if config != nil {
+		cacheRoot = config.CacheRoot
+	}
+	queued, err := outbox.EnqueueEntry(outbox.Dir(cacheRoot), entry, raw)
+	if err != nil {
+		return fmt.Errorf("queueing email to outbox: %w", err)
+	}
+	if queued.SendAfter.IsZero() {
+		s.rep().Successf("Email queued to outbox (ID: %s, Account: %s)", queued.ID, queued.Account)
+		return nil
+	}
+	s.rep().Successf("Email scheduled for %s (ID: %s, Account: %s); feral watch or msg outbox flush sends it once due",
+		queued.SendAfter.Local().Format("Mon 2006-01-02 15:04 MST"), queued.ID, queued.Account)
+	return nil
+}
+
+// signatureUnless is acc's signature, or "" when the caller asked for none
+// (--no-signature): a script piping mail through msg send opts out here.
+func (s SendService) signatureUnless(none bool, config *cfg_g.Config, acc cfg_acc.AccountConfig) string {
+	if none {
+		return ""
+	}
+	return s.signature(config, acc)
+}
+
+// signature is the signature acc puts under what it sends, from its
+// signature.txt (`account signature`); "" without one. A signature that cannot
+// be read is reported and left off: the message is still the user's.
+func (s SendService) signature(config *cfg_g.Config, acc cfg_acc.AccountConfig) string {
+	if config == nil {
+		return ""
+	}
+	sig, _, err := cfg_g.ReadSignature(config.ConfigDir, acc.Name)
+	if err != nil {
+		s.rep().Warnf("Sending without a signature: %v", err)
+		return ""
+	}
+	return sig
 }

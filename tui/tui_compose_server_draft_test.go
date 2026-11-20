@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -75,17 +75,46 @@ func stubWorkAccount(m *tuiModel, work *mailclient.MockMailClient) {
 // drain runs cmd and feeds every message back through Update, the way the
 // program would, until nothing more is returned. It reports whether the
 // program quit.
+func init() { sendTickInterval = time.Millisecond }
+
+// runCmd runs cmd, and each command of a batch, and returns every message.
+func runCmd(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range batch {
+		out = append(out, runCmd(c)...)
+	}
+	return out
+}
+
+// drain feeds cmd's messages, and those of the commands they return, back
+// through Update; it reports whether the program asked to quit.
 func drain(t *testing.T, m *tuiModel, cmd tea.Cmd) bool {
 	t.Helper()
-	for i := 0; cmd != nil && i < 20; i++ {
-		msg := cmd()
-		if _, ok := msg.(tea.QuitMsg); ok {
+	queue := []tea.Cmd{cmd}
+	for i := 0; len(queue) > 0 && i < 60; i++ {
+		c := queue[0]
+		queue = queue[1:]
+		if c == nil {
+			continue
+		}
+		switch msg := c().(type) {
+		case tea.QuitMsg:
 			return true
+		case tea.BatchMsg:
+			queue = append(queue, msg...)
+		case nil:
+		default:
+			_, next := m.Update(msg)
+			queue = append(queue, next)
 		}
-		if msg == nil {
-			return false
-		}
-		_, cmd = m.Update(msg)
 	}
 	return false
 }
@@ -102,6 +131,10 @@ func key(r string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyF3}
 	case "f5":
 		return tea.KeyMsg{Type: tea.KeyF5}
+	case "f6":
+		return tea.KeyMsg{Type: tea.KeyF6}
+	case "f7":
+		return tea.KeyMsg{Type: tea.KeyF7}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(r)}
 }
@@ -199,6 +232,21 @@ func TestDraftSync_DiscardPromptDoesNotTakeEnter(t *testing.T) {
 	}
 }
 
+// Enter used to send from the compose screen and from the send question;
+// only y sends.
+func TestDraftSync_EnterDoesNotSend(t *testing.T) {
+	m, mock := composeWithTrash(t)
+	press(m, "enter")
+	m.compose.SendConfirm = true
+	press(m, "enter")
+	if m.compose.sending || len(mock.SentRawEmails) != 0 {
+		t.Fatal("Enter sent the message; only y may")
+	}
+	if !m.compose.SendConfirm {
+		t.Error("Enter closed the send question")
+	}
+}
+
 // Sending while an upload ran left the new copy in Drafts after the
 // message had gone out.
 func TestDraftSync_SendDuringUploadLeavesNothing(t *testing.T) {
@@ -256,11 +304,14 @@ func TestDraftSync_TwoCtrlCAbandonTheWait(t *testing.T) {
 	}
 }
 
-// Enter twice during "Sending email..." used to send twice.
+// Pressing send twice during "Sending email..." used to send twice.
 func TestDraftSync_SendIsNotRepeated(t *testing.T) {
 	m, mock := composeWithTrash(t)
 	first := press(m, "y")
-	if second := press(m, "enter"); second != nil {
+	if !strings.Contains(m.renderComposeScreen(), "Sending message") {
+		t.Error("no sending dialog while the send is in flight")
+	}
+	if second := press(m, "y"); second != nil {
 		t.Fatal("a second send was dispatched while the first was in flight")
 	}
 	drain(t, m, first)

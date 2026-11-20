@@ -15,6 +15,9 @@ var (
 	logger     *slog.Logger
 	diagLogs   []string
 	diagMutex  sync.Mutex
+
+	tuiLogMu    sync.Mutex
+	tuiLogUsers int
 )
 
 func addDiagLog(msg string) {
@@ -111,7 +114,22 @@ func CloseLogger() {
 // InitTuiLogger installs the TUI's own log file, teeing writes into the
 // in-memory buffer GetDiagLogs reads. It falls back to standard error when the
 // file cannot be opened.
+//
+// Calls nest: each is matched by a CloseTuiLogger, and only the first opens
+// the file and only the last closes it. The new-mail watcher that runs beside
+// the TUI starts before the TUI does and stops after it, and logs throughout.
 func InitTuiLogger(configDir string) {
+	tuiLogMu.Lock()
+	defer tuiLogMu.Unlock()
+	tuiLogUsers++
+	if tuiLogUsers > 1 {
+		return
+	}
+	openTuiLogger(configDir)
+}
+
+// openTuiLogger opens the TUI log and makes it slog's default.
+func openTuiLogger(configDir string) {
 	logDir := filepath.Join(configDir, "logs")
 
 	var err error
@@ -147,11 +165,21 @@ func InitTuiLogger(configDir string) {
 	slog.Debug("TUI Logger initialized", slog.String("path", filepath.Join(logDir, "tui.log")), slog.String("level", logLevel.String()))
 }
 
-// CloseTuiLogger flushes and closes the TUI log file, if one was opened.
+// CloseTuiLogger flushes and closes the TUI log file, if one was opened, once
+// the last InitTuiLogger caller is done with it.
 func CloseTuiLogger() {
+	tuiLogMu.Lock()
+	defer tuiLogMu.Unlock()
+	if tuiLogUsers > 0 {
+		tuiLogUsers--
+	}
+	if tuiLogUsers > 0 {
+		return
+	}
 	if tuiLogFile != nil {
 		_ = tuiLogFile.Sync()
 		_ = tuiLogFile.Close()
+		tuiLogFile = nil
 	}
 }
 

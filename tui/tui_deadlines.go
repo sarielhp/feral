@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/llm"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/llm"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -101,13 +101,13 @@ func renderDeadlinesAgenda(m *tuiModel) string {
 	bg := lipgloss.Color("#16162a")
 	borderC := lipgloss.Color("#55ffff")
 
-	boxW := min(m.width-4, 88)
-	boxH := min(m.height-6, 24)
-	if boxW < 30 {
-		boxW = 30
+	boxW := min(88, max(20, m.width-4))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
 	}
-	if boxH < 10 {
-		boxH = 10
+	boxH := min(24, max(5, m.height-6))
+	if m.height > 0 && boxH > m.height {
+		boxH = m.height
 	}
 
 	headerStyle := lipgloss.NewStyle().
@@ -123,7 +123,7 @@ func renderDeadlinesAgenda(m *tuiModel) string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("#aaaaaa")).Render("  No upcoming deadlines found in summarized emails."))
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("#8888aa")).Render("  (Summaries are generated in the background as you read)"))
 	} else {
-		availItems := boxH - 7
+		availItems := max(1, boxH-7)
 		startIdx := 0
 		if m.deadlinesCursor >= availItems {
 			startIdx = m.deadlinesCursor - availItems + 1
@@ -139,14 +139,14 @@ func renderDeadlinesAgenda(m *tuiModel) string {
 			}
 
 			desc := d.Description
-			maxDescW := boxW - 8
-			if len([]rune(desc)) > maxDescW {
+			maxDescW := max(6, boxW-8)
+			if len([]rune(desc)) > maxDescW && maxDescW >= 3 {
 				runes := []rune(desc)
 				desc = string(runes[:maxDescW-3]) + "..."
 			}
 
 			senderSubj := fmt.Sprintf("    From: %s | Subject: %s", email.FormatSender(d.Sender), d.Subject)
-			if len([]rune(senderSubj)) > maxDescW {
+			if len([]rune(senderSubj)) > maxDescW && maxDescW >= 3 {
 				runes := []rune(senderSubj)
 				senderSubj = string(runes[:maxDescW-3]) + "..."
 			}

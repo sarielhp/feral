@@ -145,6 +145,7 @@ func TestCompilePattern_LiteralCaseInsensitiveNoAlloc(t *testing.T) {
 // there closes it for all of them at once.
 func TestParseReader_StripsEscapeSequencesFromSubjectAndSender(t *testing.T) {
 	raw := "From: Attacker \x1b]0;pwned\x07<attacker@example.com>\r\n" +
+		"To: Victim \x1b[2J<victim@example.com>\r\n" +
 		"Subject: Hello\x1b[2Jworld\r\n" +
 		"Date: Mon, 02 Jan 2026 15:04:05 +0000\r\n" +
 		"\r\n" +
@@ -162,5 +163,65 @@ func TestParseReader_StripsEscapeSequencesFromSubjectAndSender(t *testing.T) {
 	}
 	if strings.ContainsAny(got.FromEmail, "\x1b\x07") {
 		t.Errorf("FromEmail still contains an escape byte: %q", got.FromEmail)
+	}
+	if strings.ContainsAny(got.ToRaw, "\x1b\x07") {
+		t.Errorf("ToRaw still contains an escape byte: %q", got.ToRaw)
+	}
+}
+
+func TestParseReader_RecordsCCAndDecodesMIME(t *testing.T) {
+	raw := "From: =?UTF-8?B?QWxpY2UgU21pdGg=?= <alice@example.com>\r\n" +
+		"To: =?UTF-8?B?Qm9iIEpvbmVz?= <bob@example.com>\r\n" +
+		"Cc: =?UTF-8?B?Q2hhcmxpZSBCcm93bg==?= \x1b[2J<charlie@example.com>, Dave <dave@example.com>\r\n" +
+		"Subject: MIME decoded test\r\n" +
+		"\r\nbody\r\n"
+
+	got := ParseReader(strings.NewReader(raw), "id1", "")
+	if got == nil {
+		t.Fatal("ParseReader returned nil")
+	}
+	if got.FromRaw != "Alice Smith <alice@example.com>" {
+		t.Errorf("FromRaw = %q; want decoded MIME name", got.FromRaw)
+	}
+	if got.ToRaw != "Bob Jones <bob@example.com>" {
+		t.Errorf("ToRaw = %q; want decoded MIME name", got.ToRaw)
+	}
+	if !strings.Contains(got.CcRaw, "Charlie Brown") || !strings.Contains(got.CcRaw, "Dave <dave@example.com>") {
+		t.Errorf("CcRaw = %q; want Charlie Brown and Dave", got.CcRaw)
+	}
+	if strings.ContainsAny(got.CcRaw, "\x1b\x07") {
+		t.Errorf("CcRaw contains escape sequence: %q", got.CcRaw)
+	}
+	if got.CcEmail != "charlie@example.com" {
+		t.Errorf("CcEmail = %q; want charlie@example.com", got.CcEmail)
+	}
+}
+
+// The recipient is recorded so a Sent-folder listing can show it in place of
+// the sender; it is left empty when the message has no To header rather than
+// given a placeholder, because most mail is not the user's.
+func TestParseReader_RecordsRecipient(t *testing.T) {
+	raw := "From: Me <me@example.com>\r\n" +
+		"To: Bob <bob@example.com>, Cara <cara@example.com>\r\n" +
+		"Subject: Hi\r\n" +
+		"\r\nbody\r\n"
+
+	got := ParseReader(strings.NewReader(raw), "id1", "")
+	if got == nil {
+		t.Fatal("ParseReader returned nil")
+	}
+	if got.ToRaw != "Bob <bob@example.com>, Cara <cara@example.com>" {
+		t.Errorf("ToRaw = %q", got.ToRaw)
+	}
+	if got.ToEmail != "bob@example.com" {
+		t.Errorf("ToEmail = %q; want the first recipient", got.ToEmail)
+	}
+
+	none := ParseReader(strings.NewReader("From: a@example.com\r\nSubject: no to\r\n\r\nbody"), "id2", "")
+	if none == nil {
+		t.Fatal("ParseReader returned nil for a message without To")
+	}
+	if none.ToRaw != "" || none.ToEmail != "" {
+		t.Errorf("recipient not left empty: ToRaw=%q ToEmail=%q", none.ToRaw, none.ToEmail)
 	}
 }

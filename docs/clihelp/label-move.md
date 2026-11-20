@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label move'
-parent: 'mail_cli label'
+title: 'feral label move'
+parent: 'feral label'
 ---
 
-# mail\_cli label move
+# feral label move
 
 Move emails matching pattern to target label.
 
 ## Usage
 
 ```
-mail_cli label move <source_label> <pattern> <target_label> [--do]
+feral label move <source_label> <pattern> <target_label> [--do]
 ```
 
 ## Parameters
@@ -28,7 +28,7 @@ mail_cli label move <source_label> <pattern> <target_label> [--do]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,9 +37,9 @@ mail_cli label move <source_label> <pattern> <target_label> [--do]
 
 ## Examples
 
-- `mail_cli label move Inbox "*invoice*" Receipts`
-- `mail_cli label move Inbox "*invoice*" Receipts --do`
+- `feral label move Inbox "*invoice*" Receipts`
+- `feral label move Inbox "*invoice*" Receipts --do`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

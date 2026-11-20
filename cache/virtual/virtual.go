@@ -10,20 +10,25 @@ package virtual
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/fileformat"
+
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // Mailbox represents a named virtual folder containing message IDs and their source folders.
 type Mailbox struct {
+	Format      int                 `json:"format,omitempty"` // file format (see fileformat); absent means 1
 	Name        string              `json:"name"`
 	Description string              `json:"description,omitempty"`
 	MessageIDs  []email.ID          `json:"message_ids"`
@@ -59,7 +64,9 @@ func Save(account cachedir.Account, vm *Mailbox) error {
 	}
 	defer release()
 
-	data, err := json.Marshal(vm)
+	stamped := *vm
+	stamped.Format = fileformat.Current
+	data, err := json.Marshal(&stamped)
 	if err != nil {
 		return err
 	}
@@ -86,7 +93,82 @@ func Load(account cachedir.Account, name string) (*Mailbox, error) {
 	if err := json.Unmarshal(data, &vm); err != nil {
 		return nil, err
 	}
+	if err := fileformat.Check(p, vm.Format); err != nil {
+		return nil, err
+	}
 	return &vm, nil
+}
+
+// List returns every virtual mailbox in the account's cache, ordered by name.
+// A cache with no virtual directory is not an error: nothing saved yet is an
+// empty list, not a failure. A file that will not parse is skipped with a
+// warning rather than failing the whole listing, so one damaged mailbox cannot
+// hide the others.
+func List(account cachedir.Account) ([]Mailbox, error) {
+	downloadDir := account.Path()
+	dir := virtualDir(downloadDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []Mailbox
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			slog.Warn("skipping unreadable virtual mailbox", slog.String("file", e.Name()), slog.Any("error", err))
+			continue
+		}
+		var vm Mailbox
+		if err := json.Unmarshal(data, &vm); err != nil {
+			slog.Warn("skipping malformed virtual mailbox", slog.String("file", e.Name()), slog.Any("error", err))
+			continue
+		}
+		if err := fileformat.Check(e.Name(), vm.Format); err != nil {
+			slog.Warn("skipping a virtual mailbox a newer build wrote", slog.Any("error", err))
+			continue
+		}
+		out = append(out, vm)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// Delete removes a virtual mailbox: its file, and the label-index mirror Save
+// wrote, so it stops appearing as a folder. A mailbox that is already gone is
+// not an error.
+func Delete(account cachedir.Account, name string) error {
+	downloadDir := account.Path()
+	release, err := dirlock.Guard(downloadDir)
+	if err != nil {
+		slog.Debug("cache lock unavailable, continuing with in-process lock only",
+			slog.String("dir", downloadDir), slog.Any("error", err))
+	}
+	defer release()
+
+	// Clear the mirror rather than removing the key: folderindex has no
+	// delete-a-folder operation, and an empty index is what "no messages" is.
+	_ = folderindex.ReplaceAll(account, "virtual/"+name, []email.ID{})
+	if err := os.Remove(virtualPath(downloadDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// NameForQuery is the mailbox name a search result set is saved under: the
+// query itself. One scratch name for every search meant each run overwrote the
+// last; naming by query lets results accumulate, and re-running a query
+// replaces only its own set. An empty query falls back to "search".
+func NameForQuery(query string) string {
+	if q := strings.TrimSpace(query); q != "" {
+		return q
+	}
+	return "search"
 }
 
 // FindMessageFolder looks up which source folder a message originated from across all virtual mailboxes or cached indexes.

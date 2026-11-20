@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli utils completion keys'
-parent: 'mail_cli utils completion'
+title: 'feral utils completion keys'
+parent: 'feral utils completion'
 ---
 
-# mail\_cli utils completion keys
+# feral utils completion keys
 
 Print shell key bindings (Alt-H explains the command line)
 
 ## Usage
 
 ```
-mail_cli utils completion keys [<shell>]
+feral utils completion keys [<shell>]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli utils completion keys [<shell>]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,7 +34,7 @@ mail_cli utils completion keys [<shell>]
 
 ## Examples
 
-- `mail_cli utils completion keys bash` — Print the Bash key bindings
+- `feral utils completion keys bash` — Print the Bash key bindings
 
 ## Why This Is Separate
 
@@ -42,4 +42,4 @@ Every shell loads a completion script lazily, on the first completion of the com
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

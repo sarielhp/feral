@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli utils completion'
+title: 'feral utils completion'
 has_children: true
-parent: 'mail_cli utils'
+parent: 'feral utils'
 ---
 
-# mail\_cli utils completion
+# feral utils completion
 
 Generate or install shell tab-completion scripts
 
 ## Usage
 
 ```
-mail_cli utils completion <subcommand>
+feral utils completion <subcommand>
 ```
 
 ## Subcommands
@@ -33,7 +33,7 @@ mail_cli utils completion <subcommand>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -41,8 +41,8 @@ mail_cli utils completion <subcommand>
 
 ## Examples
 
-- `mail_cli utils completion zsh` — Generate Zsh tab-completion script
-- `mail_cli utils completion install` — Install tab-completions for the active shell
+- `feral utils completion zsh` — Generate Zsh tab-completion script
+- `feral utils completion install` — Install tab-completions for the active shell
 
 ## Shell Tip
 
@@ -50,4 +50,4 @@ Tip: <Tab> to complete, Ctrl-D to list choices. Run 'completion keys' and source
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

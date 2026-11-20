@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/watcher"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/watcher"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -23,7 +23,7 @@ func WatchCmd(session *Session) clihelp.Command {
 			"last poll, run a script per message, and flush the offline outbox. It runs in the " +
 			"foreground until interrupted; put it under systemd --user or in a tmux window to keep " +
 			"it alive. The first poll of an account records what is already there without notifying.",
-		UsageLine: "mail_cli watch [flags]",
+		UsageLine: "feral watch [flags]",
 		Options: []clihelp.Option{
 			clihelp.Duration(&flagWatchInterval, "-i, --interval <duration>", watcher.DefaultInterval,
 				"How often to poll (minimum 30s)"),
@@ -36,16 +36,16 @@ func WatchCmd(session *Session) clihelp.Command {
 		},
 		Notes: []clihelp.Note{
 			{Heading: "Which accounts", Text: "Every account is watched by default; pass the global -A/--account to watch just one."},
-			{Heading: "Notifications", Text: "New mail is announced as a desktop notification when notify-send is available, and as a log line otherwise."},
-			{Heading: "The --on-mail hook", Text: "--on-mail passes the message in the environment: MAIL_CLI_ACCOUNT, MAIL_CLI_FROM, MAIL_CLI_SUBJECT, MAIL_CLI_DATE, MAIL_CLI_ID. A hook still running after 30 seconds is killed."},
+			{Heading: "Notifications", Text: "New mail is announced as a desktop notification when notify-send is available -- one per account per poll, listing the messages -- and as a log line otherwise. The TUI runs this watcher too while it is open; only one runs per download directory, and a second watch exits saying another is running."},
+			{Heading: "The --on-mail hook", Text: "--on-mail passes the message in the environment: FERAL_ACCOUNT, FERAL_FROM, FERAL_SUBJECT, FERAL_DATE, FERAL_ID (also as MAIL_CLI_*, the names before the rename). A hook still running after 30 seconds is killed."},
 			{Heading: "The first poll", Text: "The first poll of an account records existing messages as seen and announces nothing, so starting the watcher does not notify you about the whole inbox."},
-			{Heading: "What is announced", Text: "Mail in spam, trash, sent and drafts folders is never announced, nor is mail dated more than six hours before the previous poll: an older message that came into view because newer ones were deleted or moved."},
+			{Heading: "What is announced", Text: "Only the inbox is watched: each poll asks every account for the IDs of the newest messages in its inbox, one small request, and downloads only those it has not seen. Mail filed elsewhere -- spam, sent, drafts, a label a filter skips the inbox for -- is never announced, nor is mail dated more than six hours before the previous poll: an older message that came into view because newer ones were deleted or moved back."},
 			{Heading: "Failures", Text: "After a failed poll it waits longer each time, up to ten minutes, and reports the failure instead of exiting."},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli watch", Description: "Watch every account, notifying on new mail"},
-			{Line: "mail_cli watch -A work --no-notify", Description: "Watch one account, log instead of notifying"},
-			{Line: "mail_cli watch --on-mail ~/bin/on-mail.sh", Description: "Run a script for each new message"},
+			{Line: "feral watch", Description: "Watch every account, notifying on new mail"},
+			{Line: "feral watch -A work --no-notify", Description: "Watch one account, log instead of notifying"},
+			{Line: "feral watch --on-mail ~/bin/on-mail.sh", Description: "Run a script for each new message"},
 		},
 		Args: clihelp.NoArgs,
 		Run: func(ctx *clihelp.Context) error {
@@ -75,7 +75,7 @@ func runWatch(session *Session, ctx *clihelp.Context) error {
 	// keeps the default -- no flag -- from being read as "just the default
 	// account".
 	account := ""
-	if app.FlagAccountName != "" || flagAccountIndex != "" {
+	if flagAccount.set() {
 		account = string(session.Config.SelectedAccount)
 	}
 

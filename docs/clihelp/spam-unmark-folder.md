@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam unmark folder'
-parent: 'mail_cli spam unmark'
+title: 'feral spam unmark folder'
+parent: 'feral spam unmark'
 ---
 
-# mail\_cli spam unmark folder
+# feral spam unmark folder
 
 Mark all messages in the specified folder as ham and move them back to Inbox.
 
 ## Usage
 
 ```
-mail_cli spam unmark folder <folder_name>
+feral spam unmark folder <folder_name>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli spam unmark folder <folder_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,8 +34,8 @@ mail_cli spam unmark folder <folder_name>
 
 ## Examples
 
-- `mail_cli spam unmark folder %spam`
+- `feral spam unmark folder %spam`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

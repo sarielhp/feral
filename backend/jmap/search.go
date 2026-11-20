@@ -2,7 +2,7 @@ package jmap
 
 import (
 	"fmt"
-	mailemail "github.com/sarielhp/mail_cli/email"
+	mailemail "github.com/sarielhp/feral/email"
 	"strings"
 
 	"git.sr.ht/~rockorager/go-jmap"

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli msg drafts rm'
-parent: 'mail_cli msg drafts'
+title: 'feral msg drafts rm'
+parent: 'feral msg drafts'
 ---
 
-# mail\_cli msg drafts rm
+# feral msg drafts rm
 
 Delete saved drafts by ID.
 
 ## Usage
 
 ```
-mail_cli msg drafts rm <id>...
+feral msg drafts rm <id>...
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli msg drafts rm <id>...
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,4 +28,4 @@ mail_cli msg drafts rm <id>...
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -280,7 +280,7 @@ func buildContactsFromFlattened(flattened map[string][]muttRecipient, sourceName
 		}
 
 		contacts = append(contacts, Contact{
-			ID:        fmt.Sprintf("%s:group:%s", sourceName, key),
+			ID:        GroupID(sourceName, key),
 			Name:      fmt.Sprintf("Group: %s", key),
 			Emails:    emails,
 			Nicknames: []string{key},

@@ -6,6 +6,64 @@ import (
 	"testing"
 )
 
+func TestFormatRecipient(t *testing.T) {
+	tests := []struct {
+		name  string
+		toRaw string
+		want  string
+	}{
+		{"named", "Alice <alice@example.com>", "Alice"},
+		{"bare address", "alice@example.com", "alice@example.com"},
+		{"first of several", "Alice <alice@example.com>, Bob <bob@example.com>", "Alice"},
+		{"quoted name", `"Doe, John" <john@example.com>`, "Doe, John"},
+		{"empty", "", ""},
+	}
+	for _, tc := range tests {
+		if got := FormatRecipient(tc.toRaw); got != tc.want {
+			t.Errorf("%s: FormatRecipient(%q) = %q; want %q", tc.name, tc.toRaw, got, tc.want)
+		}
+	}
+}
+
+func TestFormatRecipientVerbose(t *testing.T) {
+	if got := FormatRecipientVerbose("Alice <alice@example.com>"); got != "Alice <alice@example.com>" {
+		t.Errorf("FormatRecipientVerbose named = %q", got)
+	}
+	if got := FormatRecipientVerbose("alice@example.com"); got != "alice@example.com" {
+		t.Errorf("FormatRecipientVerbose bare = %q", got)
+	}
+	if got := FormatRecipientVerbose(""); got != "" {
+		t.Errorf("FormatRecipientVerbose empty = %q", got)
+	}
+}
+
+// A Sent-folder row shows who the message went to, marked so the address is not
+// read as the sender; every other row shows the sender.
+func TestSenderColumn(t *testing.T) {
+	sent := Email{FromRaw: "Me <me@example.com>", ToRaw: "Alice <alice@example.com>", IsAuthored: true}
+	if got := sent.SenderColumn(false); got != RecipientMarker+"Alice" {
+		t.Errorf("authored = %q; want %q", got, RecipientMarker+"Alice")
+	}
+	if got := sent.SenderColumn(true); got != RecipientMarker+"Alice <alice@example.com>" {
+		t.Errorf("authored verbose = %q", got)
+	}
+
+	received := Email{FromRaw: "Alice <alice@example.com>", ToRaw: "Me <me@example.com>"}
+	if got := received.SenderColumn(false); got != "Alice" {
+		t.Errorf("received = %q; want Alice", got)
+	}
+	if got := received.SenderColumn(true); got != "Alice <alice@example.com>" {
+		t.Errorf("received verbose = %q", got)
+	}
+
+	// Authored but with no To header falls back to the sender rather than
+	// showing an empty column.
+	authoredNoTo := Email{FromRaw: "Me <me@example.com>", IsAuthored: true}
+	if got := authoredNoTo.SenderColumn(false); got != "Me" {
+		t.Errorf("authored without To = %q; want Me", got)
+	}
+}
+
 func TestIsASCIIDivider(t *testing.T) {
 	dividers := []string{
 		"____________________________________________________",

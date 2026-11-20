@@ -3,8 +3,8 @@ package msgstore
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"sync"
 	"testing"
 )

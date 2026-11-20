@@ -3,6 +3,7 @@ package contacts
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -149,4 +150,82 @@ func TestSaveBook_AtomicAndDurable(t *testing.T) {
 	if len(loaded2.Contacts) != 2 {
 		t.Errorf("expected 2 contacts, got %d", len(loaded2.Contacts))
 	}
+}
+
+// The aliases a user gives an imported contact belong to the user, not the
+// source: re-importing the source must carry them over, whatever the source
+// now says about the address.
+func TestUpdateSource_KeepsUserAliases(t *testing.T) {
+	google := func(nick string) Contact {
+		c := Contact{ID: "google:work:people/1", Name: "Alice Adams",
+			Emails: []string{"alice@example.com"}, Source: "google:work"}
+		if nick != "" {
+			c.Nicknames = []string{nick}
+		}
+		return c
+	}
+	mutt := Contact{ID: "mutt:carol", Name: "Carol", Emails: []string{"carol@example.com"},
+		Nicknames: []string{"carol"}, Source: "mutt"}
+
+	t.Run("google sync keeps the alias", func(t *testing.T) {
+		book := &Book{Contacts: []Contact{google("")}}
+		AddAlias(book, "alice@example.com", "", "my-alice")
+		UpdateSource(book, "google:work", []Contact{google("al")})
+		wantAliases(t, book, "alice@example.com", []string{"my-alice"}, "google:work")
+		if got := Search(book, "my-alice"); len(got) != 1 {
+			t.Errorf("search for the alias after sync: %d results", len(got))
+		}
+	})
+
+	t.Run("mutt reimport keeps the alias", func(t *testing.T) {
+		book := &Book{Contacts: []Contact{mutt}}
+		AddAlias(book, "carol@example.com", "", "cc")
+		UpdateSource(book, "mutt", []Contact{mutt})
+		wantAliases(t, book, "carol@example.com", []string{"cc"}, "mutt")
+	})
+
+	t.Run("address gone upstream moves the alias to a manual contact", func(t *testing.T) {
+		book := &Book{Contacts: []Contact{google("")}}
+		AddAlias(book, "alice@example.com", "", "my-alice")
+		UpdateSource(book, "google:work", nil)
+		c := wantAliases(t, book, "alice@example.com", []string{"my-alice"}, "manual")
+		if c.Name != "Alice Adams" || c.ID != "manual:alice@example.com" {
+			t.Errorf("re-homed contact = %+v", c)
+		}
+	})
+
+	t.Run("survives save and reload", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "contacts.json")
+		book := &Book{Contacts: []Contact{google("")}}
+		AddAlias(book, "alice@example.com", "", "my-alice")
+		if err := SaveBook(path, book); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := LoadBook(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		UpdateSource(loaded, "google:work", []Contact{google("")})
+		wantAliases(t, loaded, "alice@example.com", []string{"my-alice"}, "google:work")
+	})
+}
+
+// wantAliases asserts the book holds addr exactly once, with aliases, in a
+// contact from source, and returns that contact.
+func wantAliases(t *testing.T, book *Book, addr string, aliases []string, source string) Contact {
+	t.Helper()
+	var found []Contact
+	for _, c := range book.Contacts {
+		if holdsAddress(&c, addr) {
+			found = append(found, c)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%s held by %d contacts: %+v", addr, len(found), found)
+	}
+	c := found[0]
+	if !reflect.DeepEqual(c.Aliases, aliases) || c.Source != source {
+		t.Errorf("contact = %+v, want aliases %v from %s", c, aliases, source)
+	}
+	return c
 }

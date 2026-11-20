@@ -3,24 +3,27 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // The bulk done messages carry the ids the servers accepted and the joined
 // error of everything they did not, so a partial failure is neither hidden
 // nor counted as done.
 type bulkArchiveDoneMsg struct {
-	ids []email.ID
-	err error
+	ids  []email.ID
+	err  error
+	undo []undoBatch
 }
 type bulkDeleteDoneMsg struct {
-	ids []email.ID
-	err error
+	ids  []email.ID
+	err  error
+	undo []undoBatch
 }
 type bulkMarkReadDoneMsg struct {
 	ids  []email.ID
@@ -28,8 +31,9 @@ type bulkMarkReadDoneMsg struct {
 	err  error
 }
 type bulkSpamDoneMsg struct {
-	ids []email.ID
-	err error
+	ids  []email.ID
+	err  error
+	undo []undoBatch
 }
 
 func (m *tuiModel) isTagged(id email.ID) bool {
@@ -130,12 +134,18 @@ func (m *tuiModel) kTagPrefix(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.bulkDeleteTagged()
 	case "s":
 		return m.promptBulkMoveToFolder()
+	case "a":
+		return m.beginAccountMove()
 	case "m":
 		return m.bulkMarkReadTagged(true)
 	case "M":
 		return m.bulkMarkReadTagged(false)
 	case "S":
 		return m.bulkSpamTagged()
+	case "v":
+		return m.beginSaveName(saveNameVirtualFolder)
+	case "x":
+		return m.beginSaveName(saveNameMbox)
 	case "esc":
 		return m, nil
 	default:
@@ -189,11 +199,11 @@ func (m *tuiModel) bulkActTagged(pending pendingOpType, dispatch bulkDispatch) (
 func bulkDoneMsg(pending pendingOpType, o bulkOutcome) tea.Msg {
 	switch pending {
 	case pendingArchive:
-		return bulkArchiveDoneMsg{ids: o.done, err: o.err}
+		return bulkArchiveDoneMsg{ids: o.done, err: o.err, undo: o.undo}
 	case pendingDelete:
-		return bulkDeleteDoneMsg{ids: o.done, err: o.err}
+		return bulkDeleteDoneMsg{ids: o.done, err: o.err, undo: o.undo}
 	default:
-		return bulkSpamDoneMsg{ids: o.done, err: o.err}
+		return bulkSpamDoneMsg{ids: o.done, err: o.err, undo: o.undo}
 	}
 }
 
@@ -205,15 +215,21 @@ func (m *tuiModel) bulkDeleteTagged() (tea.Model, tea.Cmd) {
 	return m.bulkActTagged(pendingDelete, m.dispatchBulkDelete)
 }
 
-// bulkMarkReadTagged marks the tagged messages read or unread. Read reaches
-// the servers; MailClient has no operation that marks a message unread, so
-// unread changes only this session's read state and says so.
+// bulkMarkReadTagged marks the tagged messages read or unread, on their
+// servers and in the local read cache.
 func (m *tuiModel) bulkMarkReadTagged(read bool) (tea.Model, tea.Cmd) {
 	ids := m.getTaggedIDs()
 	if len(ids) == 0 {
 		return m, nil
 	}
 
+	// Refused as the single-message mark is: it used to simulate and report
+	// "Marked N message(s)", a change that never reached the server or disk.
+	if m.isReadOnly() {
+		m.err = fmt.Errorf("🔒 Read-Only Mode: Action simulated (no server changes)")
+		m.showError = true
+		return m, nil
+	}
 	for _, id := range ids {
 		for i := range m.emails {
 			if m.emails[i].ID == id {
@@ -221,17 +237,17 @@ func (m *tuiModel) bulkMarkReadTagged(read bool) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.isRead[id] = read
-	}
-	if !read {
-		return m, func() tea.Msg {
-			return bulkMarkReadDoneMsg{ids: ids, read: false}
-		}
+		m.noteRead(id, read)
 	}
 	plan := m.planAction(ids, m.currentF)
 	return m, func() tea.Msg {
-		o := m.dispatchBulkMarkRead(plan, ids)
-		return bulkMarkReadDoneMsg{ids: o.done, read: true, err: o.err}
+		var o bulkOutcome
+		if read {
+			o = m.dispatchBulkMarkRead(plan, ids, true)
+		} else {
+			o = m.dispatchBulkMarkUnread(plan, ids, true)
+		}
+		return bulkMarkReadDoneMsg{ids: o.done, read: read, err: o.err}
 	}
 }
 
@@ -253,7 +269,7 @@ func (m *tuiModel) promptBulkMoveToFolder() (tea.Model, tea.Cmd) {
 func (m *tuiModel) executeBulkMoveToFolder(targetFolder label.Folder) (tea.Model, tea.Cmd) {
 	ids := m.getTaggedIDs()
 	m.bulkMovingToFolder = false
-	if len(ids) == 0 || m.refuseInSearchView() {
+	if len(ids) == 0 || m.refuseInSearchView() || m.refuseReadOnly() {
 		return m, nil
 	}
 	m.taggedIDs = nil
@@ -270,6 +286,39 @@ func (m *tuiModel) executeBulkMoveToFolder(targetFolder label.Folder) (tea.Model
 		if o.err != nil {
 			return errMsg{err: fmt.Errorf("move to %s: %w", targetFolder, o.err)}
 		}
-		return saveEmailDoneMsg{folder: targetFolder.String()}
+		return saveEmailDoneMsg{folder: targetFolder.String(), moved: o.done, undo: o.undo}
 	}
+}
+
+// handleBulkDone reports a bulk action: the count is of the ids the servers
+// accepted, and any failure is shown as an error beside it.
+func (m *tuiModel) handleBulkDone(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var err error
+	switch msg := msg.(type) {
+	case bulkArchiveDoneMsg:
+		m.dropFromSavedSet(msg.ids)
+		m.saveStatus = fmt.Sprintf("Archived %d message(s)", len(msg.ids)) + m.recordUndo(undoEntry{verb: "Archived", batches: msg.undo})
+		err = msg.err
+	case bulkDeleteDoneMsg:
+		m.dropFromSavedSet(msg.ids)
+		m.saveStatus = fmt.Sprintf("Deleted %d message(s)", len(msg.ids)) + m.recordUndo(undoEntry{verb: "Deleted", batches: msg.undo})
+		err = msg.err
+	case bulkMarkReadDoneMsg:
+		state := "read"
+		if !msg.read {
+			state = "unread"
+		}
+		m.saveStatus = fmt.Sprintf("Marked %d message(s) as %s", len(msg.ids), state)
+		err = msg.err
+	case bulkSpamDoneMsg:
+		m.dropFromSavedSet(msg.ids)
+		m.saveStatus = fmt.Sprintf("Reported %d message(s) as spam", len(msg.ids)) + m.recordUndo(undoEntry{verb: "Marked as spam", batches: msg.undo})
+		err = msg.err
+	}
+	m.saveStatusTime = time.Now()
+	if err != nil {
+		m.err = fmt.Errorf("bulk action failed: %w", err)
+		m.showError = true
+	}
+	return m, nil
 }

@@ -2,16 +2,18 @@ package cli
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/mailclient"
 	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/ui"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -33,7 +35,7 @@ func LabelsCmd(session *Session) clihelp.Command {
 		Group:           "Folders",
 		Description:     "Manage labels: download, upload, sort, move.",
 		LongDescription: "Subcommands include download (a folder to mbox) and upload (an mbox into a folder), sort and move (file mail into the keep/ hierarchy). Manage, inspect, and organize remote mail server labels and hierarchical folder trees across accounts, including cached folder statistics and structure repair.",
-		UsageLine:       "mail_cli label <subcommand> [args...]",
+		UsageLine:       "feral label <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			labelsListCmd(session),
 			labelsPrintCmd(session),
@@ -51,15 +53,15 @@ func LabelsCmd(session *Session) clihelp.Command {
 			LabelMoveCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label list", Description: "List folders that hold messages"},
-			{Line: "mail_cli label list --ext", Description: "Include message counts and hierarchy"},
-			{Line: "mail_cli label count %inbox", Description: "How many messages are in the inbox"},
-			{Line: "mail_cli label count %inbox -q", Description: "Just the number, for a script"},
-			{Line: "mail_cli label search receipts", Description: "Find folders whose name contains a word"},
-			{Line: `mail_cli label create "%Receipts/2026"`, Description: "Create a nested folder"},
-			{Line: `mail_cli label rm "%Receipts/2025"`, Description: "Delete a folder"},
-			{Line: `mail_cli label rename "%OldName" "%NewName"`, Description: "Rename a folder in place"},
-			{Line: "mail_cli label repair", Description: "Create the missing parents of nested folders"},
+			{Line: "feral label list", Description: "List folders that hold messages"},
+			{Line: "feral label list --ext", Description: "Include message counts and hierarchy"},
+			{Line: "feral label count %inbox", Description: "How many messages are in the inbox"},
+			{Line: "feral label count %inbox -q", Description: "Just the number, for a script"},
+			{Line: "feral label search receipts", Description: "Find folders whose name contains a word"},
+			{Line: `feral label create "%Receipts/2026"`, Description: "Create a nested folder"},
+			{Line: `feral label rm "%Receipts/2025"`, Description: "Delete a folder"},
+			{Line: `feral label rename "%OldName" "%NewName"`, Description: "Rename a folder in place"},
+			{Line: "feral label repair", Description: "Create the missing parents of nested folders"},
 		},
 	}
 }
@@ -71,7 +73,7 @@ func labelsListCmd(session *Session) clihelp.Command {
 		Title:           "label list",
 		Description:     "List all folders and labels in a tree view.",
 		LongDescription: "List all folders and labels in a hierarchical tree view. Pass --full to show full paths, --ext to show unread and total message counts, --nozero to omit empty folders, or --real to query the server in real-time.",
-		UsageLine:       "mail_cli label list [flags]",
+		UsageLine:       "feral label list [flags]",
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagLabelsListAll, "-a, --all", false, "List all labels, including those with zero messages"),
 			clihelp.Bool(&flagLabelsListNoZero, "-z, --nozero", false, "Only list folders that have at least one message in them"),
@@ -108,10 +110,10 @@ func labelsListCmd(session *Session) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label list"},
-			{Line: "mail_cli label list --ext"},
-			{Line: "mail_cli label list --full --ext"},
-			{Line: "mail_cli label list --nozero"},
+			{Line: "feral label list"},
+			{Line: "feral label list --ext"},
+			{Line: "feral label list --full --ext"},
+			{Line: "feral label list --nozero"},
 		},
 	}
 }
@@ -122,7 +124,7 @@ func labelsPrintCmd(session *Session) clihelp.Command {
 		Aliases:         []string{"pr"},
 		Description:     "Print all labels, one per line.",
 		LongDescription: "Print all labels/folders, one per line (full path only).",
-		UsageLine:       "mail_cli label print",
+		UsageLine:       "feral label print",
 		Args:            clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
 			client, err := GetValidatedClient(session)
@@ -144,7 +146,7 @@ func labelsPrintCmd(session *Session) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label print"},
+			{Line: "feral label print"},
 		},
 	}
 }
@@ -155,7 +157,7 @@ func labelsRenameCmd(session *Session) clihelp.Command {
 		Title:           "label rename <old_name> <new_name>",
 		Description:     "Rename a label and update rules.",
 		LongDescription: "Rename a label/folder and update all existing routing rules that reference it.",
-		UsageLine:       "mail_cli label rename <old_name> <new_name>",
+		UsageLine:       "feral label rename <old_name> <new_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<old_name>", Description: "The full path of the label to rename.", Complete: CompleteFolderNames},
 			{Name: "<new_name>", Description: "The new full path for the label."},
@@ -184,13 +186,20 @@ func labelsRenameCmd(session *Session) clihelp.Command {
 				return err
 			}
 			updateRuleLabels(session.out(), targetAcc, oldName, newName)
+			// Under --read-only the rename above was simulated, so the rules
+			// keep pointing at the label as it is. Saving them used to leave
+			// every rule aimed at a label that did not exist.
+			if session.Config.ReadOnly {
+				fmt.Fprintln(session.out(), "[DRY-RUN] rules not saved: the label was not renamed")
+				return nil
+			}
 			if err := cfgSaveConfig(configPath, fc); err != nil {
 				return err
 			}
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli labels rename "Archive/2025" "Archive/2026"`},
+			{Line: `feral labels rename "Archive/2025" "Archive/2026"`},
 		},
 	}
 }
@@ -201,7 +210,7 @@ func labelsFixCmd(session *Session) clihelp.Command {
 		Aliases:         []string{"fix"},
 		Description:     "Ensure parent folders exist for nested paths.",
 		LongDescription: "Ensure that all parent folders exist for every nested folder path in the account.",
-		UsageLine:       "mail_cli label repair",
+		UsageLine:       "feral label repair",
 		Args:            clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
 			client, err := GetValidatedClient(session)
@@ -211,7 +220,7 @@ func labelsFixCmd(session *Session) clihelp.Command {
 			return client.FixLabels()
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label fix"},
+			{Line: "feral label fix"},
 		},
 	}
 }
@@ -223,7 +232,7 @@ func labelsDelCmd(session *Session) clihelp.Command {
 		Aliases:     []string{"del", "delete"},
 		Title:       "label rm %<name>",
 		Description: "Delete a label or folder from the server.",
-		UsageLine:   "mail_cli label rm %<name>",
+		UsageLine:   "feral label rm %<name>",
 		Parameters: []clihelp.Param{
 			{Name: "<lbl_name>", Description: "The full path of the label to delete.", Complete: CompleteLabelRefs},
 		},
@@ -252,7 +261,7 @@ func labelsDelCmd(session *Session) clihelp.Command {
 			return client.DeleteLabel(folder)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label del %Receipts/Old"},
+			{Line: "feral label del %Receipts/Old"},
 		},
 	}
 }
@@ -263,7 +272,7 @@ func labelsSearchCmd(session *Session) clihelp.Command {
 		Title:           "label search <substring...>",
 		Description:     "Search cached labels by pattern.",
 		LongDescription: "Search cached labels by one or more substring patterns (all must match).",
-		UsageLine:       "mail_cli label search <substring> [additional_substrings...]",
+		UsageLine:       "feral label search <substring> [additional_substrings...]",
 		Parameters: []clihelp.Param{
 			{Name: "<substring>", Description: "Substring to search for in folder paths."},
 			{Name: "[additional_substrings...]", Description: "Extra substrings; all must match.", Variadic: true},
@@ -319,8 +328,8 @@ func labelsSearchCmd(session *Session) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label search receipts"},
-			{Line: "mail_cli label search archive 2026"},
+			{Line: "feral label search receipts"},
+			{Line: "feral label search archive 2026"},
 		},
 	}
 }
@@ -347,12 +356,12 @@ func labelsCacheCmd(session *Session) clihelp.Command {
 		Title:           "label cache",
 		Description:     "Manage the local labels cache.",
 		LongDescription: "Manage the local labels cache: fetch and refresh cached label/folder data from the server.",
-		UsageLine:       "mail_cli label cache <subcommand>",
+		UsageLine:       "feral label cache <subcommand>",
 		Subcommands: []clihelp.Command{
 			labelsCacheUpdateCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label cache update"},
+			{Line: "feral label cache update"},
 		},
 	}
 }
@@ -363,7 +372,7 @@ func labelsCacheUpdateCmd(session *Session) clihelp.Command {
 		Aliases:         []string{"up", "sync"},
 		Description:     "Refresh local cache from server.",
 		LongDescription: "Fetch the latest labels and folder hierarchies from the server and refresh the local cache.",
-		UsageLine:       "mail_cli label cache update",
+		UsageLine:       "feral label cache update",
 		Args:            clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
 			client, err := GetValidatedClient(session)
@@ -378,7 +387,7 @@ func labelsCacheUpdateCmd(session *Session) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label cache update"},
+			{Line: "feral label cache update"},
 		},
 	}
 }
@@ -388,7 +397,7 @@ func labelsCreateCmd(session *Session) clihelp.Command {
 		Name:        "create",
 		Title:       "label create <lbl_name>",
 		Description: "Create a label or folder on the server.",
-		UsageLine:   "mail_cli label create <lbl_name>",
+		UsageLine:   "feral label create <lbl_name>",
 		Parameters: []clihelp.Param{
 			{Name: "<lbl_name>", Description: "The name or path of the label/folder to create."},
 		},
@@ -424,7 +433,7 @@ func labelsCreateCmd(session *Session) clihelp.Command {
 			return nil
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli labels create "Work/Projects"`},
+			{Line: `feral labels create "Work/Projects"`},
 		},
 	}
 }
@@ -434,7 +443,7 @@ func labelsCountCmd(session *Session) clihelp.Command {
 		Name:        "count",
 		Title:       "label count <label> [-q] [-u]",
 		Description: "Count the messages in a label or folder.",
-		UsageLine:   "mail_cli label count <label> [flags]",
+		UsageLine:   "feral label count <label> [flags]",
 		Parameters: []clihelp.Param{
 			{Name: "<label>", Description: "Label or folder, optionally account:label", Complete: CompleteLabelRefs},
 		},
@@ -447,10 +456,10 @@ func labelsCountCmd(session *Session) clihelp.Command {
 			return runLabelsCount(session, ctx.Args[0], flagLabelsCountQuiet, flagLabelsCountUnread)
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli label count inbox"},
-			{Line: "mail_cli label count inbox -q"},
-			{Line: "mail_cli label count FastMail:received_private -q"},
-			{Line: "mail_cli label count work:Inbox -u -q"},
+			{Line: "feral label count inbox"},
+			{Line: "feral label count inbox -q"},
+			{Line: "feral label count FastMail:received_private -q"},
+			{Line: "feral label count work:Inbox -u -q"},
 		},
 	}
 }
@@ -500,8 +509,8 @@ func runLabelsCount(session *Session, labelArg string, quiet, unread bool) error
 	}
 
 	accName := string(client.Config().SelectedAccount)
-	if accName == "" && len(session.Config.Accounts) > 0 {
-		accName = session.Config.Accounts[0].Name
+	if def := cfg_g.DefaultOf(session.Config.Accounts); accName == "" && def != nil {
+		accName = def.Name
 	}
 	display := fmt.Sprintf("%s:%s", accName, item.FullName)
 	// All three lines are the answer to `labels count`, so they are product

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
-func TestAccountRename(t *testing.T) {
+func TestAccountDisplayName(t *testing.T) {
 	// Create a temp directory for config and download dirs
-	tempDir, err := os.MkdirTemp("", "mail_cli_accounts_test")
+	tempDir, err := os.MkdirTemp(testTempRoot(), "feral_accounts_test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -79,26 +79,26 @@ func TestAccountRename(t *testing.T) {
 
 	cliApp := InitCLI(session)
 
-	// 1. Rename nonexistent account (should error)
-	err = cliApp.Execute([]string{"account", "rename", "%nonexistent", "acc3"})
+	// 1. Label a nonexistent account (should error)
+	err = cliApp.Execute([]string{"account", "display-name", "%nonexistent", "acc3"})
 	if err == nil {
 		t.Error("expected error renaming nonexistent account, got nil")
 	}
 
-	// 2. Rename to existing account name (should error - collision)
-	err = cliApp.Execute([]string{"account", "rename", "acc1", "acc2"})
+	// 2. A display name that is another account's name (should error - collision)
+	err = cliApp.Execute([]string{"account", "display-name", "acc1", "acc2"})
 	if err == nil {
 		t.Error("expected error renaming to existing account name, got nil")
 	}
 
-	// 3. Rename to same name but different case (should succeed)
-	err = cliApp.Execute([]string{"account", "rename", "acc1", "ACC1"})
+	// 3. Its own name in another case (should succeed)
+	err = cliApp.Execute([]string{"account", "display-name", "acc1", "ACC1"})
 	if err != nil {
 		t.Errorf("unexpected error renaming to same name with case change: %v", err)
 	}
 
-	// 4. Normal rename (should succeed and update DisplayName)
-	err = cliApp.Execute([]string{"account", "rename", "ACC1", "acc3"})
+	// 4. A new display name (should succeed and leave the name alone)
+	err = cliApp.Execute([]string{"account", "display-name", "ACC1", "acc3"})
 	if err != nil {
 		t.Errorf("unexpected error renaming account: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestAccountRename(t *testing.T) {
 }
 
 func TestAccountListNumbers(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "mail_cli_list_test")
+	tempDir, err := os.MkdirTemp(testTempRoot(), "feral_list_test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -350,4 +350,64 @@ func TestCleanupAccountToken_NoTokenForBackend(t *testing.T) {
 
 	cleanupAccountToken(session, filepath.Join(tempDir, "config.json"),
 		&cfg_acc.AccountConfig{Name: "local", Type: "mbox"})
+}
+
+// Login sets the old token aside instead of deleting it. Abandoning the
+// sign-in used to leave a working account with no credentials.
+func TestSetAsideAccountToken(t *testing.T) {
+	setup := func(t *testing.T) (*Session, string, string) {
+		dir := t.TempDir()
+		tokenPath := filepath.Join(dir, "token.json")
+		if err := os.WriteFile(tokenPath, []byte("old"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		session := &Session{
+			Config: &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: dir}, Accounts: []cfg_acc.AccountConfig{{Name: "a", Type: "outlook"}}},
+			Deps: Deps{Accounts: stubAccounts{TokenPathFn: func(string, cfg_acc.AccountConfig) (string, error) {
+				return tokenPath, nil
+			}}},
+		}
+		return session, filepath.Join(dir, "config.json"), tokenPath
+	}
+	read := func(path string) string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "<missing>"
+		}
+		return string(data)
+	}
+
+	t.Run("abandoned login keeps the old token", func(t *testing.T) {
+		session, configPath, tokenPath := setup(t)
+		settle := setAsideAccountToken(session, configPath, &session.Config.Accounts[0])
+		if got := read(tokenPath); got != "<missing>" {
+			t.Fatalf("token still in place during login: %q", got)
+		}
+		settle()
+		if got := read(tokenPath); got != "old" {
+			t.Errorf("token after an abandoned login = %q, want the old one", got)
+		}
+	})
+	t.Run("successful login replaces it", func(t *testing.T) {
+		session, configPath, tokenPath := setup(t)
+		settle := setAsideAccountToken(session, configPath, &session.Config.Accounts[0])
+		if err := os.WriteFile(tokenPath, []byte("new"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		settle()
+		if got := read(tokenPath); got != "new" {
+			t.Errorf("token = %q, want the new one", got)
+		}
+		if got := read(tokenPath + setAsideSuffix); got != "<missing>" {
+			t.Errorf("old token left behind: %q", got)
+		}
+	})
+	t.Run("a killed login is settled by the next run", func(t *testing.T) {
+		session, configPath, tokenPath := setup(t)
+		_ = setAsideAccountToken(session, configPath, &session.Config.Accounts[0]) // killed: never settled
+		restoreSetAsideTokens(session)
+		if got := read(tokenPath); got != "old" {
+			t.Errorf("token after the next run = %q, want the old one", got)
+		}
+	})
 }

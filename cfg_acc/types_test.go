@@ -1,6 +1,10 @@
 package cfg_acc
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // MatchRules decides where a message is filed, so a wrong match moves mail the
 // user did not ask to move. The 2026-09-01 review flagged domain matching as a
@@ -240,5 +244,29 @@ func TestIsFolderReadOnly(t *testing.T) {
 		t.Run(tc.folder, func(t *testing.T) {
 			assertBoolCase(t, tc.folder, tc.want, accWithFolders.IsFolderReadOnly)
 		})
+	}
+}
+
+func TestMboxPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory")
+	}
+	for _, tc := range []struct {
+		path, want string
+		ok         bool
+	}{
+		{"/var/mail/someone", "/var/mail/someone", true},
+		{"~/mail/a.mbox", filepath.Join(home, "mail/a.mbox"), true},
+		{"  ", "", false},
+		{"", "", false},
+	} {
+		got, err := AccountConfig{Name: "x", Type: "mbox", Path: tc.path}.MboxPath()
+		if (err == nil) != tc.ok || got != tc.want {
+			t.Errorf("MboxPath(%q) = %q, %v; want %q, ok=%v", tc.path, got, err, tc.want, tc.ok)
+		}
+	}
+	if !(AccountConfig{Type: "MBOX"}).IsMbox() || (AccountConfig{Type: "gmail"}).IsMbox() {
+		t.Error("IsMbox does not follow the account type")
 	}
 }

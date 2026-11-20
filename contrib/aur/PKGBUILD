@@ -1,6 +1,6 @@
 # Maintainer: Sariel Har-Peled <sariel@gmail.com>
 #
-# Template for the AUR `mail-cli` package. Releases are source-only, so this
+# Template for the AUR `feral` package (formerly `mail-cli`). Releases are source-only, so this
 # builds the binary from the tagged source tarball -- there is no prebuilt
 # binary to install, which is why this is no longer a `-bin` package.
 #
@@ -10,15 +10,15 @@
 #   2. refresh the checksum -- run `updpkgsums` inside the directory,
 #   3. run `makepkg --printsrcinfo > .SRCINFO` and commit both files.
 
-pkgname=mail-cli
+pkgname=feral
 pkgver=0.7.46
 pkgrel=1
-pkgdesc='Modern API-first terminal email client for Gmail, Microsoft 365, and Fastmail.'
+pkgdesc='A terminal mail client for Linux: Gmail, Outlook and Fastmail, no sync daemons.'
 arch=('x86_64' 'aarch64')
-url='https://github.com/sarielhp/mail_cli'
+url='https://github.com/sarielhp/feral'
 license=('MIT')
-provides=('mail_cli')
-conflicts=('mail_cli' 'mail-cli-bin')
+provides=('feral' 'mail_cli')
+conflicts=('mail_cli' 'mail-cli' 'mail-cli-bin')
 makedepends=('go')
 options=('!strip')
 
@@ -26,9 +26,9 @@ source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz
 sha256sums=('SKIP')
 
 build() {
-  cd "${srcdir}/mail_cli-${pkgver}"
+  cd "${srcdir}/feral-${pkgver}"
   export CGO_ENABLED=0
-  go build -trimpath -ldflags "-s -w" -o mail_cli .
+  go build -trimpath -ldflags "-s -w" -o feral .
 
   # The completion scripts are gitignored build output, so generate them here
   # rather than expecting them in the tarball; package() installs completions/.
@@ -36,14 +36,16 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/mail_cli-${pkgver}"
-  install -Dm755 mail_cli "${pkgdir}/usr/bin/mail_cli"
+  cd "${srcdir}/feral-${pkgver}"
+  install -Dm755 feral "${pkgdir}/usr/bin/feral"
+  # The name before the rename, for scripts and muscle memory.
+  ln -s feral "${pkgdir}/usr/bin/mail_cli"
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
-  install -Dm644 completions/mail_cli.bash \
-    "${pkgdir}/usr/share/bash-completion/completions/mail_cli"
-  install -Dm644 completions/_mail_cli \
-    "${pkgdir}/usr/share/zsh/site-functions/_mail_cli"
-  install -Dm644 completions/mail_cli.fish \
-    "${pkgdir}/usr/share/fish/vendor_completions.d/mail_cli.fish"
+  install -Dm644 completions/feral.bash \
+    "${pkgdir}/usr/share/bash-completion/completions/feral"
+  install -Dm644 completions/_feral \
+    "${pkgdir}/usr/share/zsh/site-functions/_feral"
+  install -Dm644 completions/feral.fish \
+    "${pkgdir}/usr/share/fish/vendor_completions.d/feral.fish"
 }

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli spam allow rm'
-parent: 'mail_cli spam allow'
+title: 'feral spam allow rm'
+parent: 'feral spam allow'
 ---
 
-# mail\_cli spam allow rm
+# feral spam allow rm
 
 Remove email addresses from allowlist.
 
 ## Usage
 
 ```
-mail_cli spam allow rm <email...>
+feral spam allow rm <email...>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli spam allow rm <email...>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,8 +34,8 @@ mail_cli spam allow rm <email...>
 
 ## Examples
 
-- `mail_cli spam allow rm friend@example.com`
+- `feral spam allow rm friend@example.com`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

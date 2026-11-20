@@ -1,17 +1,17 @@
 package outlook
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"io"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/train"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/train"
 )
 
 func TestOutlookClient_LearnSpam_CorruptedLedger(t *testing.T) {

@@ -6,12 +6,13 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -22,14 +23,14 @@ func ruleAddDomainCmd(session *Session) clihelp.Command {
 		Title:           "rule add-domain <message_id> [lbl]",
 		Description:     "Add rule for a sender's domain.",
 		LongDescription: "Add an auto-labeling rule for a sender's domain from a cached message ID.",
-		UsageLine:       "mail_cli rule add-domain <message_id> [lbl]",
+		UsageLine:       "feral rule add-domain <message_id> [lbl]",
 		Parameters: []clihelp.Param{
 			{Name: "<message_id>", Description: "The message ID or short ID of the email."},
 			{Name: "[lbl]", Description: "Target label (default: message's folder).", Complete: CompleteLabelRefs},
 		},
 		Examples: []clihelp.Example{
-			{Line: `mail_cli rule add-domain 12345 %Sort/Newsletters`},
-			{Line: "mail_cli rule add-domain 12345"},
+			{Line: `feral rule add-domain 12345 %Sort/Newsletters`},
+			{Line: "feral rule add-domain 12345"},
 		},
 		Args: clihelp.RangeArgs(1, 2),
 		Run: func(ctx *clihelp.Context) error {
@@ -163,6 +164,9 @@ func resolveCachedEmail(session *Session, targetAcc *cfg_acc.AccountConfig, mess
 			continue
 		}
 		seen[c] = true
+		if meta.Check(c, "") != nil {
+			continue // a cache this build does not understand
+		}
 		if fid, fname, fErr := cache.FindCachedEmailByID(c, messageID); fErr == nil {
 			return fid, fname, c, nil
 		}

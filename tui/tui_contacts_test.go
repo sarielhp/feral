@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/contacts"
+	"github.com/sarielhp/feral/contacts"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -35,15 +35,15 @@ func typeInto(m *tuiModel, s string) {
 func TestContactPicker_SearchAndAddToTo(t *testing.T) {
 	m := composeWithContacts(t)
 	press(m, "f5")
-	if m.contactPick == nil || m.contactPick.target != fieldTo || len(m.contactPick.results) != 3 {
+	if m.contactPick == nil || m.contactPick.target != fieldTo || len(m.contactPick.Results) != 3 {
 		t.Fatalf("picker = %+v", m.contactPick)
 	}
 	if !strings.Contains(m.View(), "CONTACTS") {
 		t.Fatal("picker not drawn over the compose screen")
 	}
 	typeInto(m, "bob")
-	if len(m.contactPick.results) != 1 || m.contactPick.results[0].PrimaryEmail() != "bob@example.com" {
-		t.Fatalf("results for bob = %+v", m.contactPick.results)
+	if len(m.contactPick.Results) != 1 || m.contactPick.Results[0].PrimaryEmail() != "bob@example.com" {
+		t.Fatalf("results for bob = %+v", m.contactPick.Results)
 	}
 	press(m, "enter")
 	if m.contactPick != nil || m.compose.To != "Bob Brown <bob@example.com>" {

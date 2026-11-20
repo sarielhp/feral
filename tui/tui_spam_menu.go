@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/spam"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/spam"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -156,7 +156,8 @@ func (m *tuiModel) moveAllSpam() (tea.Model, tea.Cmd) {
 		m.showError = true
 		return m, nil
 	}
-	m.showLoad = "Moving [SPAM] messages..."
+	m.showLoad = loadMovingSpam
+	m.loadEscNoted = false
 	m.saveStatus = fmt.Sprintf("Moving %d [SPAM] message(s) to Spam...", len(ids))
 	m.saveStatusTime = time.Now()
 
@@ -187,8 +188,11 @@ func (m *tuiModel) moveAllSpam() (tea.Model, tea.Cmd) {
 // shows how many messages are currently marked.
 func renderSpamMenu(m *tuiModel) string {
 	items := spamMenuItems()
-	dialogWidth := min(76, max(52, m.width-4))
-	inner := dialogWidth - 4 // accounting for Padding(1, 2)
+	dialogWidth := min(76, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	inner := max(10, dialogWidth-4) // accounting for Padding(1, 2)
 
 	var content strings.Builder
 	content.WriteString("\n")

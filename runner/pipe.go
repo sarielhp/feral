@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/report"
 )
 
 // RunPipe pipes a message's content (raw, body-only, or headers-only) to an external command.
@@ -20,7 +20,7 @@ func RunPipe(out io.Writer, errOut io.Writer, config *cfg_g.Config, opts cli.Pip
 		return fmt.Errorf("pipe requires an external command to execute")
 	}
 
-	_, _, _, rawBytes, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, rep)
+	_, _, _, rawBytes, _, err := findMessageAcrossAccounts(config, opts.Account, opts.MessageID, rep)
 	if err != nil {
 		return err
 	}

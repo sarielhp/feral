@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts harvest'
-parent: 'mail_cli contacts'
+title: 'feral contacts harvest'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts harvest
+# feral contacts harvest
 
 Scan cached sent and archived messages across all accounts to build the recipient suggestion index.
 
 ## Usage
 
 ```
-mail_cli contacts harvest
+feral contacts harvest
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli contacts harvest
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli contacts harvest
 
 ## Examples
 
-- `mail_cli contacts harvest`
+- `feral contacts harvest`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -1,8 +1,10 @@
 package cfg_g
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"strings"
+
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // Credentials is how to reach an account's server. Per account, not global:
@@ -47,15 +49,17 @@ type Policy struct {
 // how to draw attachments. Nothing below the user interface reads these, and
 // grouping them says so.
 type Prefs struct {
-	Browser                string
-	Editor                 string
-	EditorArgs             []string
-	Quiet                  bool
-	Verbose                bool
-	HideZeroLabels         bool
-	AttachmentSaveDir      string
-	AttachmentInvertColors bool
-	GitHubURL              string
+	Browser           string
+	Editor            string
+	EditorArgs        []string
+	Quiet             bool
+	Verbose           bool
+	HideZeroLabels    bool
+	AttachmentSaveDir string
+	SaveLocations     []string // the directories the save dialog jumps to; nil means the default pair
+	GitHubURL         string
+	// TuiWatch runs the new-mail watcher for as long as the TUI is open.
+	TuiWatch bool
 }
 
 // Config is one run's settings: the four groups above, plus the session state
@@ -79,9 +83,15 @@ type Config struct {
 	// zero one rather than reading the root.
 	AccountCache       cachedir.Account
 	DefaultSendAccount string
-	AccountType        string
-	FixConfig          bool
-	ReadOnly           bool
+	// DefaultAccount is config.json's default_account, as written; the
+	// account it names carries IsDefault. See DefaultOf.
+	DefaultAccount string
+	// MyEmails are the user's own addresses besides each account's
+	// user_email; see OwnAddresses.
+	MyEmails    []string
+	AccountType string
+	FixConfig   bool
+	ReadOnly    bool
 
 	// DryRun reports every change instead of making it, local writes included.
 	// ReadOnly is the narrower flag: it forbids server mutations but permits
@@ -90,6 +100,13 @@ type Config struct {
 	DryRun       bool
 	LLM          LLMConfig
 	SaveSentCopy bool
+
+	// Links is config.json's links, as loaded (and migrated in memory).
+	Links map[string]Link
+	// LinksDeclared records that config.json had a "links" key when it was
+	// read, before any migration: until then, starting feral under an
+	// account's alias still selects that account.
+	LinksDeclared bool
 }
 
 // LLMConfig stores settings for connecting to a local or remote LLM endpoint.
@@ -106,6 +123,9 @@ type LLMConfig struct {
 	// still works against a backend that does not know the field.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	AutoSummary     *bool  `json:"auto_summary,omitempty"`
+	// AutoSubject lets a message sent with an empty subject get one written
+	// by the model from its body and attachment names; nil means enabled.
+	AutoSubject *bool `json:"auto_subject,omitempty"`
 }
 
 // IsAutoSummaryEnabled returns true unless explicitly disabled in config.
@@ -116,36 +136,65 @@ func (l LLMConfig) IsAutoSummaryEnabled() bool {
 	return *l.AutoSummary
 }
 
-// FileConfig defines the fields structured inside ~/.config/mail_cli/config.json
+// IsAutoSubjectEnabled reports whether an empty subject is filled in by the
+// model: on unless explicitly disabled, but only meaningful with an endpoint.
+func (l LLMConfig) IsAutoSubjectEnabled() bool {
+	if strings.TrimSpace(l.Endpoint) == "" {
+		return false
+	}
+	if l.AutoSubject == nil {
+		return true
+	}
+	return *l.AutoSubject
+}
+
+// FileConfig defines the fields structured inside ~/.config/feral/config.json
 type FileConfig struct {
-	Username               string                   `json:"username"`
-	Password               string                   `json:"password"`
-	IMAPHost               string                   `json:"imap_host"`
-	DownloadDir            string                   `json:"download_dir"`
-	Limit                  *int                     `json:"limit"`
-	ScoreThreshold         *float64                 `json:"score_threshold"`
-	SpamFolder             string                   `json:"spam_folder"`
-	ReceivedFolder         string                   `json:"received_folder"`
-	SpamLearn              string                   `json:"spam_learn,omitempty"`
-	UnspamLearn            string                   `json:"unspam_learn,omitempty"`
-	AllowedLanguages       *[]string                `json:"allowed_languages"`
-	BlockPolitical         *bool                    `json:"block_political"`
-	AutoUnsubscribe        *bool                    `json:"auto_unsubscribe"`
-	Whitelist              *[]string                `json:"whitelist,omitempty"`
-	Blacklist              *[]string                `json:"blacklist,omitempty"`
-	Rules                  *[]cfg_acc.Rule          `json:"rules,omitempty"`
-	Accounts               *[]cfg_acc.AccountConfig `json:"accounts"`
-	Browser                string                   `json:"browser,omitempty"`
-	Editor                 string                   `json:"editor,omitempty"`
-	EditorArgs             []string                 `json:"editor_args,omitempty"`
-	ReadOnly               *bool                    `json:"read_only,omitempty"`
-	LLM                    *LLMConfig               `json:"llm,omitempty"`
-	AttachmentSaveDir      string                   `json:"attachment_save_dir,omitempty"`
-	AttachmentInvertColors *bool                    `json:"attachment_invert_colors,omitempty"`
-	SaveSentCopy           *bool                    `json:"save_sent_copy,omitempty"`
-	GitHubURL              string                   `json:"github_url,omitempty"`
-	MuttAliases            string                   `json:"mutt_aliases,omitempty"`
-	DefaultSendAccount     string                   `json:"default_send_account,omitempty"`
+	// Format is config.json's file format (see fileformat); absent means 1.
+	Format             int                      `json:"format,omitempty"`
+	Username           string                   `json:"username"`
+	Password           string                   `json:"password"`
+	IMAPHost           string                   `json:"imap_host"`
+	DownloadDir        string                   `json:"download_dir"`
+	Limit              *int                     `json:"limit"`
+	ScoreThreshold     *float64                 `json:"score_threshold"`
+	SpamFolder         string                   `json:"spam_folder"`
+	ReceivedFolder     string                   `json:"received_folder"`
+	SpamLearn          string                   `json:"spam_learn,omitempty"`
+	UnspamLearn        string                   `json:"unspam_learn,omitempty"`
+	AllowedLanguages   *[]string                `json:"allowed_languages"`
+	BlockPolitical     *bool                    `json:"block_political"`
+	AutoUnsubscribe    *bool                    `json:"auto_unsubscribe"`
+	Whitelist          *[]string                `json:"whitelist,omitempty"`
+	Blacklist          *[]string                `json:"blacklist,omitempty"`
+	Rules              *[]cfg_acc.Rule          `json:"rules,omitempty"`
+	Accounts           *[]cfg_acc.AccountConfig `json:"accounts"`
+	Browser            string                   `json:"browser,omitempty"`
+	Editor             string                   `json:"editor,omitempty"`
+	EditorArgs         []string                 `json:"editor_args,omitempty"`
+	ReadOnly           *bool                    `json:"read_only,omitempty"`
+	LLM                *LLMConfig               `json:"llm,omitempty"`
+	AttachmentSaveDir  string                   `json:"attachment_save_dir,omitempty"`
+	SaveLocations      []string                 `json:"save_locations,omitempty"`
+	SaveSentCopy       *bool                    `json:"save_sent_copy,omitempty"`
+	GitHubURL          string                   `json:"github_url,omitempty"`
+	TuiWatch           *bool                    `json:"tui_watch,omitempty"`
+	MuttAliases        string                   `json:"mutt_aliases,omitempty"`
+	DefaultSendAccount string                   `json:"default_send_account,omitempty"`
+	MyEmails           []string                 `json:"my_emails,omitempty"`
+	// DefaultAccount names the account a command acts on when it names none
+	// (`account default`). Empty means the first account.
+	DefaultAccount string `json:"default_account,omitempty"`
+	// Links are the other names feral runs under (see Link). A pointer, so
+	// that a config.json without the key -- one the aliases migration has not
+	// reached -- differs from one with no links.
+	Links *map[string]Link `json:"links,omitempty"`
+
+	// loaded is what this FileConfig saw of each shared file when it was
+	// loaded or last saved: what SaveConfigFile needs to merge with a change
+	// another process made underneath (see fileState). Nil for a FileConfig
+	// that was built rather than loaded, which a save writes as it is.
+	loaded loadState
 }
 
 // IsSaveSentCopyEnabled returns whether saving a sent copy is enabled for the selected account or global default.

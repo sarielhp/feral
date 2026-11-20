@@ -5,11 +5,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestHandleConfigSetAndReset_LLM(t *testing.T) {
@@ -313,5 +314,77 @@ func TestHandleConfigSetUsername(t *testing.T) {
 	}
 	if got := (*saved.Accounts)[0].Username; got != "me@example.com" {
 		t.Errorf("username = %q, want me@example.com", got)
+	}
+}
+
+// config get my_emails prints one address per line.
+func TestHandleConfigGet_MyEmailsOnePerLine(t *testing.T) {
+	dir := t.TempDir()
+	addrs := []string{"a@x.example", "b@y.example"}
+	accounts := []cfg_acc.AccountConfig{{Name: "work", Username: "work@example.com"}}
+	fc := &cfg_g.FileConfig{Accounts: &accounts, MyEmails: addrs}
+	if err := cfg_g.SaveConfigFile(filepath.Join(dir, "config.json"), fc); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+	config := &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: dir}, Accounts: accounts, MyEmails: addrs}
+	var buf bytes.Buffer
+	if err := HandleConfigGet(&buf, config, "my_emails"); err != nil {
+		t.Fatalf("HandleConfigGet my_emails: %v", err)
+	}
+	if got, want := buf.String(), "a@x.example\nb@y.example\n"; got != want {
+		t.Errorf("get my_emails = %q, want %q", got, want)
+	}
+}
+
+// save_locations is a global list: set takes it comma-separated, get and show
+// print it, reset returns to the default pair.
+func TestHandleConfigSetGetReset_SaveLocations(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.json")
+	accounts := []cfg_acc.AccountConfig{{Name: "work", Username: "work@example.com"}}
+	if err := cfg_g.SaveConfigFile(cfgPath, &cfg_g.FileConfig{Accounts: &accounts}); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+	config := &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: dir}, Accounts: accounts}
+
+	var getBuf bytes.Buffer
+	if err := HandleConfigGet(&getBuf, config, "save_locations"); err != nil {
+		t.Fatalf("HandleConfigGet save_locations failed: %v", err)
+	}
+	if got := strings.TrimSpace(getBuf.String()); got != "~/Downloads, ~" {
+		t.Errorf("unset save_locations reads %q, want the default pair", got)
+	}
+
+	if err := HandleConfigSet(io.Discard, config, "save_locations", "~/Downloads, ~/info/misc ,~"); err != nil {
+		t.Fatalf("HandleConfigSet save_locations failed: %v", err)
+	}
+	want := []string{"~/Downloads", "~/info/misc", "~"}
+	if !slices.Equal(config.SaveLocations, want) {
+		t.Errorf("SaveLocations = %v, want %v", config.SaveLocations, want)
+	}
+	fc, err := cfg_g.LoadConfigFile(cfgPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !slices.Equal(fc.SaveLocations, want) {
+		t.Errorf("file holds %v, want %v", fc.SaveLocations, want)
+	}
+
+	var showBuf bytes.Buffer
+	if err := HandleConfigShow(&showBuf, config); err != nil {
+		t.Fatalf("HandleConfigShow failed: %v", err)
+	}
+	if !strings.Contains(showBuf.String(), "Save Locations:      ~/Downloads, ~/info/misc, ~") {
+		t.Errorf("show output lacks the locations:\n%s", showBuf.String())
+	}
+
+	if err := HandleConfigReset(io.Discard, config, "save_locations"); err != nil {
+		t.Fatalf("HandleConfigReset save_locations failed: %v", err)
+	}
+	if config.SaveLocations != nil {
+		t.Errorf("after reset SaveLocations = %v, want nil", config.SaveLocations)
+	}
+	if got := config.SaveLocationsOrDefault(); !slices.Equal(got, cfg_g.DefaultSaveLocations) {
+		t.Errorf("after reset the locations are %v, want the default pair", got)
 	}
 }

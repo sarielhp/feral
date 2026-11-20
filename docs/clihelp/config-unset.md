@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli config unset'
-parent: 'mail_cli config'
+title: 'feral config unset'
+parent: 'feral config'
 ---
 
-# mail\_cli config unset
+# feral config unset
 
 Reset a configuration parameter to default.
 
 ## Usage
 
 ```
-mail_cli config unset <key>
+feral config unset <key>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli config unset <key>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli config unset <key>
 
 ## Examples
 
-- `mail_cli config unset score_threshold`
-- `mail_cli config unset mutt_alias_file`
+- `feral config unset score_threshold`
+- `feral config unset mutt_alias_file`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

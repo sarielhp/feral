@@ -13,9 +13,11 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sarielhp/feral/testenv"
 )
 
-const envVar = "MAIL_CLI_INTERACTIVE"
+const envVar = "FERAL_INTERACTIVE"
 
 // requiredTool is a program the harness runs, and the Debian package that
 // provides it.
@@ -38,7 +40,7 @@ var requiredTools = []requiredTool{
 // was asked for never passes by testing nothing.
 func requireInteractive(t *testing.T) {
 	t.Helper()
-	if os.Getenv(envVar) != "1" {
+	if testenv.Getenv(t, envVar) != "1" {
 		t.Skipf("interactive test; run with %s=1", envVar)
 	}
 	var missing []string
@@ -75,16 +77,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// binary builds mail_cli once per run, from the module root.
+// binary builds feral once per run, from the module root.
 func binary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "mail_cli-interactive-bin")
+		dir, err := os.MkdirTemp(testTempRoot(), "feral-interactive-bin")
 		if err != nil {
 			errBuild = err
 			return
 		}
-		binPath = filepath.Join(dir, "mail_cli")
+		binPath = filepath.Join(dir, "feral")
 		cmd := exec.Command("go", "build", "-o", binPath, ".")
 		cmd.Dir = ".."
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -97,13 +99,18 @@ func binary(t *testing.T) string {
 	return binPath
 }
 
-// session is one mail_cli run in kitty on a private display.
+// session is one feral run in kitty on a private display.
 type session struct {
 	t      *testing.T
 	dir    string
 	sock   string
 	opened string
 	env    []string // DISPLAY and XAUTHORITY, for xdotool and import
+
+	// Set for a sandboxed session (sandbox_test.go): where stubbed programs
+	// record themselves, and where the program's exit status lands.
+	toolLog  string
+	exitFile string
 }
 
 // launcher runs inside xvfb-run: it records the display it was given, then
@@ -118,7 +125,7 @@ exec kitty --config NONE -o allow_remote_control=yes --listen-on "$sock" \
   -o initial_window_width=1000 -o initial_window_height=800 "$@"
 `
 
-// start runs mail_cli with args in a fresh terminal and returns once kitty
+// start runs feral with args in a fresh terminal and returns once kitty
 // answers remote control. Everything it started is stopped when t ends.
 func start(t *testing.T, args ...string) *session {
 	t.Helper()
@@ -128,20 +135,46 @@ func start(t *testing.T, args ...string) *session {
 // startWith is start with accounts as the config's accounts list.
 func startWith(t *testing.T, accounts []map[string]any, args ...string) *session {
 	t.Helper()
+	return startHome(t, homeSpec{accounts: accounts}, args...)
+}
+
+// homeSpec is what the private HOME holds besides the generated config:
+// the accounts list, and files to place in the config directory by name --
+// for a live run, the test account's OAuth token.
+type homeSpec struct {
+	accounts    []map[string]any
+	configFiles map[string][]byte
+	// sandbox runs the binary with a PATH of its own; see sandbox_test.go.
+	sandbox bool
+	// watch leaves the TUI's new-mail watcher on; every other session turns
+	// it off, see writeHome.
+	watch bool
+}
+
+// startHome is start with the HOME described by spec.
+func startHome(t *testing.T, spec homeSpec, args ...string) *session {
+	t.Helper()
 	requireInteractive(t)
 	bin := binary(t)
 	s := &session{t: t, dir: t.TempDir()}
 	s.sock = filepath.Join(s.dir, "kitty.sock")
 	s.opened = filepath.Join(s.dir, "opened.txt")
-	home := s.writeHome(accounts)
+	home := s.writeHome(spec)
 
 	launch := filepath.Join(s.dir, "launch.sh")
 	if err := os.WriteFile(launch, []byte(launcher), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	envFile := filepath.Join(s.dir, "display.env")
-	cmdArgs := append([]string{"-a", "-s", "-screen 0 1280x1024x24", launch, envFile, "unix:" + s.sock, bin}, args...)
+	program := append([]string{bin}, args...)
+	if spec.sandbox {
+		program = s.sandboxProgram(bin, args)
+	}
+	cmdArgs := append([]string{"-a", "-s", "-screen 0 1280x1024x24", launch, envFile, "unix:" + s.sock}, program...)
 	cmd := exec.Command("xvfb-run", cmdArgs...)
+	// The program's working directory is the test's own: inherited, it was
+	// the repository, where a "save to disk" would have written.
+	cmd.Dir = s.dir
 	cmd.Env = cleanEnv(home, s.dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	log, err := os.Create(filepath.Join(s.dir, "xvfb.log"))
@@ -168,9 +201,10 @@ func startWith(t *testing.T, accounts []map[string]any, args ...string) *session
 // writeHome makes the HOME the binary sees: a config whose download_dir is
 // inside the test directory, whose browser only records its argument, and
 // whose accounts are the given ones -- in a test, fakes on 127.0.0.1.
-func (s *session) writeHome(accounts []map[string]any) string {
+func (s *session) writeHome(spec homeSpec) string {
+	accounts := spec.accounts
 	home := filepath.Join(s.dir, "home")
-	cfgDir := filepath.Join(home, ".config", "mail_cli")
+	cfgDir := filepath.Join(home, ".config", "feral")
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		s.t.Fatal(err)
 	}
@@ -186,12 +220,20 @@ func (s *session) writeHome(accounts []map[string]any) string {
 		"download_dir": filepath.Join(s.dir, "cache"),
 		"browser":      browser,
 		"accounts":     accounts,
+		// The TUI's new-mail watcher would poll in the background and could
+		// start notify-send, which the sandboxed runs count as a stray program.
+		"tui_watch": spec.watch,
 	})
 	if err != nil {
 		s.t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), cfg, 0o600); err != nil {
 		s.t.Fatal(err)
+	}
+	for name, data := range spec.configFiles {
+		if err := os.WriteFile(filepath.Join(cfgDir, filepath.Base(name)), data, 0o600); err != nil {
+			s.t.Fatal(err)
+		}
 	}
 	return home
 }
@@ -283,7 +325,14 @@ func (s *session) Type(text string) {
 // WaitFor waits until the screen shows want and returns the screen.
 func (s *session) WaitFor(want string) string {
 	s.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	return s.WaitForWithin(want, 10*time.Second)
+}
+
+// WaitForWithin is WaitFor with its own deadline, for a screen that waits
+// on a real server.
+func (s *session) WaitForWithin(want string, limit time.Duration) string {
+	s.t.Helper()
+	deadline := time.Now().Add(limit)
 	for {
 		screen := s.Text()
 		if strings.Contains(screen, want) {
@@ -413,7 +462,7 @@ func (s *session) saveOnFailure() {
 	if !s.t.Failed() || s.env == nil {
 		return
 	}
-	out := filepath.Join(os.TempDir(), "mail_cli-interactive", strings.ReplaceAll(s.t.Name(), "/", "_"))
+	out := filepath.Join(testTempRoot(), "interactive", strings.ReplaceAll(s.t.Name(), "/", "_"))
 	if err := os.MkdirAll(out, 0o700); err != nil {
 		return
 	}
@@ -423,5 +472,13 @@ func (s *session) saveOnFailure() {
 	if text, err := exec.Command("kitty", "@", "--to", "unix:"+s.sock, "get-text", "--match", "id:1").Output(); err == nil {
 		_ = os.WriteFile(filepath.Join(out, "screen.txt"), text, 0o600)
 	}
-	s.t.Logf("failure screenshot and screen text saved in %s", out)
+	// The program's own logs say what it did with the keys; they live in the
+	// private HOME, which goes when the test ends.
+	logs := filepath.Join(s.dir, "home", ".config", "feral", "logs")
+	for _, name := range []string{"feral.log", "tui.log"} {
+		if data, err := os.ReadFile(filepath.Join(logs, name)); err == nil {
+			_ = os.WriteFile(filepath.Join(out, name), data, 0o600)
+		}
+	}
+	s.t.Logf("failure screenshot, screen text and logs saved in %s", out)
 }

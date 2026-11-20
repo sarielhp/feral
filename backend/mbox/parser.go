@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"io"
 	"log/slog"
 	"net/mail"
@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 type mboxMeta struct {
@@ -428,12 +428,57 @@ func parseMboxStreamWithSeen(r io.Reader, cacheDir cachedir.Account, fallbackDat
 	}
 	defer batch.Close()
 
-	reader := bufio.NewReaderSize(r, initialLineCapacity)
 	var ids []email.ID
 	var records []mboxIndexRecord
-	var currentMsg bytes.Buffer
+	err = scanMbox(r, func(sp mboxSpan) error {
+		if !sp.preamble {
+			appendProcessedMessage(&ids, &records, batch, cacheDir, sp.content, fallbackDate, seenIDs, isAppend)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := batch.Close(); err != nil {
+		return nil, nil, err
+	}
+	return ids, records, nil
+}
+
+// mboxSpan is one stretch of an mbox file: a message, from its From_ line up
+// to the next one or the end, or the preamble before the first From_ line.
+type mboxSpan struct {
+	start, end int64 // byte offsets in the stream, the From_ line included
+	// content is the message as the cache stores it: the From_ line dropped
+	// and one level of >From quoting removed. It is valid only during the
+	// callback.
+	content  []byte
+	preamble bool
+}
+
+// scanMbox splits r into spans and calls fn for each, in order. Every byte of
+// the stream belongs to exactly one span, so a rewrite that copies the spans
+// it keeps reproduces them byte for byte. The parser and the rewrite share it,
+// so they never disagree about where a message starts or what it holds.
+func scanMbox(r io.Reader, fn func(mboxSpan) error) error {
+	reader := bufio.NewReaderSize(r, initialLineCapacity)
+	var current bytes.Buffer
+	var offset, start int64
 	inMessage := false
 	line := make([]byte, 0, initialLineCapacity)
+
+	emit := func(end int64) error {
+		if end == start {
+			return nil
+		}
+		err := fn(mboxSpan{start: start, end: end, content: current.Bytes(), preamble: !inMessage})
+		if current.Cap() > 8<<20 {
+			current = bytes.Buffer{}
+		} else {
+			current.Reset()
+		}
+		return err
+	}
 
 	for {
 		fragment, readErr := reader.ReadSlice('\n')
@@ -442,53 +487,47 @@ func parseMboxStreamWithSeen(r io.Reader, cacheDir cachedir.Account, fallbackDat
 			continue
 		}
 		if readErr != nil && readErr != io.EOF {
-			return nil, nil, readErr
+			return readErr
 		}
 		if len(line) == 0 && readErr == io.EOF {
 			break
 		}
-
 		if bytes.HasPrefix(line, []byte("From ")) {
-			if inMessage && currentMsg.Len() > 0 {
-				appendProcessedMessage(&ids, &records, batch, cacheDir, currentMsg.Bytes(), fallbackDate, seenIDs, isAppend)
-				if currentMsg.Cap() > 8<<20 {
-					currentMsg = bytes.Buffer{}
-				} else {
-					currentMsg.Reset()
-				}
+			if err := emit(offset); err != nil {
+				return err
 			}
 			inMessage = true
-			line = resetMboxLine(line)
-			if readErr == io.EOF {
-				break
-			}
-			continue
+			start = offset
+		} else if inMessage {
+			_, _ = current.Write(unquoteFromLine(line))
 		}
-
-		if inMessage {
-			toWrite := line
-			if bytes.HasPrefix(toWrite, []byte(">")) && bytes.HasPrefix(bytes.TrimLeft(toWrite, ">"), []byte("From ")) {
-				toWrite = toWrite[1:]
-			}
-			_, _ = currentMsg.Write(toWrite)
-		}
+		offset += int64(len(line))
 		line = resetMboxLine(line)
 		if readErr == io.EOF {
 			break
 		}
 	}
+	return emit(offset)
+}
 
-	if inMessage && currentMsg.Len() > 0 {
-		appendProcessedMessage(&ids, &records, batch, cacheDir, currentMsg.Bytes(), fallbackDate, seenIDs, isAppend)
+// unquoteFromLine removes one level of >From quoting.
+func unquoteFromLine(line []byte) []byte {
+	if bytes.HasPrefix(line, []byte(">")) && bytes.HasPrefix(bytes.TrimLeft(line, ">"), []byte("From ")) {
+		return line[1:]
 	}
-	if err := batch.Close(); err != nil {
-		return nil, nil, err
-	}
-	return ids, records, nil
+	return line
 }
 
 // IngestMbox parses an on-disk mbox file and indexes its messages into cacheDir.
 func IngestMbox(mboxPath string, cacheDir cachedir.Account, displayName string) ([]email.ID, error) {
+	// A rewrite holds the fcntl lock, which closing any descriptor of the
+	// file would drop: this process opens the file only under its mutex.
+	mu := pathMutex(mboxPath)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := settleRewrite(nil, mboxPath, cacheDir); err != nil {
+		return nil, fmt.Errorf("settle an interrupted rewrite of %q: %w", mboxPath, err)
+	}
 	f, err := os.Open(mboxPath)
 	if err != nil {
 		return nil, fmt.Errorf("open mbox %q: %w", mboxPath, err)
@@ -527,10 +566,38 @@ func IngestMbox(mboxPath string, cacheDir cachedir.Account, displayName string) 
 	if err != nil {
 		return nil, fmt.Errorf("compute tail hash: %w", err)
 	}
+	if err := pruneStale(cacheDir, ids); err != nil {
+		return nil, err
+	}
 	if err := saveMboxMeta(cacheDir, mboxPath, fi, ids, displayName, tail); err != nil {
 		return nil, fmt.Errorf("save mbox metadata: %w", err)
 	}
 	return ids, nil
+}
+
+// pruneStale deletes every cached message that a full rebuild did not produce.
+//
+// A view cache belongs to one file, so anything else in it came from an earlier
+// version of that file. Without this, replacing an mbox and reopening it left
+// the old messages on disk for good: the folder index dropped them, and the
+// metadata fast path meant no later run looked again. It runs before the
+// metadata is written, so a failed prune is retried on the next open.
+func pruneStale(cacheDir cachedir.Account, keep []email.ID) error {
+	current := make(map[email.ID]struct{}, len(keep))
+	for _, id := range keep {
+		current[id] = struct{}{}
+	}
+	var stale []email.ID
+	msg.ForEachID(cacheDir, func(id email.ID) bool {
+		if _, ok := current[id]; !ok {
+			stale = append(stale, id)
+		}
+		return false
+	})
+	if _, err := msg.DeleteBatch(cacheDir, stale); err != nil {
+		return fmt.Errorf("remove stale cached messages: %w", err)
+	}
+	return nil
 }
 
 // isEmlPath reports whether path names a single RFC 822 message rather than
@@ -562,6 +629,9 @@ func ingestEml(f *os.File, fi os.FileInfo, cacheDir cachedir.Account, emlPath st
 		return nil, err
 	}
 	ids := []email.ID{email.ID(id)}
+	if err := pruneStale(cacheDir, ids); err != nil {
+		return nil, err
+	}
 	if err := saveMboxMeta(cacheDir, emlPath, fi, ids, displayName, ""); err != nil {
 		return nil, fmt.Errorf("save metadata: %w", err)
 	}

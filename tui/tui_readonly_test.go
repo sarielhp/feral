@@ -1,14 +1,14 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -191,5 +191,34 @@ func TestTUI_FolderReadOnly_LockKeyToggle(t *testing.T) {
 	}
 	if !mMod4.showError || mMod4.err == nil || !strings.Contains(mMod4.err.Error(), "unlocked") {
 		t.Errorf("expected unlock confirmation banner, got: %v", mMod4.err)
+	}
+}
+
+// Marking tagged messages read is refused under read-only, as marking one is.
+// It used to simulate the change and report "Marked N message(s) as read".
+func TestTUI_ReadOnly_BulkMarkReadRefused(t *testing.T) {
+	cfg := &cfg_g.Config{ReadOnly: true, Accounts: []cfg_acc.AccountConfig{
+		{Name: "Personal", Type: "gmail", ReadOnly: true},
+	}, Paths: cfg_g.Paths{CacheRoot: t.TempDir()}, AccountCache: cachedir.At(t.TempDir())}
+	m := newTuiModel(&mailclient.MockMailClient{Cfg: cfg}, "INBOX", nil)
+	m.rawEmails = []email.Email{{ID: "msg1"}, {ID: "msg2"}}
+	m.rebuildVisibleEmails()
+	m.taggedIDs = map[email.ID]bool{"msg1": true, "msg2": true}
+
+	for _, read := range []bool{true, false} {
+		m.err, m.showError = nil, false
+		m2, cmd := m.bulkMarkReadTagged(read)
+		mMod := m2.(*tuiModel)
+		if cmd != nil {
+			t.Errorf("read=%v: a command was dispatched under read-only", read)
+		}
+		if !mMod.showError || mMod.err == nil || !strings.Contains(mMod.err.Error(), "Read-Only Mode") {
+			t.Errorf("read=%v: expected the read-only banner, got showError=%v err=%v", read, mMod.showError, mMod.err)
+		}
+		for _, e := range mMod.emails {
+			if e.IsRead {
+				t.Errorf("read=%v: %s changed although the action was refused", read, e.ID)
+			}
+		}
 	}
 }

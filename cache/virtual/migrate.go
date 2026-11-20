@@ -2,12 +2,12 @@ package virtual
 
 import (
 	"encoding/json"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // MigrateSanitizedNames re-saves each virtual mailbox whose on-disk file

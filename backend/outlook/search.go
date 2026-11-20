@@ -1,13 +1,15 @@
 package outlook
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/sarielhp/feral/email"
 )
 
 // graphSearchPageSize bounds one Graph request.
@@ -16,10 +18,12 @@ const graphSearchPageSize = 100
 // SearchEmails runs a Microsoft Graph search across the mailbox.
 //
 // Graph's $search takes a quoted KQL string and, unlike the other endpoints
-// here, refuses to be combined with $orderby -- it returns results in its own
-// relevance order. Every part of the URL is escaped: an unescaped space in a
-// Graph query string is answered with a bare 400, which is exactly how the
-// account-wide query was broken.
+// here, refuses to be combined with $orderby. It returns messages newest first
+// by when the mailbox received them -- not by the Date header: uploaded mail
+// ranks by upload time (checked against a live account) -- so a limit keeps
+// the newest arrivals, as on the other backends. Every part of the URL is
+// escaped: an unescaped space in a Graph query string is answered with a bare
+// 400, which is exactly how the account-wide query was broken.
 func (c *client) SearchEmails(query string, limit int) ([]email.ID, error) {
 	if err := c.init(); err != nil {
 		return nil, err
@@ -50,7 +54,14 @@ func (c *client) SearchEmails(query string, limit int) ([]email.ID, error) {
 	if limit > 0 && len(ids) > limit {
 		ids = ids[:limit]
 	}
-	return ids, nil
+	if !c.immutableIDs || len(ids) == 0 {
+		return ids, nil
+	}
+	// $search answers with default IDs even when immutable ones were asked
+	// for -- Graph reports the preference applied and ignores it (checked
+	// against a live account); folder listings and $filter honour it. The
+	// results are translated, or none of them would match the cache.
+	return (&IDTranslator{client: c.client}).toImmutable(context.Background(), ids)
 }
 
 func buildGraphSearchURL(query string, top int) string {

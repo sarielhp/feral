@@ -1,11 +1,12 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // Test stubs for the TUI's dependency interfaces. An unset func field behaves
@@ -42,30 +43,32 @@ type stubFolders struct {
 	ArchiveFn func(mailclient.MailClient) (string, error)
 	TrashFn   func(mailclient.MailClient) (string, error)
 	DraftsFn  func(mailclient.MailClient) (string, error)
+	SpamFn    func(mailclient.MailClient) (string, error)
+}
+
+// resolveStubFolder runs fn, or reports not-configured when the test set none.
+func resolveStubFolder(fn func(mailclient.MailClient) (string, error), c mailclient.MailClient) (label.Folder, error) {
+	if fn == nil {
+		return label.Folder{}, ErrNotConfigured
+	}
+	f, err := fn(c)
+	return label.FromServer(f), err
 }
 
 func (s stubFolders) ResolveArchiveTarget(c mailclient.MailClient) (label.Folder, error) {
-	if s.ArchiveFn == nil {
-		return label.Folder{}, ErrNotConfigured
-	}
-	f, err := s.ArchiveFn(c)
-	return label.FromServer(f), err
+	return resolveStubFolder(s.ArchiveFn, c)
 }
 
 func (s stubFolders) ResolveTrashTarget(c mailclient.MailClient) (label.Folder, error) {
-	if s.TrashFn == nil {
-		return label.Folder{}, ErrNotConfigured
-	}
-	f, err := s.TrashFn(c)
-	return label.FromServer(f), err
+	return resolveStubFolder(s.TrashFn, c)
 }
 
 func (s stubFolders) ResolveDraftsTarget(c mailclient.MailClient) (label.Folder, error) {
-	if s.DraftsFn == nil {
-		return label.Folder{}, ErrNotConfigured
-	}
-	f, err := s.DraftsFn(c)
-	return label.FromServer(f), err
+	return resolveStubFolder(s.DraftsFn, c)
+}
+
+func (s stubFolders) ResolveSpamTarget(c mailclient.MailClient) (label.Folder, error) {
+	return resolveStubFolder(s.SpamFn, c)
 }
 
 // stubCalendar implements CalendarOps only. Use stubVerifyingCalendar to
@@ -87,6 +90,17 @@ func (s stubCalendar) CheckICS(c *cfg_g.Config, data []byte) (bool, string, *cal
 		return false, "", nil, ErrNotConfigured
 	}
 	return s.CheckICSFn(c, data)
+}
+
+type stubMbox struct {
+	AppendFn func(string, []MboxSource) (int, error)
+}
+
+func (s stubMbox) AppendMessagesToMbox(path string, sources []MboxSource) (int, error) {
+	if s.AppendFn == nil {
+		return 0, ErrNotConfigured
+	}
+	return s.AppendFn(path, sources)
 }
 
 type stubVerifyingCalendar struct {
@@ -115,4 +129,15 @@ func (s stubVerifyingCalendar) CheckICSDetailed(c *cfg_g.Config, data []byte) (C
 		return CalendarCheckResult{}, ErrNotConfigured
 	}
 	return s.CheckICSDetailedFn(c, data)
+}
+
+type stubTransfer struct {
+	MoveAcrossFn func(src, dst mailclient.MailClient, source label.Folder, ids []email.ID, dest label.Folder) ([]email.ID, error)
+}
+
+func (s stubTransfer) MoveAcross(src, dst mailclient.MailClient, source label.Folder, ids []email.ID, dest label.Folder) ([]email.ID, error) {
+	if s.MoveAcrossFn == nil {
+		return nil, ErrNotConfigured
+	}
+	return s.MoveAcrossFn(src, dst, source, ids, dest)
 }

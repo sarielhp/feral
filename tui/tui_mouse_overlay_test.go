@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/contactsui"
+	"github.com/sarielhp/feral/email"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -101,21 +102,21 @@ func TestMouseMainMenu(t *testing.T) {
 // "Enter: add" hint finishes.
 func TestMouseContactPicker(t *testing.T) {
 	m := mouseComposeModel(t)
+	results := []contacts.ScoredContact{
+		{Contact: contacts.Contact{Name: "Alice", Emails: []string{"alice@example.org"}}},
+		{Contact: contacts.Contact{Name: "Bob", Emails: []string{"bob@example.org"}}},
+	}
 	m.contactPick = &contactPicker{
-		results: []contacts.ScoredContact{
-			{Contact: contacts.Contact{Name: "Alice", Emails: []string{"alice@example.org"}}},
-			{Contact: contacts.Contact{Name: "Bob", Emails: []string{"bob@example.org"}}},
-		},
-		marked: map[string]bool{},
+		List:   contactsui.NewList(func(string) []contacts.ScoredContact { return results }),
 		target: fieldCc,
 	}
 	m = clickOn(t, m, rowZoneID(frameContacts, 1, 0))
-	if m.contactPick.cursor != 1 {
-		t.Fatalf("click: cursor %d, want 1", m.contactPick.cursor)
+	if m.contactPick.Cursor != 1 {
+		t.Fatalf("click: cursor %d, want 1", m.contactPick.Cursor)
 	}
 	m = clickOn(t, m, rowZoneID(frameContacts, 1, 0))
-	if len(m.contactPick.marked) != 1 {
-		t.Fatalf("second click marked %d contacts, want Bob", len(m.contactPick.marked))
+	if m.contactPick.MarkCount() != 1 {
+		t.Fatalf("second click marked %d contacts, want Bob", m.contactPick.MarkCount())
 	}
 	m = clickOn(t, m, "hint:enter")
 	if m.contactPick != nil || !strings.Contains(m.compose.Cc, "bob@example.org") {

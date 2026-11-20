@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 // Recipients is who a message is addressed to, split by whether that is

@@ -3,10 +3,11 @@ package watcher
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 func TestStateMissingFileIsEmptyNotDamaged(t *testing.T) {
@@ -90,5 +91,59 @@ func TestStateMarkSeenCapsTheList(t *testing.T) {
 	state.MarkSeen("work", ids, time.Now())
 	if got := len(state.Accounts["work"].LastSeenIDs); got != maxSeen {
 		t.Fatalf("LastSeenIDs length = %d, want the cap %d", got, maxSeen)
+	}
+}
+
+// Renaming seen IDs keeps those the rename maps; when none survive, the
+// account is forgotten, so the next poll records its inbox silently rather
+// than announcing all of it.
+func TestRekeySeen(t *testing.T) {
+	dir := t.TempDir()
+	state := &State{Accounts: map[string]Account{}}
+	state.MarkSeen("kept", []email.ID{"a", "gone"}, time.Now())
+	state.MarkSeen("emptied", []email.ID{"gone2"}, time.Now())
+	if err := os.MkdirAll(filepath.Join(dir, "watcher"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	rename := map[email.ID]email.ID{"a": "A"}
+	for _, name := range []string{"kept", "emptied"} {
+		if err := RekeySeen(dir, name, rename); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := LoadState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := got.Accounts["kept"].LastSeenIDs; len(ids) != 1 || ids[0] != "A" {
+		t.Errorf("kept: %v, want [A]", ids)
+	}
+	if got.Known("emptied") {
+		t.Error("an account whose seen IDs all vanished must be forgotten, or its inbox is announced as new")
+	}
+}
+
+// The watermark is written with its format; one a newer build wrote is refused,
+// never read as "nothing seen", which would announce every inbox.
+func TestStateFormat(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "watcher"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := &State{Accounts: map[string]Account{}}
+	if err := s.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(stateFile(dir)); !strings.Contains(string(data), `"format": 1`) {
+		t.Errorf("not stamped: %s", data)
+	}
+	if err := os.WriteFile(stateFile(dir), []byte(`{"format":2,"accounts":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadState(dir); err == nil {
+		t.Error("LoadState accepted a newer format")
 	}
 }

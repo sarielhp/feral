@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 func TestMigrateDirSanitization_RenamesOldDirForward(t *testing.T) {
@@ -114,7 +114,7 @@ func TestLoadAccountFromDisk_MigratesOldAccountDirectory(t *testing.T) {
 	}
 
 	loaded := &cfg_acc.AccountConfig{Name: "corp.com"}
-	loadAccountFromDisk(configDir, loaded)
+	loadAccountFromDisk(configDir, loaded, nil)
 
 	if len(loaded.Blacklist) != 1 || loaded.Blacklist[0] != "spammer@example.com" {
 		t.Errorf("blacklist not recovered from the legacy directory: %+v", loaded.Blacklist)

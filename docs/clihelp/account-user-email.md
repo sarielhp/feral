@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account user-email'
-parent: 'mail_cli account'
+title: 'feral account user-email'
+parent: 'feral account'
 ---
 
-# mail\_cli account user-email
+# feral account user-email
 
 Set the From address used when sending from an account, which may differ from the login username -- a Fastmail alias or a verified send-as identity, for example. The login credential is unchanged; only the From header and the submission envelope use this address.
 
 ## Usage
 
 ```
-mail_cli account user-email <account_name> <email>
+feral account user-email <account_name> <email>
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli account user-email <account_name> <email>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli account user-email <account_name> <email>
 
 ## Examples
 
-- `mail_cli account user-email fastmail sariel@sarielhp.org`
+- `feral account user-email fastmail sariel@sarielhp.org`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -3,7 +3,7 @@ package mailclient
 import (
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"strings"
 )
 

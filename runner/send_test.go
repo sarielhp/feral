@@ -3,26 +3,28 @@ package runner
 import (
 	"bytes"
 	"context"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"errors"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/cli"
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/pgp"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/cli"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/pgp"
+	"github.com/sarielhp/feral/report"
 )
 
 func TestLoadAttachments(t *testing.T) {
@@ -85,6 +87,44 @@ func TestExpandRecipients(t *testing.T) {
 	}
 	if expanded[1] != "bob@example.com" {
 		t.Errorf("expected bob@example.com, got %s", expanded[1])
+	}
+}
+
+// A recipient field written by the compose screen quotes a name holding a
+// comma; splitting it on every comma sent half a name as a recipient. A
+// nickname that resolves to such a name comes back quoted for the same reason.
+func TestExpandRecipients_QuotedNames(t *testing.T) {
+	cfg := &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: t.TempDir()}}
+	book := contacts.NewBook()
+	book.Contacts = append(book.Contacts, contacts.Contact{
+		Name: "Doe, Alice", Emails: []string{"alice@example.com"}, Aliases: []string{"ad"},
+	})
+	if err := contacts.SaveBook(contacts.DefaultPath(cfg), book); err != nil {
+		t.Fatal(err)
+	}
+	got := expandRecipients(cfg, []string{`"Doe, Bob" <bob@example.com>, ad`})
+	want := []string{`"Doe, Bob" <bob@example.com>`, `"Doe, Alice" <alice@example.com>`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expanded = %q, want %q", got, want)
+	}
+}
+
+// A group alias used to expand to its first member alone, under the group's
+// label as a display name: "Group: team" <first@example.com>.
+func TestExpandRecipients_GroupAliasIsEveryMember(t *testing.T) {
+	cfg := &cfg_g.Config{Paths: cfg_g.Paths{ConfigDir: t.TempDir()}}
+	book := contacts.NewBook()
+	book.Contacts = append(book.Contacts, contacts.Contact{
+		ID: contacts.GroupID("mutt", "team"), Name: "Group: team",
+		Emails: []string{"a@example.com", "b@example.com"}, Nicknames: []string{"team"},
+	})
+	if err := contacts.SaveBook(contacts.DefaultPath(cfg), book); err != nil {
+		t.Fatal(err)
+	}
+	got := expandRecipients(cfg, []string{"team", "c@example.com"})
+	want := []string{"a@example.com", "b@example.com", "c@example.com"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expanded = %q, want %q", got, want)
 	}
 }
 
@@ -316,6 +356,7 @@ type stubLauncher struct {
 
 func (s stubLauncher) Run(*cfg_g.Config, string, ...string) error                       { return nil }
 func (s stubLauncher) RunWithClient(*cfg_g.Config, mailclient.MailClient, string) error { return nil }
+func (s stubLauncher) DefaultKeys() ([]byte, error)                                     { return nil, nil }
 func (s stubLauncher) Compose(c *cfg_g.Config, opts cli.ComposeOptions) error {
 	if s.composeFn != nil {
 		return s.composeFn(c, opts)
@@ -604,5 +645,69 @@ func TestSend_Queue(t *testing.T) {
 	}
 	if entries[0].Subject != "Queued Note" || entries[0].Account != "work" {
 		t.Errorf("unexpected entry data: %+v", entries[0])
+	}
+}
+
+// Under --read-only --queue refuses: the next run without the flag flushes the
+// outbox, so a queued message used to go out after all.
+func TestSend_QueueRefusedUnderReadOnly(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := &cfg_g.Config{
+		Paths:           cfg_g.Paths{ConfigDir: tempDir, CacheRoot: tempDir},
+		Accounts:        []cfg_acc.AccountConfig{{Name: "work", Username: "user@work.com", Type: "jmap"}},
+		SelectedAccount: "work",
+		ReadOnly:        true,
+	}
+	opts := cli.SendOptions{To: []string{"target@example.com"}, Subject: "Queued Note", Body: "Stored for later", Queue: true}
+
+	if err := (SendService{Rep: report.Discard()}).Send(cfg, opts); !errors.Is(err, ErrQueueReadOnly) {
+		t.Fatalf("Send --queue under --read-only: err = %v, want ErrQueueReadOnly", err)
+	}
+	if entries, _ := outbox.List(outbox.Dir(tempDir)); len(entries) != 0 {
+		t.Errorf("queued %d message(s) under --read-only", len(entries))
+	}
+}
+
+// send --at queues without sending, on the built path and the --raw one, and
+// the entry carries the due time; under --read-only both refuse as --queue
+// does.
+func TestSend_AtSchedulesAndIsRefusedUnderReadOnly(t *testing.T) {
+	due := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+	raw := []byte("From: user@work.com\r\nTo: target@example.com\r\nSubject: Raw later\r\n\r\nbody\r\n")
+	cases := map[string]cli.SendOptions{
+		"built": {To: []string{"target@example.com"}, Subject: "Built later", Body: "b", SendAfter: due},
+		"raw":   {Raw: true, RawBytes: raw, SendAfter: due},
+	}
+	for name, opts := range cases {
+		for _, readOnly := range []bool{false, true} {
+			tempDir := t.TempDir()
+			cfg := &cfg_g.Config{
+				Paths:           cfg_g.Paths{ConfigDir: tempDir, CacheRoot: tempDir},
+				Accounts:        []cfg_acc.AccountConfig{{Name: "work", Username: "user@work.com", Type: "jmap"}},
+				SelectedAccount: "work",
+				ReadOnly:        readOnly,
+			}
+			err := (SendService{Rep: report.Discard()}).Send(cfg, opts)
+			entries, _ := outbox.List(outbox.Dir(tempDir))
+			if readOnly {
+				if !errors.Is(err, ErrQueueReadOnly) || len(entries) != 0 {
+					t.Errorf("%s --at under --read-only: err = %v, %d queued; want ErrQueueReadOnly, none", name, err, len(entries))
+				}
+				continue
+			}
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("%s --at: err = %v, %d queued", name, err, len(entries))
+			}
+			if !entries[0].SendAfter.Equal(due) || entries[0].Due(due.Add(-time.Second)) || entries[0].Account != "work" {
+				t.Errorf("%s --at queued %+v; want due at %v", name, entries[0], due)
+			}
+			_, payload, getErr := outbox.Get(outbox.Dir(tempDir), entries[0].ID)
+			if getErr != nil {
+				t.Fatal(getErr)
+			}
+			if wantDate := "Date: " + due.Format(time.RFC1123Z); !opts.Raw && !strings.Contains(string(payload), wantDate) {
+				t.Errorf("a built message sent later must be dated when due (%q):\n%s", wantDate, payload)
+			}
+		}
 	}
 }

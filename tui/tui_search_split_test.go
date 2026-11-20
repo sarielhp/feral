@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 	"strings"
 	"testing"
 	"time"
@@ -182,5 +182,102 @@ func TestSplitPreview_ToggleAndNavigation(t *testing.T) {
 	m = res.(*tuiModel)
 	if m.splitPreview {
 		t.Errorf("expected splitPreview=false after second Space")
+	}
+}
+
+func TestSearch_MatchesCCList(t *testing.T) {
+	m := newTuiModel(nil, "INBOX", nil)
+	m.rawEmails = []email.Email{
+		{
+			ID:        "msg-1",
+			Subject:   "Budget proposal",
+			FromRaw:   "Alice <alice@corp.com>",
+			FromEmail: "alice@corp.com",
+			ToRaw:     "Bob <bob@corp.com>",
+			ToEmail:   "bob@corp.com",
+			CcRaw:     "Charlie Brown <charlie@corp.com>, Dave <dave@corp.com>",
+			CcEmail:   "charlie@corp.com",
+		},
+		{
+			ID:        "msg-2",
+			Subject:   "General announcement",
+			FromRaw:   "HR <hr@corp.com>",
+			FromEmail: "hr@corp.com",
+		},
+	}
+	m.rebuildVisibleEmails()
+
+	// Search for Charlie by name
+	m.searchQuery = "charlie"
+	m.rebuildVisibleEmails()
+	if len(m.emails) != 1 || m.emails[0].ID != "msg-1" {
+		t.Fatalf("expected 1 match for CC name 'charlie', got %d", len(m.emails))
+	}
+
+	// Search for Dave by email
+	m.searchQuery = "dave@corp.com"
+	m.rebuildVisibleEmails()
+	if len(m.emails) != 1 || m.emails[0].ID != "msg-1" {
+		t.Fatalf("expected 1 match for CC email 'dave@corp.com', got %d", len(m.emails))
+	}
+}
+
+func TestSearch_MatchesThreadSenderAndCCList(t *testing.T) {
+	t0 := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
+	m := newTuiModel(nil, "INBOX", nil)
+	m.sortOption = SortThreads
+
+	// Thread with root from Alice, reply from Bob with Dave in CC
+	root := email.Email{
+		ID:        "e0",
+		MessageID: "<e0>",
+		Subject:   "Architecture Review",
+		FromRaw:   "Alice Smith <alice@corp.com>",
+		FromEmail: "alice@corp.com",
+		EmailDate: t0,
+	}
+	reply := email.Email{
+		ID:        "e1",
+		MessageID: "<e1>",
+		InReplyTo: "<e0>",
+		Subject:   "Re: Architecture Review",
+		FromRaw:   "Bob Dylan <bob@corp.com>",
+		FromEmail: "bob@corp.com",
+		CcRaw:     "Dave Clark <dave@corp.com>",
+		CcEmail:   "dave@corp.com",
+		EmailDate: t0.Add(time.Hour),
+	}
+	unrelated := email.Email{
+		ID:        "e2",
+		MessageID: "<e2>",
+		Subject:   "Coffee break",
+		FromRaw:   "Frank <frank@corp.com>",
+		FromEmail: "frank@corp.com",
+		EmailDate: t0.Add(2 * time.Hour),
+	}
+
+	m.rawEmails = []email.Email{root, reply, unrelated}
+	m.rebuildVisibleEmails()
+
+	// Initial check: thread root is collapsed and shows both senders
+	if len(m.emails) != 2 {
+		t.Fatalf("expected 2 roots, got %d", len(m.emails))
+	}
+	if !strings.Contains(m.emails[0].ThreadSenderSummary, "Alice") || !strings.Contains(m.emails[0].ThreadSenderSummary, "Bob") {
+		t.Fatalf("expected ThreadSenderSummary to contain Alice and Bob, got %q", m.emails[0].ThreadSenderSummary)
+	}
+
+	// Search for second sender in thread: 'Bob'
+	m.searchQuery = "Bob"
+	m.rebuildVisibleEmails()
+	if len(m.emails) != 1 || m.emails[0].ID != "e0" {
+		t.Fatalf("expected 1 match for sender list 'Bob', got %d", len(m.emails))
+	}
+
+	// Search for CC recipient in thread reply: 'Dave'
+	m.searchQuery = "dave"
+	m.rebuildVisibleEmails()
+	if len(m.emails) != 1 || m.emails[0].ID != "e0" {
+		t.Fatalf("expected 1 match for CC in thread 'dave', got %d", len(m.emails))
 	}
 }

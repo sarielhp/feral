@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"mime"
 	"net/mail"
 	"os"
@@ -13,11 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/pgp"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/pgp"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,11 +28,15 @@ import (
 
 // ComposeOptions configures direct launch into compose mode.
 type ComposeOptions struct {
-	To          []string
-	Cc          []string
-	Bcc         []string
-	Subject     string
-	Body        string
+	To      []string
+	Cc      []string
+	Bcc     []string
+	Subject string
+	Body    string
+	// Quote is the quoted original of a reply. It goes under Body and the
+	// signature, so the signature closes what the user wrote rather than
+	// following the quote.
+	Quote       string
 	Attachments []email.Attachment
 	InReplyTo   string
 	References  string
@@ -50,8 +57,18 @@ const (
 )
 
 type composeState struct {
-	OriginalID      email.ID
-	IsGroupReply    bool
+	OriginalID email.ID
+	// OriginalCache is the cache of the account the replied-to message
+	// belongs to, where its replied flag is recorded once the reply is
+	// sent. It is not the sending account's: the From account can be
+	// changed in compose, and F3 can switch accounts while a send is in
+	// flight, and both used to file the flag under the wrong account.
+	OriginalCache cachedir.Account
+	IsGroupReply  bool
+	// IsForward marks a session opened by forwarding: its template is the
+	// message itself, so an untouched one is a finished forward rather than
+	// a cancelled compose.
+	IsForward       bool
 	AccountIndex    int
 	AccountName     string
 	From            string
@@ -70,15 +87,24 @@ type composeState struct {
 	MessageID string
 	// sending is set while a send is in flight; quitAfterSend asks the
 	// program to exit once it reports.
-	sending         bool
-	quitAfterSend   bool
-	AttCursor       int
-	Vp              viewport.Model
-	FieldEditing    composeField
-	FieldInput      string
-	DiscardConfirm  bool
-	WarnEmptySend   bool
-	WarnEmptyReason string
+	sending       bool
+	sendStart     time.Time
+	sendEscNoted  bool // Esc was pressed during the send: say it cannot be cancelled
+	quitAfterSend bool
+	// suggestingSubject is set while the model is writing the subject an
+	// empty send asked for; SubjectGenerated marks the result so the
+	// confirmation says where the line came from.
+	suggestingSubject bool
+	subjectForSend    bool
+	replaceSubject    bool // F4: the result overwrites a typed subject
+	SubjectGenerated  bool
+	AttCursor         int
+	Vp                viewport.Model
+	FieldEditing      composeField
+	FieldInput        string
+	DiscardConfirm    bool
+	WarnEmptySend     bool
+	WarnEmptyReason   string
 	// SendConfirm asks before a clicked Send goes out; the y key needs no
 	// question, a stray click does.
 	SendConfirm       bool
@@ -101,10 +127,16 @@ type composeEditorFinishedMsg struct {
 	isReEdit     bool
 }
 
+// sendTickMsg re-renders the sending dialog once a second, so its elapsed
+// time shows the send is working and not stuck.
+type sendTickMsg struct{ session string }
+
 type emailSentMsg struct {
 	err      error
 	targetID email.ID
-	session  string
+	// repliedCache is where targetID's replied flag goes.
+	repliedCache cachedir.Account
+	session      string
 }
 
 // messageIDForCompose is the Message-ID a session keeps for every copy.
@@ -112,7 +144,9 @@ func messageIDForCompose(c *composeState) string {
 	return email.MessageIDForSender(c.From)
 }
 
-func (m *tuiModel) composeCmd() tea.Cmd {
+// composeCmd opens the editor on a new message, with the recipient the
+// caller named already in To — blank for a plain compose.
+func (m *tuiModel) composeCmd(to string) tea.Cmd {
 	cfg := m.Config()
 	if cfg == nil {
 		cfg = m.cfg
@@ -125,14 +159,14 @@ func (m *tuiModel) composeCmd() tea.Cmd {
 		AccountIndex: activeIdx,
 		AccountName:  activeAcc.Name,
 		From:         fromHeader,
-		To:           "",
+		To:           to,
 		Cc:           "",
 		Bcc:          "",
 		Subject:      "",
 		Attachments:  []email.Attachment{},
 	}
 
-	tempPath, templateContent, err := m.createComposeBodyTemplate()
+	tempPath, templateContent, err := m.createComposeBodyTemplate(activeAcc.Name)
 	if err != nil {
 		return func() tea.Msg {
 			return composeEditorFinishedMsg{err: fmt.Errorf("failed to create compose body template: %w", err)}
@@ -143,7 +177,45 @@ func (m *tuiModel) composeCmd() tea.Cmd {
 	return m.openEditorCmd(tempPath, initialState, false)
 }
 
-func (m *tuiModel) replyCmd(targetID email.ID, groupReply bool) tea.Cmd {
+// replyMode is the reply a key asks for: to the sender (r), to everyone (g),
+// or to the mailing list the message came through (G).
+type replyMode int
+
+const (
+	replyToSender replyMode = iota
+	replyToAll
+	replyToList
+)
+
+// replyModeForKey is the reply mode of a reply key.
+func replyModeForKey(key string) replyMode {
+	switch key {
+	case "g":
+		return replyToAll
+	case "G":
+		return replyToList
+	default:
+		return replyToSender
+	}
+}
+
+// replyAddressing is the To and Cc of a reply in mode. A list reply goes to
+// the list's List-Post address alone, and is refused -- never sent to the
+// sender instead -- when the message names no list address or the list takes
+// no posts (email.ListReplyAddress).
+func replyAddressing(origMsg *mail.Message, authored bool, mode replyMode, own map[string]bool) (string, []string, error) {
+	if mode != replyToList {
+		to, cc := replyRecipients(origMsg, authored, mode == replyToAll, own)
+		return to, cc, nil
+	}
+	to, err := email.ListReplyAddress(origMsg.Header)
+	if err != nil {
+		return "", nil, fmt.Errorf("reply to the list: %w", err)
+	}
+	return to, nil, nil
+}
+
+func (m *tuiModel) replyCmd(targetID email.ID, mode replyMode) tea.Cmd {
 	cfg := m.Config()
 	if cfg == nil {
 		cfg = m.cfg
@@ -154,9 +226,18 @@ func (m *tuiModel) replyCmd(targetID email.ID, groupReply bool) tea.Cmd {
 		}
 	}
 
+	// The message's own account: in the unified inbox the active client is
+	// not the one that holds another account's message, and fetching through
+	// it failed the reply.
+	origClient, err := m.targetClient(m.planAction([]email.ID{targetID}, m.currentF), targetID)
+	if err != nil {
+		return func() tea.Msg {
+			return composeEditorFinishedMsg{err: fmt.Errorf("could not find the account of the message being replied to: %w", err)}
+		}
+	}
 	// Through the accessor: replying to a message that was never downloaded
 	// used to fail outright.
-	data, err := m.client.GetRawMessage(targetID)
+	data, err := origClient.GetRawMessage(targetID)
 	if err != nil {
 		return func() tea.Msg {
 			return composeEditorFinishedMsg{err: fmt.Errorf("could not retrieve the message being replied to: %w", err)}
@@ -173,12 +254,20 @@ func (m *tuiModel) replyCmd(targetID email.ID, groupReply bool) tea.Cmd {
 	activeAcc, activeIdx := m.resolveActiveAccount()
 	fromHeader := formatFromHeader(activeAcc, cfg)
 
-	dec := new(mime.WordDecoder)
-	toAddress := origMsg.Header.Get("Reply-To")
-	if toAddress == "" {
-		toAddress = origMsg.Header.Get("From")
+	// A reply to the user's own mail -- a message read from a Sent folder --
+	// goes to the people it was sent to, not back to the user.
+	authored := m.isAuthoredMessage(targetID)
+
+	// A group reply leaves out every address the user owns -- my_emails and
+	// every account's -- not only this account's, so no copy comes back.
+	own := cfg.OwnAddresses()
+	maps.Copy(own, email.OwnSet(cfg.Username, activeAcc.GetSendAddress()))
+	toAddress, ccAddresses, err := replyAddressing(origMsg, authored, mode, own)
+	if err != nil {
+		return func() tea.Msg { return errMsg{err: err} }
 	}
 
+	dec := new(mime.WordDecoder)
 	subject := origMsg.Header.Get("Subject")
 	subjDec := email.DecDecode(dec, subject)
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(subjDec)), "re:") {
@@ -195,31 +284,23 @@ func (m *tuiModel) replyCmd(targetID email.ID, groupReply bool) tea.Cmd {
 		references = inReplyTo
 	}
 
-	var ccAddresses []string
-	if groupReply {
-		ourEmail := cfg.Username
-		if sendAddr := activeAcc.GetSendAddress(); sendAddr != "" {
-			ourEmail = sendAddr
-		}
-		ccAddresses = buildGroupReplyCC(origMsg, toAddress, ourEmail)
-	}
-
 	initialState := &composeState{
-		OriginalID:   targetID,
-		IsGroupReply: groupReply,
-		AccountIndex: activeIdx,
-		AccountName:  activeAcc.Name,
-		From:         fromHeader,
-		To:           toAddress,
-		Cc:           strings.Join(ccAddresses, ", "),
-		Bcc:          "",
-		Subject:      subjDec,
-		InReplyTo:    inReplyTo,
-		References:   references,
-		Attachments:  []email.Attachment{},
+		OriginalID:    targetID,
+		OriginalCache: accountCacheOf(origClient),
+		IsGroupReply:  mode == replyToAll,
+		AccountIndex:  activeIdx,
+		AccountName:   activeAcc.Name,
+		From:          fromHeader,
+		To:            toAddress,
+		Cc:            strings.Join(ccAddresses, ", "),
+		Bcc:           "",
+		Subject:       subjDec,
+		InReplyTo:     inReplyTo,
+		References:    references,
+		Attachments:   []email.Attachment{},
 	}
 
-	tempPath, templateContent, err := m.createReplyBodyTemplate(origMsg)
+	tempPath, templateContent, err := m.createReplyBodyTemplate(activeAcc.Name, origMsg)
 	if err != nil {
 		return func() tea.Msg {
 			return composeEditorFinishedMsg{err: fmt.Errorf("failed to create reply body template: %w", err)}
@@ -230,42 +311,48 @@ func (m *tuiModel) replyCmd(targetID email.ID, groupReply bool) tea.Cmd {
 	return m.openEditorCmd(tempPath, initialState, false)
 }
 
-func buildGroupReplyCC(origMsg *mail.Message, toAddress string, ourEmail string) []string {
-	return email.BuildGroupReplyCC(origMsg, toAddress, ourEmail)
-}
-
-func (m *tuiModel) createComposeBodyTemplate() (string, string, error) {
-	return m.createComposeBodyTemplateWithContent("")
-}
-
-func (m *tuiModel) createComposeBodyTemplateWithContent(initialBody string) (string, string, error) {
-	tempDir, err := app.GetTempDir()
-	if err != nil {
-		return "", "", err
+// replyRecipients returns the To and Cc a reply should carry. A reply to the
+// user's own mail -- authored, read from a Sent folder -- addresses the people
+// it was sent to; any other reply addresses the sender, falling back through
+// Reply-To. A group reply to the user's own mail takes the original Cc, minus
+// the user's own addresses; a group reply to received mail takes the original's
+// other recipients, minus the user's own addresses and the new To.
+func replyRecipients(origMsg *mail.Message, authored, groupReply bool, own map[string]bool) (string, []string) {
+	to := ""
+	if authored {
+		to = strings.TrimSpace(origMsg.Header.Get("To"))
 	}
-	tempPath := filepath.Join(tempDir, fmt.Sprintf("compose_body_%d.txt", time.Now().UnixNano()))
-
-	sig := readSignature()
-	content := initialBody
-	if content != "" && !strings.HasSuffix(content, "\n") {
-		content += "\n"
-	}
-	if sig != "" {
-		if content != "" {
-			content += "\n" + sig
-		} else {
-			content = "\n" + sig
+	if to == "" {
+		to = strings.TrimSpace(origMsg.Header.Get("Reply-To"))
+		if to == "" {
+			to = strings.TrimSpace(origMsg.Header.Get("From"))
 		}
 	}
+	if !groupReply {
+		return to, nil
+	}
+	if authored {
+		return to, email.BuildAuthoredReplyCC(origMsg, own)
+	}
+	return to, email.BuildGroupReplyCC(origMsg, to, own)
+}
 
-	if err := os.WriteFile(tempPath, []byte(content), 0600); err != nil {
-		return "", "", err
+// isAuthoredMessage reports whether id names a message read from a folder the
+// account's owner wrote -- Sent or Drafts. The rows carry that from the loader,
+// so a reply addresses the original recipient rather than the user's own
+// address.
+func (m *tuiModel) isAuthoredMessage(id email.ID) bool {
+	for _, em := range m.emails {
+		if em.ID == id {
+			return em.IsAuthored
+		}
 	}
-	baseline := ""
-	if initialBody == "" {
-		baseline = content
+	for _, em := range m.rawEmails {
+		if em.ID == id {
+			return em.IsAuthored
+		}
 	}
-	return tempPath, baseline, nil
+	return false
 }
 
 func (m *tuiModel) initStandaloneComposeCmd() tea.Cmd {
@@ -297,7 +384,7 @@ func (m *tuiModel) initStandaloneComposeCmd() tea.Cmd {
 		initialState.Attachments = []email.Attachment{}
 	}
 
-	tempPath, templateContent, err := m.createComposeBodyTemplateWithContent(m.composeOpts.Body)
+	tempPath, templateContent, err := m.createComposeBodyTemplateWithContent(activeAcc.Name, m.composeOpts.Body, m.composeOpts.Quote)
 	if err != nil {
 		return func() tea.Msg {
 			return composeEditorFinishedMsg{err: fmt.Errorf("failed to create compose body template: %w", err)}
@@ -364,6 +451,7 @@ func (m *tuiModel) resumeDraftCmd(path string) tea.Cmd {
 	state.Vp = viewport.New(max(20, m.width-6), max(5, m.height-14))
 	state.Vp.SetContent(state.Body)
 	m.compose = state
+	m.endDetailFilter()
 	m.mode = modeCompose
 	return m.requestSync(m.composeSession(), syncRequest{kind: syncAdopt, client: m.client})
 }
@@ -386,60 +474,15 @@ func (m *tuiModel) accountForSender(from string) (int, bool) {
 	return 0, false
 }
 
-func (m *tuiModel) createReplyBodyTemplate(orig *mail.Message) (string, string, error) {
-	tempDir, err := app.GetTempDir()
-	if err != nil {
-		return "", "", err
-	}
-	tempPath := filepath.Join(tempDir, fmt.Sprintf("reply_body_%d.txt", time.Now().UnixNano()))
-
-	var buf bytes.Buffer
-	buf.WriteString("\n")
-
-	quote := email.FormatReplyQuote(orig)
-	if quote != "" {
-		buf.WriteString(quote)
-	}
-
-	sig := readSignature()
-	if sig != "" {
-		buf.WriteString(sig)
-	}
-
-	templateContent := buf.String()
-	if err := os.WriteFile(tempPath, buf.Bytes(), 0600); err != nil {
-		return "", "", err
-	}
-	return tempPath, templateContent, nil
-}
-
 func (m *tuiModel) openEditorCmd(tempPath string, state *composeState, isReEdit bool) tea.Cmd {
 	cfg := m.Config()
 	if cfg == nil {
 		cfg = m.cfg
 	}
 
-	editor := ""
-	if cfg != nil {
-		editor = cfg.Editor
-	}
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-	}
-	if editor == "" {
-		editor = "emacs"
-	}
-
-	var args []string
-	if cfg != nil && len(cfg.EditorArgs) > 0 {
-		args = append(args, cfg.EditorArgs...)
-	} else if editor == "emacs" {
-		args = append(args, "-nw")
-	}
-	args = append(args, tempPath)
-
+	editor, args := cfg_g.EditorCommand(cfg, tempPath)
 	c := exec.Command(editor, args...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	return runProgram(c, func(err error) tea.Msg {
 		return composeEditorFinishedMsg{
 			err:          err,
 			path:         tempPath,
@@ -513,10 +556,13 @@ func (m *tuiModel) handleComposeEditorFinished(msg composeEditorFinishedMsg) (te
 		// supplied a subject or attachments: those are a message worth keeping,
 		// and the review screen warns before an empty body is sent.
 		fromFlags := m.standaloneCompose && (m.composeOpts.Subject != "" || len(m.composeOpts.Attachments) > 0)
-		if (editedText == origText || editedText == "") && !fromFlags {
+		// A forward's template is the message itself -- the original's text
+		// with its attachments -- so an untouched template is a finished
+		// forward, not a cancelled compose.
+		if (editedText == origText || editedText == "") && !fromFlags && !msg.initialState.IsForward {
 			m.saveStatus = "Message not modified; compose cancelled."
 			m.compose = nil
-			m.mode = modeIndex
+			m.showList()
 			if m.standaloneCompose {
 				return m, m.quitNow()
 			}
@@ -527,6 +573,10 @@ func (m *tuiModel) handleComposeEditorFinished(msg composeEditorFinishedMsg) (te
 	if msg.isReEdit && m.compose != nil {
 		m.compose.Body = string(bodyBytes)
 		m.compose.Vp.SetContent(m.compose.Body)
+		if strings.TrimSpace(m.compose.Subject) == "" && m.canSuggestSubject() {
+			m2, suggestCmd := m.startSubjectSuggestion(false)
+			return m2, tea.Batch(m.saveAndSyncDraftCmd(), suggestCmd)
+		}
 		return m, m.saveAndSyncDraftCmd()
 	}
 
@@ -542,7 +592,13 @@ func (m *tuiModel) handleComposeEditorFinished(msg composeEditorFinishedMsg) (te
 	state.Vp.SetContent(state.Body)
 
 	m.compose = state
+	m.endDetailFilter()
 	m.mode = modeCompose
+
+	if strings.TrimSpace(m.compose.Subject) == "" && m.canSuggestSubject() {
+		m2, suggestCmd := m.startSubjectSuggestion(false)
+		return m2, tea.Batch(m.saveAndSyncDraftCmd(), suggestCmd)
+	}
 
 	return m, m.saveAndSyncDraftCmd()
 }
@@ -706,11 +762,7 @@ func (m *tuiModel) composeSenderAddress() string {
 func recipientAddresses(fields ...string) []string {
 	var out []string
 	for _, field := range fields {
-		for _, part := range strings.Split(field, ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
+		for _, part := range email.SplitAddressList(field) {
 			if addr, err := mail.ParseAddress(part); err == nil {
 				out = append(out, addr.Address)
 				continue
@@ -719,4 +771,13 @@ func recipientAddresses(fields ...string) []string {
 		}
 	}
 	return out
+}
+
+// accountCacheOf is the per-account cache of cl, or the zero value when cl
+// has no configuration.
+func accountCacheOf(cl mailclient.MailClient) cachedir.Account {
+	if cl == nil || cl.Config() == nil {
+		return cachedir.Account{}
+	}
+	return cl.Config().AccountCache
 }

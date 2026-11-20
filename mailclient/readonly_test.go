@@ -2,13 +2,14 @@ package mailclient
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestReadOnlyMailClient_PassThrough(t *testing.T) {
@@ -220,5 +221,20 @@ func TestReadOnlyForwardsReadsThroughTheEmbeddedReader(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "INBOX" {
 		t.Errorf("expected the delegate's labels, got %v", got)
+	}
+}
+
+// Refuses sees an account's read_only through the caching decorator, where
+// the config alone does not show it.
+func TestRefuses(t *testing.T) {
+	plain := &MockMailClient{Cfg: &cfg_g.Config{}}
+	if Refuses(plain) || Refuses(NewCheckingMailClient(plain, "a", nil)) {
+		t.Error("a writable client was reported as refusing changes")
+	}
+	if !Refuses(NewCheckingMailClient(NewReadOnlyMailClient(plain, "a"), "a", nil)) {
+		t.Error("a read-only decorator under the cache was not seen")
+	}
+	if !Refuses(&MockMailClient{Cfg: &cfg_g.Config{DryRun: true}}) {
+		t.Error("a dry-run config was not seen")
 	}
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/contacts"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/contacts"
 )
 
 // touch creates empty files under dir.

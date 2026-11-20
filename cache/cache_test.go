@@ -2,16 +2,17 @@ package cache
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // The top-level cache holds read and replied state and the label-item cache.
@@ -67,6 +68,28 @@ func TestMarkIDsRead(t *testing.T) {
 	for _, id := range []email.ID{"old", "n1", "n2"} {
 		if !reloaded[id] {
 			t.Errorf("%q is not marked read after MarkIDsRead", id)
+		}
+	}
+}
+
+func TestMarkIDsUnreadClearsOnlyTheNamedIDs(t *testing.T) {
+	dir := t.TempDir()
+	state := map[email.ID]bool{"keep": true, "drop1": true, "drop2": true}
+	if err := MarkIDsRead(cachedir.At(dir), nil, state); err != nil {
+		t.Fatalf("seed read state: %v", err)
+	}
+
+	if err := MarkIDsUnread(cachedir.At(dir), []email.ID{"drop1", "drop2"}); err != nil {
+		t.Fatalf("MarkIDsUnread: %v", err)
+	}
+
+	reloaded := LoadReadState(cachedir.At(dir))
+	if !reloaded["keep"] {
+		t.Error("MarkIDsUnread dropped an id it was not given")
+	}
+	for _, id := range []email.ID{"drop1", "drop2"} {
+		if reloaded[id] {
+			t.Errorf("%q is still marked read after MarkIDsUnread", id)
 		}
 	}
 }
@@ -193,6 +216,53 @@ func TestFindCachedEmailByIDUnknown(t *testing.T) {
 	if _, _, err := FindCachedEmailByID(cachedir.At(t.TempDir()), "nosuchmessage"); err == nil {
 		t.Error("FindCachedEmailByID found a message that was never cached")
 	}
+}
+
+// Two cached messages sharing a short ID used to resolve to whichever the
+// map iteration reached first, so the same command opened different messages
+// on different runs. It must refuse instead, naming both.
+func TestFindCachedEmailByShortIDAmbiguous(t *testing.T) {
+	a, b := shortIDCollision(t)
+	dir := t.TempDir()
+	for _, id := range []email.ID{a, b} {
+		if err := msg.Store(cachedir.At(dir), id, []byte(sampleRaw), time.Now()); err != nil {
+			t.Fatalf("seeding cache: %v", err)
+		}
+	}
+
+	short := string(email.ComputeShortID(a))
+	_, _, err := FindCachedEmailByID(cachedir.At(dir), short)
+	if err == nil {
+		t.Fatalf("short ID %q shared by %q and %q resolved without error", short, a, b)
+	}
+	for _, id := range []email.ID{a, b} {
+		if !strings.Contains(err.Error(), string(id)) {
+			t.Errorf("error %q does not name candidate %q", err, id)
+		}
+	}
+
+	// A full ID still resolves, collision or not.
+	got, _, err := FindCachedEmailByID(cachedir.At(dir), string(b))
+	if err != nil || got != b {
+		t.Errorf("full ID %q resolved to %q, %v", b, got, err)
+	}
+}
+
+// shortIDCollision finds two IDs with the same 32-bit short ID. The birthday
+// bound puts the first collision near 80,000 candidates, well under a second.
+func shortIDCollision(t *testing.T) (email.ID, email.ID) {
+	t.Helper()
+	seen := make(map[email.ShortID]email.ID)
+	for i := range 2_000_000 {
+		id := email.ID(fmt.Sprintf("collide-%d", i))
+		s := email.ComputeShortID(id)
+		if prev, ok := seen[s]; ok {
+			return prev, id
+		}
+		seen[s] = id
+	}
+	t.Fatal("no short-ID collision found")
+	return "", ""
 }
 
 func TestDiskCacheStoreLabelItems(t *testing.T) {

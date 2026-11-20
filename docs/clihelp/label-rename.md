@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label rename'
-parent: 'mail_cli label'
+title: 'feral label rename'
+parent: 'feral label'
 ---
 
-# mail\_cli label rename
+# feral label rename
 
 Rename a label/folder and update all existing routing rules that reference it.
 
 ## Usage
 
 ```
-mail_cli label rename <old_name> <new_name>
+feral label rename <old_name> <new_name>
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli label rename <old_name> <new_name>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli label rename <old_name> <new_name>
 
 ## Examples
 
-- `mail_cli labels rename "Archive/2025" "Archive/2026"`
+- `feral labels rename "Archive/2025" "Archive/2026"`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

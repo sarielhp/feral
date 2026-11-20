@@ -1,11 +1,11 @@
 package folderindex
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // MigrateSanitizedNames renames a folder's index files from the pre-H4

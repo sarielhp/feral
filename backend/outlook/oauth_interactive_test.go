@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 )
 
 // The device-code flow prints a URL and a code, then polls for up to fifteen

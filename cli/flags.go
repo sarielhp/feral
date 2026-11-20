@@ -15,13 +15,13 @@ import (
 // layer below the CLI needs is passed to it as an argument -- scan.Options,
 // show.Options -- not read from here.
 var (
-	flagAccountIndex string
 	flagMoveSpam     bool
 	flagMoveSpamFrom string
 	flagMoveInboxStr string
 	flagScanPattern  string
 	flagConfigFix    bool
 	flagLabelRmYes   bool
+	flagUnsubYes     bool
 	flagShowWeb      bool
 	flagShowRaw      bool
 
@@ -33,9 +33,16 @@ var (
 	flagSendBody    string
 	flagSendRaw     bool
 	flagSendQueue   bool
+	flagSendAt      string
+	flagSendNoSig   bool
 	flagSendSign    bool
 	flagSendEncrypt bool
 	flagSendPgpKey  string
+
+	flagSnoozeUntil  string
+	flagSnoozeList   bool
+	flagSnoozeWake   bool
+	flagSnoozeForget bool
 
 	flagComposeSubject       string
 	flagComposeCc            string
@@ -54,8 +61,10 @@ var (
 	flagReplyInclude  string
 	flagReplyBody     string
 	flagReplyGroup    bool
+	flagReplyList     bool
 	flagReplyHeadless bool
 	flagReplyNoQuote  bool
+	flagReplyNoSig    bool
 
 	flagExportOutput string
 	flagExportFormat string
@@ -81,6 +90,11 @@ var (
 	flagRuleRemoteKeepLocal bool
 	flagLearnHamFolder      string
 
+	// account signature: where the new signature comes from.
+	flagAccountSigFile  string
+	flagAccountSigEdit  bool
+	flagAccountSigClear bool
+
 	// The watcher's own parse state. --interval is a duration, so it is a
 	// time.Duration and not a string the command re-parses. The account to
 	// watch comes from the global -A/--account, so there is no flag here for
@@ -89,6 +103,7 @@ var (
 	flagWatchOnMail   string
 	flagWatchNoNotify bool
 	flagWatchNoFlush  bool
+	flagTuiNoWatch    bool
 )
 
 // patternOption is scan's subject filter. It is declared by every command that
@@ -105,7 +120,7 @@ func patternOption(target *string) clihelp.Option {
 // form. clihelp binds options per scope, so sharing the descriptors -- as
 // patternOption already is between root, scan and splice -- keeps the two
 // spellings from drifting; declaring them only on `scan` is what made
-// `mail_cli % -m` an unknown-flag error while scanLabelRef still read them.
+// `feral % -m` an unknown-flag error while scanLabelRef still read them.
 func scanOptions() []clihelp.Option {
 	return []clihelp.Option{
 		patternOption(&flagScanPattern),
@@ -117,3 +132,10 @@ func scanOptions() []clihelp.Option {
 			"Move mail from this sender back to Inbox"),
 	}
 }
+
+// The link command group's flags.
+var (
+	flagLinkDescription string
+	flagLinkForce       bool
+	flagLinkDir         string
+)

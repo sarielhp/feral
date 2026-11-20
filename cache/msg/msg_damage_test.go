@@ -2,12 +2,12 @@ package msg
 
 import (
 	"bytes"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/message_info"
+	"github.com/sarielhp/feral/message_info"
 )
 
 // TestDamagedIndexIsTruncatedOnLoadSoAppendsSurvive is H6's regression: a

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli msg archive'
-parent: 'mail_cli msg'
+title: 'feral msg archive'
+parent: 'feral msg'
 ---
 
-# mail\_cli msg archive
+# feral msg archive
 
 Archive one or more messages by ID.
 
 ## Usage
 
 ```
-mail_cli msg archive <message-id...>
+feral msg archive <message-id...>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli msg archive <message-id...>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli msg archive <message-id...>
 
 ## Examples
 
-- `mail_cli msg archive abc123de` — Archive one message
-- `mail_cli msg archive abc123de 9f8e7d6c` — Archive several at once
+- `feral msg archive abc123de` — Archive one message
+- `feral msg archive abc123de 9f8e7d6c` — Archive several at once
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

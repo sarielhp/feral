@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 func TestParseAccountLabelSpec(t *testing.T) {

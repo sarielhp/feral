@@ -21,8 +21,9 @@ module Colors
 end
 
 def load_config
-  config_path = File.expand_path('~/.config/mail_cli/config.json')
-  return nil unless File.exist?(config_path)
+  # feral's directory; mail_cli's until the first run of feral moves it.
+  config_path = %w[feral mail_cli].map { |d| File.expand_path("~/.config/#{d}/config.json") }.find { |p| File.exist?(p) }
+  return nil unless config_path
 
   JSON.parse(File.read(config_path))
 rescue StandardError => e
@@ -112,13 +113,13 @@ def main
   if target_account.nil?
     if test_accounts.empty?
       puts Colors.warn('No test account configured with account_type "test".')
-      puts "To configure one, run: mail_cli account new <type> <name> --test\n"
+      puts "To configure one, run: feral account new <type> <name> --test\n"
     else
       target_account = test_accounts.first['name']
     end
   end
 
-  puts "#{Colors::BOLD}mail_cli Live Test Suite Runner#{Colors::RESET}"
+  puts "#{Colors::BOLD}feral Live Test Suite Runner#{Colors::RESET}"
   puts "Test Account: #{target_account ? "#{Colors::CYAN}#{target_account}#{Colors::RESET}" : "#{Colors::YELLOW}[none]#{Colors::RESET}"}"
 
   failures = 0
@@ -126,7 +127,7 @@ def main
 
   # 1. Read-Only Suite
   if options[:all] || options[:readonly]
-    env = { 'MAIL_CLI_LIVE' => '1' }
+    env = { 'FERAL_LIVE' => '1' }
     if run_suite('Read-Only Live Suite', env, 'Live', options[:verbose])
       passes += 1
     else
@@ -137,8 +138,8 @@ def main
   # 2. Mutating Suite
   if (options[:all] || options[:mutate]) && target_account
     env = {
-      'MAIL_CLI_LIVE_MUTATE' => '1',
-      'MAIL_CLI_MUTATE_ACCOUNT' => target_account
+      'FERAL_LIVE_MUTATE' => '1',
+      'FERAL_MUTATE_ACCOUNT' => target_account
     }
     if run_suite("Mutating Live Suite (#{target_account})", env, 'Mutation', options[:verbose])
       passes += 1
@@ -150,8 +151,8 @@ def main
   # 3. CLI Black-Box Suite
   if (options[:all] || options[:cli]) && target_account
     env = {
-      'MAIL_CLI_LIVE_MUTATE' => '1',
-      'MAIL_CLI_MUTATE_ACCOUNT' => target_account
+      'FERAL_LIVE_MUTATE' => '1',
+      'FERAL_MUTATE_ACCOUNT' => target_account
     }
     if run_suite("CLI Black-Box Live Suite (#{target_account})", env, 'TestCLI', options[:verbose])
       passes += 1

@@ -1,8 +1,8 @@
 package msg
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"testing"
 	"time"
@@ -194,6 +194,42 @@ func TestCachedEmail_SummaryCachePersistence(t *testing.T) {
 	}
 }
 
+// A summary written before Email carried the To header has none. The listing
+// path that shows the sender accepts it rather than re-reading every message;
+// the Sent-folder path must not, or every row would show a blank recipient.
+func TestCachedEmailRecipientReparsesStaleSummary(t *testing.T) {
+	dir, id := seed(t, withThreadHeaders, time.Now())
+
+	stale := []byte(`{"ID":"seeded1","Subject":"Re: quarterly report","FromRaw":"Alice Smith <alice@example.com>"}`)
+	if err := StoreParsedSummary(cachedir.At(dir), id, stale); err != nil {
+		t.Fatalf("StoreParsedSummary: %v", err)
+	}
+
+	lenient, err := CachedEmail(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("CachedEmail: %v", err)
+	}
+	if lenient.ToRaw != "" {
+		t.Errorf("CachedEmail re-parsed a summary it should have accepted: ToRaw = %q", lenient.ToRaw)
+	}
+
+	strict, err := CachedEmailRecipient(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("CachedEmailRecipient: %v", err)
+	}
+	if strict.ToRaw != "bob@example.com" {
+		t.Errorf("CachedEmailRecipient ToRaw = %q; want the message's To", strict.ToRaw)
+	}
+
+	rewritten, err := ReadParsedSummary(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("ReadParsedSummary: %v", err)
+	}
+	if !summaryHasRecipient(rewritten) {
+		t.Error("the re-parsed summary was not rewritten with the recipient")
+	}
+}
+
 func TestCachedEmail_SummaryHitParity(t *testing.T) {
 	dir, id := seed(t, withThreadHeaders, time.Now())
 	if err := SetEvidence(cachedir.At(dir), id, Evidence{Checks: CheckBogofilter | CheckBlacklist, BogoScore: 8.0}); err != nil {
@@ -237,5 +273,48 @@ func TestCachedEmail_SummaryStoreFailureDoesNotBlockParse(t *testing.T) {
 	}
 	if em.Subject != "Re: quarterly report" {
 		t.Errorf("Subject = %q, want %q", em.Subject, "Re: quarterly report")
+	}
+}
+
+// A summary written before Email carried ListID has no such key. CachedEmail
+// reads the list from the message's header and stores it into the summary,
+// adding that key alone: a whole-struct rewrite would add an empty ToRaw, and
+// the Sent-folder path would then never re-parse the recipient.
+func TestCachedEmailBackfillsListID(t *testing.T) {
+	raw := "From: a@example.com\r\nTo: bob@example.com\r\nSubject: [dev] hi\r\n" +
+		"List-Id: Developers <dev.lists.example.org>\r\n\r\nbody\r\n"
+	dir, id := seed(t, raw, time.Now())
+	stale := []byte(`{"ID":"seeded1","Subject":"[dev] hi","FromRaw":"a@example.com"}`)
+	if err := StoreParsedSummary(cachedir.At(dir), id, stale); err != nil {
+		t.Fatalf("StoreParsedSummary: %v", err)
+	}
+
+	em, err := CachedEmail(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("CachedEmail: %v", err)
+	}
+	if em.ListID != "dev.lists.example.org" {
+		t.Errorf("ListID = %q, want the List-Id of the cached message", em.ListID)
+	}
+	if em.ToRaw != "" {
+		t.Errorf("ToRaw = %q: the backfill must not re-parse the rest of the summary", em.ToRaw)
+	}
+
+	stored, err := ReadParsedSummary(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("ReadParsedSummary: %v", err)
+	}
+	if !summaryHasListID(stored) {
+		t.Error("the list was not stored into the summary")
+	}
+	if summaryHasRecipient(stored) {
+		t.Error("the backfill added a ToRaw key, which hides the stale recipient from CachedEmailRecipient")
+	}
+	recipient, err := CachedEmailRecipient(cachedir.At(dir), id)
+	if err != nil {
+		t.Fatalf("CachedEmailRecipient: %v", err)
+	}
+	if recipient.ToRaw != "bob@example.com" || recipient.ListID != "dev.lists.example.org" {
+		t.Errorf("CachedEmailRecipient = ToRaw %q, ListID %q", recipient.ToRaw, recipient.ListID)
 	}
 }

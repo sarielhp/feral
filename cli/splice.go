@@ -3,25 +3,21 @@ package cli
 import (
 	"bytes"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/label"
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/transfer"
+
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	"github.com/sarielhp/clihelp"
-)
-
-var (
-	maxConfirmRetries = 5
-	confirmRetryDelay = 2 * time.Second
 )
 
 var (
@@ -47,10 +43,10 @@ func spliceCmd(session *Session, name, path string) clihelp.Command {
 		Name:            name,
 		Group:           "Folders",
 		Description:     "Organize messages into dated keep/ hierarchy.",
-		LongDescription: "Organize and archive messages from a source folder/label into the date-based keep/YYYY/MM/<folder> structure (root \"keep/\" is fixed). Runs in dry-run mode by default; use --move to perform actual moves or --copy to copy without deleting from source. Use -f, -F, or -Y to customize destination folder naming.",
-		UsageLine:       "mail_cli " + path + " <folder> [flags]\nmail_cli " + path + " examples",
+		LongDescription: "Organize and archive messages from a source folder/label into the date-based keep/YYYY/MM/<folder> structure (root \"keep/\" is fixed). Runs in dry-run mode by default; use --move to perform actual moves or --copy to copy without deleting from source. Use -f, -F, or -Y to customize destination folder naming. The source may be a local mbox file -- an mbox account, or a path such as /var/mail/you or ./old.mbox -- whose messages are copied into another account (name it with -f, -F or -Y %account:name) and never removed from the file: --move acts as --copy, and a message already in the destination is skipped.",
+		UsageLine:       "feral " + path + " <folder> [flags]\nferal " + path + " examples",
 		Parameters: []clihelp.Param{
-			{Name: "<folder>", Description: "Source folder/label name (e.g. \"receipts\" or \"GMail:receipts\").", Complete: CompleteLabelRefs},
+			{Name: "<folder>", Description: "Source folder (e.g. \"GMail:receipts\"), or an mbox file path.", Complete: CompleteLabelRefs},
 		},
 		Options: []clihelp.Option{
 			clihelp.Bool(&flagSpliceMove, "--move", false, "Move the messages (default: dry run)"),
@@ -63,14 +59,14 @@ func spliceCmd(session *Session, name, path string) clihelp.Command {
 			clihelp.Bool(&flagSpliceAllow, "--allow", false, "Allow sourcing from folders that start with keep/"),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path + " %receipts", Description: "Dry run preview of date-based archive for receipts folder"},
-			{Line: "mail_cli " + path + " %receipts --move", Description: "Move receipts messages to keep/YYYY/MM/receipts"},
-			{Line: "mail_cli " + path + " %receipts -f Archive --move", Description: "Move receipts messages to keep/YYYY/MM/Archive"},
-			{Line: "mail_cli " + path + " %receipts -F Receipts --move", Description: "Move receipts messages to keep/YYYY/MM/Receipts-YYYY-MM"},
-			{Line: "mail_cli " + path + " %GMail:received -Y %FastMail:services --move", Description: "Cross-account move from GMail to FastMail keep/YYYY/services-YYYY-MM"},
-			{Line: "mail_cli " + path + " %receipts -n 50 --copy", Description: "Copy up to 50 receipts messages without deleting source"},
-			{Line: "mail_cli " + path + ` %receipts -p "*order*" --move`, Description: "Move only receipts messages matching pattern"},
-			{Line: "mail_cli " + path + " examples", Description: "Show detailed structured examples and mapping patterns"},
+			{Line: "feral " + path + " %receipts", Description: "Dry run preview of date-based archive for receipts folder"},
+			{Line: "feral " + path + " %receipts --move", Description: "Move receipts messages to keep/YYYY/MM/receipts"},
+			{Line: "feral " + path + " %receipts -f Archive --move", Description: "Move receipts messages to keep/YYYY/MM/Archive"},
+			{Line: "feral " + path + " %receipts -F Receipts --move", Description: "Move receipts messages to keep/YYYY/MM/Receipts-YYYY-MM"},
+			{Line: "feral " + path + " %GMail:received -Y %FastMail:services --move", Description: "Cross-account move from GMail to FastMail keep/YYYY/services-YYYY-MM"},
+			{Line: "feral " + path + " %receipts -n 50 --copy", Description: "Copy up to 50 receipts messages without deleting source"},
+			{Line: "feral " + path + ` %receipts -p "*order*" --move`, Description: "Move only receipts messages matching pattern"},
+			{Line: "feral " + path + " examples", Description: "Show detailed structured examples and mapping patterns"},
 		},
 		Subcommands: []clihelp.Command{
 			SpliceExamplesCmd(),
@@ -106,6 +102,9 @@ func runSplice(ctx *clihelp.Context, session *Session) error {
 		session: session, src: srcClient, dest: destClient, source: source,
 		destBase: destBase, yearSuffix: yearSuffix, suffix: suffix,
 	}
+	if err = plan.keepLocalSource(); err != nil {
+		return err
+	}
 
 	labelCache := NewSanitizeLabelCache()
 	ids, err := plan.fetchIDs(labelCache, flagSpliceN)
@@ -120,7 +119,34 @@ func runSplice(ctx *clihelp.Context, session *Session) error {
 	return nil
 }
 
+// keepLocalSource makes a splice out of a local mbox file a copy: nothing
+// removes a message from the file here, so --move would report removals that
+// never happened. The file is also no destination, so the messages must go to
+// another account.
+func (p *splicePlan) keepLocalSource() error {
+	if p.src.BackendType() != "mbox" {
+		return nil
+	}
+	if transfer.SameAccount(p.src, p.dest) {
+		return fmt.Errorf("%w: %s is a local mbox file; name the account to file its messages into with -f, -F or -Y %%account:name",
+			app.ErrUsage, p.srcDisplay())
+	}
+	p.copyOnly = true
+	if flagSpliceMove {
+		fmt.Fprintf(p.session.errOut(), "%s %s is a local mbox file: splice copies its messages and leaves the file as it is (--move acts as --copy).\n",
+			app.PrefixInfo, p.srcDisplay())
+	}
+	return nil
+}
+
 func resolveSourceClientAndFolder(session *Session, folderArg string, numMessages int, allowKeep bool) (mailclient.MailClient, label.Folder, error) {
+	if isMboxFileArg(folderArg) {
+		_, client, err := openMboxFile(session, folderArg)
+		if err != nil {
+			return nil, label.Folder{}, err
+		}
+		return client, client.InboxFolder(), nil
+	}
 	srcClient, srcFolder, err := session.ResolveClientAndLabel(folderArg)
 	if err != nil {
 		return nil, label.Folder{}, err

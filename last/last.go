@@ -3,20 +3,21 @@ package last
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"mime"
 	"sort"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/ui"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/ui"
 )
 
 // Options is what a last command was asked to do.
@@ -55,7 +56,8 @@ func Perform(opts Options, out io.Writer, rep report.Reporter, client mailclient
 	var allEmails []EmailWithFolder
 	dec := new(mime.WordDecoder)
 	for _, ref := range refs {
-		eml := parseMessageData(config.AccountCache, ref.MessageID, dec)
+		authored := organize.IsAuthoredFolder(client, label.FromServer(ref.Folder))
+		eml := parseMessageData(config.AccountCache, ref.MessageID, dec, authored)
 		allEmails = append(allEmails, EmailWithFolder{
 			Folder: ref.Folder,
 			Email:  eml,
@@ -65,12 +67,19 @@ func Perform(opts Options, out io.Writer, rep report.Reporter, client mailclient
 	return finishAndDisplay(opts, out, rep, allEmails, config, n)
 }
 
-func parseMessageData(downloadDir cachedir.Account, id email.ID, _ *mime.WordDecoder) email.Email {
-	em, err := msg.CachedEmail(downloadDir, id)
+func parseMessageData(downloadDir cachedir.Account, id email.ID, _ *mime.WordDecoder, authored bool) email.Email {
+	var em *email.Email
+	var err error
+	if authored {
+		em, err = msg.CachedEmailRecipient(downloadDir, id)
+	} else {
+		em, err = msg.CachedEmail(downloadDir, id)
+	}
 	if err != nil {
 		return ui.PlaceholderEmail(id)
 	}
 	em.Subject = email.ReverseHebrewRuns(em.Subject)
+	em.IsAuthored = authored
 	return *em
 }
 
@@ -111,13 +120,14 @@ func performFolderByFolderFallback(opts Options, out io.Writer, rep report.Repor
 			continue
 		}
 
+		authored := organize.IsAuthoredFolder(client, label.FromServer(folderName))
 		for _, id := range downloadedIDs {
 			if seenMsgIDs[id] {
 				continue
 			}
 			seenMsgIDs[id] = true
 
-			eml := parseMessageData(config.AccountCache, id, dec)
+			eml := parseMessageData(config.AccountCache, id, dec, authored)
 			allEmails = append(allEmails, EmailWithFolder{
 				Folder: folderName,
 				Email:  eml,

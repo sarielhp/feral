@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestRunReply_MissingArgs(t *testing.T) {
@@ -104,7 +104,9 @@ func TestRunReply_PassesOptionsToSend(t *testing.T) {
 	flagReplyBody = "Acknowledged"
 	flagReplyHeadless = true
 	flagReplyNoQuote = true
+	flagReplyNoSig = true
 	defer func() {
+		flagReplyNoSig = false
 		flagReplyGroup = false
 		flagReplySubject = ""
 		flagReplyCc = ""
@@ -123,6 +125,9 @@ func TestRunReply_PassesOptionsToSend(t *testing.T) {
 		t.Fatalf("expected Send.Reply to be called")
 	}
 
+	if !capturedOpts.NoSignature {
+		t.Error("--no-signature did not reach ReplyOptions.NoSignature")
+	}
 	if capturedOpts.MessageID != "msg12345" {
 		t.Errorf("MessageID = %q, want 'msg12345'", capturedOpts.MessageID)
 	}

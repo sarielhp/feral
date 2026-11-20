@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -147,22 +147,22 @@ func TestUnknownCommandSuggestions(t *testing.T) {
 		{
 			name:        "typo suggests top-level command",
 			args:        []string{"scn", "inbox"},
-			wantContain: `unknown command "scn" for "mail_cli". Did you mean "scan"?`,
+			wantContain: `unknown command "scn" for "feral". Did you mean "scan"?`,
 		},
 		{
 			name:        "exact subcommand suggests parent path",
 			args:        []string{"clear"},
-			wantContain: `unknown command "clear" for "mail_cli". Did you mean "utils cache clear"?`,
+			wantContain: `unknown command "clear" for "feral". Did you mean "utils cache clear"?`,
 		},
 		{
 			name:        "nested subcommand suggests full path",
 			args:        []string{"audit"},
-			wantContain: `unknown command "audit" for "mail_cli". Did you mean "spam pol audit"?`,
+			wantContain: `unknown command "audit" for "feral". Did you mean "spam pol audit"?`,
 		},
 		{
 			name:        "unrecognized input without close match hints at help",
 			args:        []string{"foobarxyz"},
-			wantContain: `unknown command "foobarxyz" for "mail_cli". Run "mail_cli -h" for a list of commands`,
+			wantContain: `unknown command "foobarxyz" for "feral". Run "feral -h" for a list of commands`,
 		},
 	}
 

@@ -2,9 +2,11 @@ package google
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/cfg_g"
 	"strings"
 	"time"
+
+	cal "github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"google.golang.org/api/calendar/v3"
 )
@@ -84,6 +86,21 @@ func (s *Service) CheckICSEventDetailed(config *cfg_g.Config, icsData []byte) (C
 	return res, nil
 }
 
+func sanitizeGoogleTimeZone(tz string) string {
+	if tz == "" {
+		return detectSystemTimeZone()
+	}
+	if _, err := time.LoadLocation(tz); err == nil {
+		return tz
+	}
+	if resolved := cal.ResolveTimeZone(tz); resolved != "" {
+		if _, err := time.LoadLocation(resolved); err == nil {
+			return resolved
+		}
+	}
+	return detectSystemTimeZone()
+}
+
 // buildGoogleCalendarEvent constructs a Google Calendar event struct from an ICSEvent.
 func buildGoogleCalendarEvent(ev *ICSEvent) *calendar.Event {
 	newEvent := &calendar.Event{
@@ -93,11 +110,8 @@ func buildGoogleCalendarEvent(ev *ICSEvent) *calendar.Event {
 		ICalUID:     ev.UID,
 	}
 
-	tz := ev.StartTimeZone
-	if tz == "" {
-		tz = detectSystemTimeZone()
-	}
-	endTz := ev.EndTimeZone
+	tz := sanitizeGoogleTimeZone(ev.StartTimeZone)
+	endTz := sanitizeGoogleTimeZone(ev.EndTimeZone)
 	if endTz == "" {
 		endTz = tz
 	}
@@ -241,7 +255,7 @@ func (s *Service) AddICSDataAsNew(config *cfg_g.Config, icsData []byte) (string,
 		summary = fmt.Sprintf("%s (%d events)", firstSummary, len(events))
 	}
 
-	srv, err := s.getCalendarService(config)
+	srv, err := s.getWritableCalendarService(config)
 	if err != nil {
 		return summary, fmt.Errorf("failed to load calendar service: %w", err)
 	}
@@ -273,7 +287,7 @@ func (s *Service) AddICSDataWithVerification(config *cfg_g.Config, icsData []byt
 		summary = fmt.Sprintf("%s (%d events)", firstSummary, len(events))
 	}
 
-	srv, err := s.getCalendarService(config)
+	srv, err := s.getWritableCalendarService(config)
 	if err != nil {
 		return summary, false, false, false, fmt.Errorf("failed to load calendar service: %w", err)
 	}

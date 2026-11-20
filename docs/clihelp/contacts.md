@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts'
+title: 'feral contacts'
 has_children: true
 ---
 
-# mail\_cli contacts
+# feral contacts
 
 View and manage email contacts and aliases from Google and Mutt.
 
 ## Usage
 
 ```
-mail_cli contacts [subcommand]
+feral contacts [subcommand]
 ```
 
 ## Subcommands
@@ -18,6 +18,8 @@ mail_cli contacts [subcommand]
 | Command | Description |
 |---------|-------------|
 | [list](contacts-list.md) | List stored contacts and aliases. |
+| [tui](contacts-tui.md) | Manage contacts full screen. |
+| [pick](contacts-pick.md) | Choose contacts full screen; print them on stdout. |
 | [search](contacts-search.md) | Search contacts by name, email, or note. |
 | [suggest](contacts-suggest.md) | Suggest ranked recipients from history. |
 | [harvest](contacts-harvest.md) | Build suggestion index from cached mail. |
@@ -32,7 +34,7 @@ mail_cli contacts [subcommand]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -40,14 +42,15 @@ mail_cli contacts [subcommand]
 
 ## Examples
 
-- `mail_cli contacts` — List all contacts and aliases
-- `mail_cli contacts search algo` — Search contacts and groups
-- `mail_cli contacts suggest alice` — Suggest ranked email recipients
-- `mail_cli contacts harvest` — Harvest suggested recipients from cached mail
-- `mail_cli contacts sync` — Sync contacts from Google Contacts
-- `mail_cli contacts import-mutt` — Import Mutt aliases configured in config.json
-- `mail_cli contacts import-mutt ~/.mutt/aliases` — Import Mutt aliases from a specific file
+- `feral contacts` — List all contacts and aliases
+- `feral contacts tui` — Manage contacts full screen
+- `feral contacts search algo` — Search contacts and groups
+- `feral contacts suggest alice` — Suggest ranked email recipients
+- `feral contacts harvest` — Harvest suggested recipients from cached mail
+- `feral contacts sync` — Sync contacts from Google Contacts
+- `feral contacts import-mutt` — Import Mutt aliases configured in config.json
+- `feral contacts import-mutt ~/.mutt/aliases` — Import Mutt aliases from a specific file
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -3,7 +3,7 @@ package gmail
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/report"
 	"net"
 	"net/http"
 	"os"

@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli msg block'
-parent: 'mail_cli msg'
+title: 'feral msg block'
+parent: 'feral msg'
 ---
 
-# mail\_cli msg block
+# feral msg block
 
 Block the senders of messages and move them.
 
 ## Usage
 
 ```
-mail_cli msg block [flags] <message-id...>
+feral msg block [flags] <message-id...>
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli msg block [flags] <message-id...>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,9 +36,9 @@ mail_cli msg block [flags] <message-id...>
 
 ## Examples
 
-- `mail_cli msg block abc123de` — Block sender of one message to Spam
-- `mail_cli msg block --trash abc123de` — Block sender of message to Trash
+- `feral msg block abc123de` — Block sender of one message to Spam
+- `feral msg block --trash abc123de` — Block sender of message to Trash
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

@@ -3,9 +3,9 @@ package gmail
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/report"
 	"strings"
 
 	gmailapi "google.golang.org/api/gmail/v1"

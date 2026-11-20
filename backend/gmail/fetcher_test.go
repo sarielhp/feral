@@ -3,14 +3,22 @@ package gmail
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/backend/backendtest"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/sarielhp/feral/backend/backendtest"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 )
+
+type testPromptReporter struct {
+	report.Reporter
+}
+
+func (testPromptReporter) CanPrompt() bool { return true }
 
 func TestGmailClient_MessageAccessorContextCancellation(t *testing.T) {
 	backendtest.AssertAccessorHonorsCancellation(t, &client{})
@@ -29,13 +37,18 @@ func TestGetTokenFromWebContext_Cancellation(t *testing.T) {
 }
 
 func TestGetTokenFromWebContext_ConcurrentCancellation(t *testing.T) {
+	restore := interactiveAuthPossible
+	interactiveAuthPossible = func() bool { return true }
+	defer func() { interactiveAuthPossible = restore }()
+
 	config := &oauth2.Config{}
 	appCfg := &Config{}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
+	rep := testPromptReporter{report.Discard()}
 	start := time.Now()
-	_, err := getTokenFromWebContext(ctx, report.Discard(), config, appCfg)
+	_, err := getTokenFromWebContext(ctx, rep, config, appCfg)
 	elapsed := time.Since(start)
 
 	if err == nil || (!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)) {
@@ -43,6 +56,46 @@ func TestGetTokenFromWebContext_ConcurrentCancellation(t *testing.T) {
 	}
 	if elapsed > 1*time.Second {
 		t.Fatalf("getTokenFromWebContext blocked for %v, want < 1s", elapsed)
+	}
+}
+
+func TestGetTokenFromWebContext_RefusesWithoutATerminal(t *testing.T) {
+	restore := interactiveAuthPossible
+	interactiveAuthPossible = func() bool { return false }
+	defer func() { interactiveAuthPossible = restore }()
+
+	config := &oauth2.Config{}
+	appCfg := &Config{SelectedAccount: "personal"}
+	tok, err := getTokenFromWebContext(context.Background(), testPromptReporter{report.Discard()}, config, appCfg)
+
+	if err == nil {
+		t.Fatalf("got token %v; an unattended process must not start a browser sign-in", tok)
+	}
+	if !errors.Is(err, ErrInteractiveAuthRequired) {
+		t.Errorf("got %v, want ErrInteractiveAuthRequired", err)
+	}
+	if !strings.Contains(err.Error(), "account login personal") {
+		t.Errorf("error should name the account and command, got: %v", err)
+	}
+}
+
+func TestGetTokenFromWebContext_RefusesWhenReporterCannotPrompt(t *testing.T) {
+	restore := interactiveAuthPossible
+	interactiveAuthPossible = func() bool { return true }
+	defer func() { interactiveAuthPossible = restore }()
+
+	config := &oauth2.Config{}
+	appCfg := &Config{SelectedAccount: "personal"}
+	tok, err := getTokenFromWebContext(context.Background(), report.Discard(), config, appCfg)
+
+	if err == nil {
+		t.Fatalf("got token %v; non-prompting reporter must not start browser sign-in", tok)
+	}
+	if !errors.Is(err, ErrInteractiveAuthRequired) {
+		t.Errorf("got %v, want ErrInteractiveAuthRequired", err)
+	}
+	if !strings.Contains(err.Error(), "account login personal") {
+		t.Errorf("error should name the account and command, got: %v", err)
 	}
 }
 

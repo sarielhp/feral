@@ -1,14 +1,14 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/contacts"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/contacts"
+	"github.com/sarielhp/feral/email"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -241,7 +241,7 @@ func TestTUI_Compose_WarnEmptySubjectOrBody(t *testing.T) {
 	if sendCmd == nil {
 		t.Fatalf("expected sendCmd on confirming send anyway")
 	}
-	_ = sendCmd()
+	runCmd(sendCmd)
 	if len(mockClient.SentRawEmails) != 1 {
 		t.Errorf("expected 1 sent email after confirming warning, got %d", len(mockClient.SentRawEmails))
 	}

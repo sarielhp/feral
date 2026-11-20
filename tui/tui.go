@@ -8,16 +8,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/filebrowser"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/llm"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/filebrowser"
+	"github.com/sarielhp/feral/keymap"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/llm"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/bubbles/viewport"
 )
@@ -25,21 +27,6 @@ import (
 const modeIndex int = 0
 const modeDetail = 1
 const modeCompose = 2
-
-// Header column widths for email row rendering
-const (
-	HeaderColIndexWidth   = 4  // Index column width
-	HeaderColDateWidth    = 8  // Date column width
-	HeaderColFromWidth    = 20 // From column width
-	HeaderColSubjectWidth = 2  // Subject column width
-	HeaderColSpamWidth    = 2  // Spam indicator width
-	HeaderColReadWidth    = 5  // Status and attachment indicators width
-	HeaderColPadding      = 2  // Padding between columns
-)
-
-const (
-	headerColTotal = HeaderColIndexWidth + HeaderColDateWidth + HeaderColFromWidth + HeaderColSubjectWidth + HeaderColSpamWidth + HeaderColReadWidth + (HeaderColPadding * 5)
-)
 
 type pendingOpType int
 
@@ -50,7 +37,22 @@ const (
 	pendingUnspam  pendingOpType = 4
 )
 
+const (
+	autoRefreshInterval   = 60 * time.Second
+	idleActivityThreshold = 30 * time.Second
+	minRefreshInterval    = 30 * time.Second
+)
+
 type timeTickMsg struct{}
+
+// bgCheckDoneMsg ends a mail check. foreground marks a load the user asked
+// for, which owns the loading indicator; a background poll must not clear one
+// that belongs to an operation started since.
+type bgCheckDoneMsg struct {
+	folder     string
+	err        error
+	foreground bool
+}
 
 type errMsg struct {
 	err error
@@ -61,6 +63,8 @@ type foldersLoadedMsg struct {
 }
 
 type emailsLoadedMsg struct {
+	client      mailclient.MailClient
+	folder      string
 	emails      []email.Email
 	classifyIDs []email.ID
 	// Update. Assigning them to the model from inside the goroutine raced the
@@ -68,6 +72,14 @@ type emailsLoadedMsg struct {
 	// non-recoverable "concurrent map writes" fatal error.
 	isRead    map[email.ID]bool
 	isReplied map[email.ID]bool
+	// mergeFlags says the maps cover only these rows -- the unified inbox,
+	// drawn from several accounts -- so they are merged into the session's
+	// rather than replacing them, which would leave every other folder's
+	// messages unread to the cached loader.
+	mergeFlags bool
+	// flagGen is the model's flagGen when the load was dispatched: a mark
+	// made after it is laid back over the maps the load brings.
+	flagGen uint64
 }
 
 type detailMsg struct {
@@ -83,14 +95,20 @@ type doneMsg struct {
 
 type spamDoneMsg struct {
 	id email.ID
+	// undo is what moved, when the server accepted the move.
+	undo *undoBatch
 }
 
 type archiveDoneMsg struct {
 	id email.ID
+	// undo is what moved, when the server accepted the move.
+	undo *undoBatch
 }
 
 type deleteDoneMsg struct {
 	id email.ID
+	// undo is what moved, when the server accepted the move.
+	undo *undoBatch
 }
 
 type unspamDoneMsg struct {
@@ -142,34 +160,41 @@ func (m *tuiModel) removePending(id email.ID) {
 }
 
 type tuiModel struct {
-	mode               int
-	folders            []label.Item
-	emails             []email.Email
-	rawEmails          []email.Email
-	expandedThreads    map[threadKey]bool
-	eIdx               int
-	tree               []*label.TreeNode
-	entries            []label.TreeEntry
-	cursor             int
-	currentF           string
-	treeOpen           bool
-	showHelp           bool
-	showLoad           string
-	vp                 viewport.Model
-	done               bool
-	width              int
-	height             int
-	lpr                string
-	selectedID         email.ID
-	client             mailclient.MailClient
-	pendingEmails      map[email.ID]pendingOpType
-	detailH            string
-	detail             string
-	detailCrypto       *email.CryptoStatus
-	selectedRow        render.ColoredString
-	detailVpDirty      bool
-	theme              *render.ThemeManager
-	lastTime           time.Time
+	mode             int
+	folders          []label.Item
+	emails           []email.Email
+	rawEmails        []email.Email
+	expandedThreads  map[threadKey]bool
+	lastSaveDir      string // where the last save dialog of this session saved, offered as a jump
+	eIdx             int
+	tree             []*label.TreeNode
+	entries          []label.TreeEntry
+	cursor           int
+	currentF         string
+	treeOpen         bool
+	showHelp         bool
+	showLoad         string
+	loadEscNoted     bool // Esc was pressed over a load that cannot be canceled
+	vp               viewport.Model
+	done             bool
+	width            int
+	height           int
+	lpr              string
+	selectedID       email.ID
+	client           mailclient.MailClient
+	pendingEmails    map[email.ID]pendingOpType
+	detailH          string
+	detail           string
+	detailCrypto     *email.CryptoStatus
+	selectedRow      render.ColoredString
+	detailVpDirty    bool
+	theme            *render.ThemeManager
+	lastTime         time.Time
+	lastCheckTime    time.Time
+	lastActivityTime time.Time
+	bgCheckingMail   bool
+	// relay is the state of the relay-account check; see tui_relay.go.
+	relay              relayState
 	folderSearch       string
 	inFolderSearch     bool
 	inSearch           bool
@@ -189,6 +214,8 @@ type tuiModel struct {
 	bulkMovingToFolder bool
 	inRemoteSearch     bool
 	remoteSearchQuery  string
+	remoteSearchLimit  int  // limit the search view was fetched with
+	remoteSearchMore   bool // the search view filled its limit
 	splitPreview       bool
 	indexStart         int
 	err                error
@@ -198,6 +225,8 @@ type tuiModel struct {
 	folderJustChanged  bool
 	isRead             map[email.ID]bool
 	isReplied          map[email.ID]bool
+	flagGen            uint64                // counts the read and replied marks made here
+	flagEdits          map[email.ID]flagEdit // marks a load in flight may not have seen
 	bk                 *Backend
 	rep                report.Reporter
 	showError          bool
@@ -217,7 +246,21 @@ type tuiModel struct {
 	// before exiting; abandonArmed is the first Ctrl+C of an abandon.
 	exitPending bool
 	// contactPick is the open contacts picker (F5 on the compose screen).
-	contactPick    *contactPicker
+	contactPick *contactPicker
+	// aliasView is the open aliases browser (F6), over any screen.
+	aliasView *aliasBrowser
+	// The help tree's state: helpSection indexes helpSections, with -1 the
+	// section menu; helpCursor is the menu's row, helpScroll the page's first
+	// body line, and helpDirect marks a page its screen opened (Esc closes).
+	helpSection int
+	helpCursor  int
+	helpScroll  int
+	helpDirect  bool
+	// helpFind is the search typed into whichever help screen is open.
+	helpFind helpQuery
+	// keyMap is the keys of the list and the message view, from keys.json;
+	// nil is the defaults (keys()).
+	keyMap         *keymap.Keymap
 	abandonArmed   bool
 	saveStatusTime time.Time
 	// notice is a transient confirmation shown under the index and detail
@@ -233,6 +276,34 @@ type tuiModel struct {
 	spamMenuCursor     int
 	accountOverlayOpen bool
 	accountCursor      int
+	// virtualBrowserOpen is the F7 dialog listing the account's saved result
+	// sets; virtualCursor is its selection and virtualMailboxes what it lists.
+	virtualBrowserOpen bool
+	virtualCursor      int
+	virtualMailboxes   []virtual.Mailbox
+	// recentOpen is the F8 dialog listing the folders opened most recently on
+	// this account; recentFolders is what it lists, newest first, without the
+	// folder on screen, and recentCursor its selection.
+	recentOpen    bool
+	recentCursor  int
+	recentFolders []string
+	// folderPositions is the message each folder had selected when it was
+	// left this session, keyed by account cache and folder, so that coming
+	// back selects it again.
+	folderPositions map[string]email.ID
+	// history and forward are the views Back and Forward reopen, oldest
+	// first. quitConfirmOpen is the dialog Esc opens with nothing to go back
+	// to, opened at quitConfirmAt; sentToastUntil ends "Message sent".
+	history         []historyEntry
+	forward         []historyEntry
+	quitConfirmOpen bool
+	quitConfirmAt   time.Time
+	sentToastUntil  time.Time
+	// virtualBox is the saved set the view was opened from, kept because only
+	// it records the folder each of its rows came from, which is the source
+	// folder an action on a row must name. It is checked against the folder on
+	// screen rather than cleared, because currentF moves in a dozen places.
+	virtualBox         *virtual.Mailbox
 	cfg                *cfg_g.Config
 	showSummary        bool
 	summaryContent     string
@@ -248,7 +319,23 @@ type tuiModel struct {
 	pendingSaveAtt     email.Attachment
 	// pendingSaveStem is set when the save dialog is saving a whole message
 	// (F2): its name is shortened against the directory finally chosen.
-	pendingSaveStem           string
+	pendingSaveStem string
+	// pendingMbox is set between ;x's name prompt and the directory the save
+	// dialog chooses: the tagged set waiting to be written.
+	pendingMbox *pendingMboxExport
+	// inSaveNamePrompt is the name prompt ;v and ;x share, with saveNameKind
+	// saying what the name is for.
+	inSaveNamePrompt bool
+	// inMovePrompt is ;a's "account:folder" prompt, moveQuery its text.
+	inMovePrompt bool
+	moveQuery    string
+	// inSnoozePrompt is H's "until when" prompt, snoozeQuery its text and
+	// snoozeTarget the message it was opened on.
+	inSnoozePrompt            bool
+	snoozeQuery               string
+	snoozeTarget              *snoozeTarget
+	saveNameKind              saveNameKind
+	saveNameQuery             string
 	lastSpammedID             email.ID
 	lastSpammedTime           time.Time
 	undoSpamBanner            string
@@ -259,6 +346,14 @@ type tuiModel struct {
 	savingMessageToFolder     bool
 	savingMessageID           email.ID
 	savingMessageSourceFolder string
+	savingMessageToDisk       bool
+	lastSaveTargetFolder      bool
+	saveHelpOpen              bool
+	sortOption                SortOption
+	sortReverse               bool
+	sortMenuOpen              bool
+	sortMenuReverse           bool // the menu was opened with O: its choice sorts descending
+	sortMenuCursor            int
 	summaryParsedCache        map[email.ID]llm.ParsedSummary
 	showDeadlinesAgenda       bool
 	deadlinesVp               viewport.Model
@@ -275,6 +370,7 @@ type tuiModel struct {
 	blockSenderName           string
 	blockSenderEmail          string
 	blockMessageID            email.ID
+	unsubDialog               *unsubPrompt // the unsubscribe confirmation (X), open while set
 	icsInCalendar             bool
 	icsDiscrepancy            string
 	icsCheckErr               string
@@ -285,7 +381,6 @@ type tuiModel struct {
 	attPreviewVp              viewport.Model
 	attPreviewStatus          string
 	attPreviewStatusTime      time.Time
-	attInvertColors           bool
 	attachmentLineOffset      int
 	detailSplitOpen           bool
 	rightPaneFocus            bool
@@ -311,26 +406,32 @@ type tuiModel struct {
 	summaryShown  string
 	composeOpts   ComposeOptions
 	lockedFolders map[string]bool
+	// undoStack is the session's undoable actions, the latest last; see
+	// tui_undo.go.
+	undoStack []undoEntry
 }
 
 func newTuiModel(cl mailclient.MailClient, lp string, bk *Backend) *tuiModel {
 	// rep is replaced with the program reporter once the TUI is running.
 	m := &tuiModel{
-		mode:            modeIndex,
-		client:          cl,
-		lpr:             lp,
-		theme:           render.NewThemeManager(),
-		expandedThreads: make(map[threadKey]bool),
-		pendingEmails:   make(map[email.ID]pendingOpType),
-		lockedFolders:   make(map[string]bool),
-		showGlobalTree:  true,
-		bk:              bk,
-		menuItems:       []string{"Move to Spam", "Switch Account", "Exit"},
+		mode:             modeIndex,
+		client:           cl,
+		lpr:              lp,
+		theme:            render.NewThemeManager(),
+		expandedThreads:  make(map[threadKey]bool),
+		pendingEmails:    make(map[email.ID]pendingOpType),
+		lockedFolders:    make(map[string]bool),
+		showGlobalTree:   true,
+		bk:               bk,
+		menuItems:        []string{"Move to Spam", "Switch Account", "Exit"},
+		helpSection:      -1, // the section menu
+		lastTime:         time.Now(),
+		lastCheckTime:    time.Now(),
+		lastActivityTime: time.Now(),
 	}
 	if cl != nil && cl.Config() != nil {
 		m.isRead = cache.LoadReadState(cl.Config().AccountCache)
 		m.isReplied = cache.LoadRepliedState(cl.Config().AccountCache)
-		m.attInvertColors = cl.Config().AttachmentInvertColors
 	}
 	if m.isRead == nil {
 		m.isRead = make(map[email.ID]bool)

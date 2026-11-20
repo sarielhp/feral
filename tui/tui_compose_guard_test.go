@@ -114,10 +114,17 @@ func headerOf(raw []byte, name string) string {
 	return ""
 }
 
-// The compose help listed f/A/I, which no longer do anything, and said
+// The compose help once listed f/A/I, which no longer do anything, and said
 // Ctrl+C quits immediately, which now saves and uploads the draft.
 func TestComposeHelpMatchesTheBindings(t *testing.T) {
-	help := renderComposeHelp("#888888", "#000000")
+	m := newTuiModel(nil, "", nil)
+	m.mode = modeCompose
+	m.compose = &composeState{}
+	m.width, m.height = 100, 40
+	help := renderHelp(m)
+	if !strings.Contains(help, "Composing") && !strings.Contains(help, "Compose") {
+		t.Errorf("compose help shows the wrong page:\n%s", help)
+	}
 	if !strings.Contains(help, "F3") || strings.Contains(help, "f/A/I") {
 		t.Errorf("compose help does not name F3 alone:\n%s", help)
 	}

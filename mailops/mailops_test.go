@@ -1,12 +1,12 @@
 package mailops
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/cachedir"
+
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 func TestBuildAccountLocalConfig(t *testing.T) {
@@ -79,7 +79,7 @@ func TestForEachAccount_NotFound(t *testing.T) {
 			{Name: "acc1"},
 		},
 	}
-	err := ForEachAccount(cfg, "nonexistent:folder", report.Discard(),
+	err := ForEachAccount(cfg, "nonexistent:folder", DefaultSpan,
 		func(_ cfg_acc.AccountConfig, _ string) (bool, error) {
 			return false, nil
 		})

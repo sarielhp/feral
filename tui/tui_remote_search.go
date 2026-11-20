@@ -8,9 +8,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sarielhp/mail_cli/cache/virtual"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // searchFolderPrefix names the TUI's view of remote search results. It is not
@@ -25,16 +25,11 @@ func isSearchView(folder string) bool { return strings.HasPrefix(folder, searchF
 // source, which on Gmail is a label removal that matches nothing.
 var errSearchViewAction = errors.New("remote search results do not record each message's folder; open its folder to move, delete or report it")
 
-// refuseInSearchView reports, and returns true, when the current view is a
-// remote search, where moves cannot name a source folder.
-func (m *tuiModel) refuseInSearchView() bool {
-	if !isSearchView(m.currentF) {
-		return false
-	}
-	m.err = errSearchViewAction
-	m.showError = true
-	return true
-}
+// remoteSearchPageSize is how many of the newest matches a Ctrl+f search
+// fetches. Every hit costs a summary download, so asking for all of them made a
+// broad query crawl; + in the results view doubles the count. It is not R,
+// which refreshes everywhere and sits beside r (reply).
+const remoteSearchPageSize = 25
 
 type remoteSearchDoneMsg struct {
 	query  string
@@ -42,6 +37,10 @@ type remoteSearchDoneMsg struct {
 	err    error
 	// client is the one the search ran against, captured when it started.
 	client mailclient.MailClient
+	// limit is what the server was asked for; more reports that it filled
+	// the limit, so further matches may exist.
+	limit int
+	more  bool
 }
 
 func (m *tuiModel) kRemoteSearchPrompt(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -49,10 +48,13 @@ func (m *tuiModel) kRemoteSearchPrompt(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	return m.startRemoteSearch(q)
+	return m.startRemoteSearch(q, remoteSearchPageSize)
 }
 
-func (m *tuiModel) startRemoteSearch(query string) (tea.Model, tea.Cmd) {
+// startRemoteSearch queries the server and shows the hits as the search
+// view. A limit of zero or less means every match; a positive one keeps the
+// query to the newest few, as the alias entry's latest-mail action wants.
+func (m *tuiModel) startRemoteSearch(query string, limit int) (tea.Model, tea.Cmd) {
 	if m.client == nil {
 		m.err = fmt.Errorf("no mail client connected for remote search")
 		m.showError = true
@@ -63,19 +65,43 @@ func (m *tuiModel) startRemoteSearch(query string) (tea.Model, tea.Cmd) {
 	client := m.client
 
 	return m, func() tea.Msg {
-		ids, err := client.SearchEmails(query, 0)
+		done := remoteSearchDoneMsg{query: query, client: client, limit: limit}
+		ids, err := client.SearchEmails(query, limit)
 		if err != nil {
-			return remoteSearchDoneMsg{query: query, err: err, client: client}
+			done.err = err
+			return done
 		}
+		done.more = limit > 0 && len(ids) >= limit
 		if len(ids) == 0 {
-			return remoteSearchDoneMsg{query: query, emails: []*email.Email{}, client: client}
+			done.emails = []*email.Email{}
+			return done
 		}
-		summaries, err := client.GetMessageSummariesBatch(ids)
-		if err != nil {
-			return remoteSearchDoneMsg{query: query, err: err, client: client}
-		}
-		return remoteSearchDoneMsg{query: query, emails: summaries, client: client}
+		// Summaries cached by an earlier, smaller run are not downloaded
+		// again, so loading more pays only for the new hits.
+		done.emails, done.err = client.GetMessageSummariesBatch(ids)
+		return done
 	}
+}
+
+// loadMoreSearchResults re-runs the search view's query with twice the limit.
+// Re-running is simpler than holding a server page token across key presses,
+// and costs one ID listing plus the summaries not yet cached.
+func (m *tuiModel) loadMoreSearchResults() (tea.Model, tea.Cmd) {
+	if !m.remoteSearchMore {
+		m.saveStatus = fmt.Sprintf("All %d match(es) are shown", len(m.rawEmails))
+		m.saveStatusTime = time.Now()
+		return m, nil
+	}
+	query := strings.TrimPrefix(m.currentF, searchFolderPrefix)
+	return m.startRemoteSearch(query, max(m.remoteSearchLimit, remoteSearchPageSize)*2)
+}
+
+// refreshSearchResults re-runs the search view's query at the limit it
+// was fetched with: R refreshes a view, and in the search view that is the
+// same page of newest matches, brought up to date.
+func (m *tuiModel) refreshSearchResults() (tea.Model, tea.Cmd) {
+	query := strings.TrimPrefix(m.currentF, searchFolderPrefix)
+	return m.startRemoteSearch(query, max(m.remoteSearchLimit, remoteSearchPageSize))
 }
 
 // sameAccount compares two clients by the account they serve, never by
@@ -112,8 +138,8 @@ func (m *tuiModel) handleRemoteSearchDone(msg remoteSearchDoneMsg) (tea.Model, t
 	// active one if the user switched while the search ran.
 	if cfg := searched.Config(); cfg != nil && !cfg.AccountCache.IsZero() {
 		vm := &virtual.Mailbox{
-			Name:        "search",
-			Description: msg.query,
+			Name:        virtual.NameForQuery(msg.query),
+			Description: fmt.Sprintf("Results for %q", msg.query),
 			MessageIDs:  ids,
 		}
 		_ = virtual.Save(cfg.AccountCache, vm)
@@ -124,21 +150,40 @@ func (m *tuiModel) handleRemoteSearchDone(msg remoteSearchDoneMsg) (tea.Model, t
 		return m, nil
 	}
 
-	m.rawEmails = rawList
-	m.currentF = searchFolderPrefix + msg.query
-	m.searchQuery = ""
-	m.inSearch = false
-	m.rebuildVisibleEmails()
-
-	if len(m.emails) > 0 {
-		m.eIdx = 0
-		m.selectedID = m.emails[0].ID
-	} else {
-		m.eIdx = 0
-		m.selectedID = ""
+	view := searchFolderPrefix + msg.query
+	var keep email.ID
+	if m.currentF == view {
+		keep = m.selectedID // loading more: stay on the same message
 	}
+	m.endListFilter()
+	m.pushHistory(view)
+	m.rawEmails = rawList
+	m.currentF = view
+	m.remoteSearchLimit = msg.limit
+	m.remoteSearchMore = msg.more
+	m.rebuildVisibleEmails()
+	m.selectSearchRow(keep)
 
 	m.saveStatus = fmt.Sprintf("Found %d remote message(s)", len(rawList))
+	if msg.more {
+		m.saveStatus += " (newest only; + loads more)"
+	}
 	m.saveStatusTime = time.Now()
 	return m, nil
+}
+
+// selectSearchRow puts the cursor on the message with the given ID, or on the
+// first row when it is empty or no longer listed.
+func (m *tuiModel) selectSearchRow(id email.ID) {
+	m.eIdx = 0
+	m.selectedID = ""
+	for i := range m.emails {
+		if m.emails[i].ID == id {
+			m.eIdx = i
+			break
+		}
+	}
+	if len(m.emails) > 0 {
+		m.selectedID = m.emails[m.eIdx].ID
+	}
 }

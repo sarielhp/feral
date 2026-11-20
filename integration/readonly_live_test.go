@@ -2,21 +2,24 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
 	"net/mail"
-	"os"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/testenv"
+
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/report"
 )
 
 // These tests drive the real backends against real accounts, which is the only
@@ -43,18 +46,20 @@ import (
 //
 // They make network calls, so they are opt-in and never run by default:
 //
-//	MAIL_CLI_LIVE=1 go test ./integration/ -run Live -v
+//	FERAL_LIVE=1 go test ./integration/ -run Live -v
 
-const liveEnvVar = "MAIL_CLI_LIVE"
+const liveEnvVar = "FERAL_LIVE"
 
 // liveConfig loads the real configuration, skipping unless live testing was
 // explicitly requested and an account actually exists.
 func liveConfig(t *testing.T) *cfg_g.Config {
 	t.Helper()
-	if os.Getenv(liveEnvVar) == "" {
+	if testenv.Getenv(t, liveEnvVar) == "" {
 		t.Skipf("live tests are opt-in; set %s=1 to run them", liveEnvVar)
 	}
-	config, err := cfg_g.LoadConfig()
+	// The loader that writes nothing: a test may not move or rewrite the
+	// user's configuration directory.
+	config, err := cfg_g.LoadConfigNoWrite()
 	if err != nil {
 		t.Skipf("no usable configuration: %v", err)
 	}
@@ -330,6 +335,92 @@ func TestLiveMessageAccessorColdCache(t *testing.T) {
 			}
 			t.Logf("%s: fetched %s by ID alone (%d bytes, subject %q)",
 				acc.Name, targetID, len(raw), summary.Subject)
+		})
+	}
+}
+
+// TestLiveLatestInboxIDs exercises the watcher's poll on every backend: one
+// request for the inbox's newest IDs, newest first, with nothing downloaded.
+func TestLiveLatestInboxIDs(t *testing.T) {
+	config := liveConfig(t)
+
+	for _, acc := range config.Accounts {
+		t.Run(acc.Name, func(t *testing.T) {
+			client := readOnlyClientFor(t, config, acc)
+			if err := client.Validate(); err != nil {
+				t.Skipf("account %q not reachable: %v", acc.Name, err)
+			}
+			ids, err := client.LatestInboxIDs(context.Background(), 5)
+			if err != nil {
+				t.Fatalf("LatestInboxIDs: %v", err)
+			}
+			if len(ids) > 5 {
+				t.Fatalf("asked for 5, got %d", len(ids))
+			}
+			for _, id := range ids {
+				if id == "" {
+					t.Error("an empty inbox ID")
+				}
+				if exists, _ := msg.Exists(client.Config().AccountCache, id); exists {
+					t.Errorf("listing the inbox downloaded %s", id)
+				}
+			}
+			t.Logf("%s: %d inbox ID(s)", acc.Name, len(ids))
+		})
+	}
+}
+
+// TestLiveInboxMessageBefore exercises the relay check's query on every
+// backend: Gmail's epoch before:, Graph's $filter and JMAP's before filter.
+// A cutoff an hour ahead finds a message in any non-empty inbox, received
+// before it; one from 1990 finds nothing. Neither downloads a body.
+func TestLiveInboxMessageBefore(t *testing.T) {
+	config := liveConfig(t)
+
+	for _, acc := range config.Accounts {
+		t.Run(acc.Name, func(t *testing.T) {
+			client := readOnlyClientFor(t, config, acc)
+			if err := client.Validate(); err != nil {
+				t.Skipf("account %q not reachable: %v", acc.Name, err)
+			}
+			ctx := context.Background()
+			ahead := time.Now().Add(time.Hour)
+			entry, found, err := client.InboxMessageBefore(ctx, ahead)
+			if err != nil {
+				t.Fatalf("InboxMessageBefore(+1h): %v", err)
+			}
+			ids, err := client.LatestInboxIDs(ctx, 1)
+			if err != nil {
+				t.Fatalf("LatestInboxIDs: %v", err)
+			}
+			if found != (len(ids) > 0) {
+				t.Fatalf("found=%v but the inbox lists %d message(s)", found, len(ids))
+			}
+			if found && (entry.ID == "" || entry.Received.IsZero() || !entry.Received.Before(ahead)) {
+				t.Errorf("entry %+v is not a message received before the cutoff", entry)
+			}
+			if found {
+				if exists, _ := msg.Exists(client.Config().AccountCache, entry.ID); exists {
+					t.Errorf("the check downloaded %s", entry.ID)
+				}
+			}
+			// A cutoff at the found message's own arrival must exclude it: a
+			// filter that rounds to the day would return it again, or report
+			// an error for a match newer than the cutoff.
+			if found {
+				older, again, err := client.InboxMessageBefore(ctx, entry.Received)
+				if err != nil {
+					t.Fatalf("InboxMessageBefore(its own arrival): %v", err)
+				}
+				if again && (older.ID == entry.ID || !older.Received.Before(entry.Received)) {
+					t.Errorf("cutoff %s returned %+v, which is not older", entry.Received, older)
+				}
+			}
+			if _, old, err := client.InboxMessageBefore(ctx, time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil || old {
+				t.Errorf("a 1990 cutoff: found=%v err=%v, want nothing", old, err)
+			}
+			t.Logf("%s: found=%v received=%s subject=%q", acc.Name, found,
+				entry.Received.Local().Format(time.RFC3339), entry.Subject)
 		})
 	}
 }

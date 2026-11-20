@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/draft"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/draft"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
 )
 
 func draftsSession(t *testing.T, org stubOrganize) (*Session, *bytes.Buffer) {

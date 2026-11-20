@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli contacts import-mutt'
-parent: 'mail_cli contacts'
+title: 'feral contacts import-mutt'
+parent: 'feral contacts'
 ---
 
-# mail\_cli contacts import-mutt
+# feral contacts import-mutt
 
 Import contacts and distribution lists from a Mutt alias file.
 
 ## Usage
 
 ```
-mail_cli contacts import-mutt [file_path]
+feral contacts import-mutt [file_path]
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli contacts import-mutt [file_path]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli contacts import-mutt [file_path]
 
 ## Examples
 
-- `mail_cli contacts import-mutt`
-- `mail_cli contacts import-mutt ~/.mutt/aliases`
+- `feral contacts import-mutt`
+- `feral contacts import-mutt ~/.mutt/aliases`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

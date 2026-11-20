@@ -5,12 +5,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/scan"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/scan"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -22,28 +22,23 @@ func cliExamples() []clihelp.Example {
 	// Six is about the ceiling before a list stops being a cheat sheet, so these
 	// are the things worth typing daily rather than a tour of the tree.
 	return []clihelp.Example{
-		{Line: "mail_cli %", Description: "Scan the inbox -- a label is written %name, and % alone is the inbox"},
-		{Line: "mail_cli %work:receipts", Description: "Scan one folder on one account"},
-		{Line: "mail_cli tui", Description: "Browse mail interactively"},
-		{Line: "mail_cli label sort %receipts", Description: "File a folder into the dated keep/ hierarchy"},
-		{Line: "mail_cli spam sweep", Description: "Move spam out of the inbox and train the filter"},
-		{Line: "mail_cli -E <command>", Description: "Show the examples for one command"},
+		{Line: "feral %", Description: "Scan the inbox -- a label is written %name, and % alone is the inbox"},
+		{Line: "feral %work:receipts", Description: "Scan one folder on one account"},
+		{Line: "feral tui", Description: "Browse mail interactively"},
+		{Line: "feral label sort %receipts", Description: "File a folder into the dated keep/ hierarchy"},
+		{Line: "feral spam sweep", Description: "Move spam out of the inbox and train the filter"},
+		{Line: "feral -E <command>", Description: "Show the examples for one command"},
 	}
 }
 
 func cliPersistentOptions() []clihelp.Option {
-	accountOpt := clihelp.String(&app.FlagAccountName, "-A, --account <name>", "", "Target account name")
-	accountOpt.Complete = CompleteAccountNames
-
-	return []clihelp.Option{
-		clihelp.Group("Target & Account", accountOpt),
-		clihelp.Group("Target & Account", clihelp.String(&flagAccountIndex, "--account-index N", "", "Target account by config index (also -N)")),
+	return append(accountOptions(&flagAccount),
 		clihelp.Group("Execution Modes", clihelp.Bool(&app.FlagReadOnly, "--read-only", false, "Block server writes (cache still updates)")),
-		clihelp.Group("Execution Modes", clihelp.Bool(&app.FlagDryRun, "--dry-run", false, "Report changes only; implies --read-only")),
+		clihelp.Group("Execution Modes", clihelp.Bool(&app.FlagDryRun, "-D, --dry-run", false, "Report changes only; implies --read-only")),
 		clihelp.Group("Logging & Output", clihelp.Bool(&app.FlagVerbose, "-v, --verbose", false, "Enable verbose output")),
 		clihelp.Group("Logging & Output", clihelp.Bool(&app.FlagJSON, "--json", false, "Emit result as JSON on stdout")),
 		clihelp.Group("Logging & Output", clihelp.Bool(&app.FlagLogAppend, "--logappend", false, "Append to existing logs instead of truncating")),
-	}
+	)
 }
 
 func cliBeforeRun(session *Session) func(ctx *clihelp.Context) error {
@@ -53,7 +48,7 @@ func cliBeforeRun(session *Session) func(ctx *clihelp.Context) error {
 			if ctx != nil && ctx.Stdout != nil {
 				out = ctx.Stdout
 			}
-			fmt.Fprintf(out, "mail_cli version %s\n", app.Version)
+			fmt.Fprintf(out, "feral version %s\n", app.Version)
 			exitFunc(0)
 			return nil
 		}
@@ -61,12 +56,14 @@ func cliBeforeRun(session *Session) func(ctx *clihelp.Context) error {
 			config, err := session.Bootstrap(ctx.Context, StartupOptions{
 				NoConfigWrite: app.FlagReadOnly || app.FlagDryRun,
 				AppendLogs:    app.FlagLogAppend,
+				FinishRename:  ctx != nil && ctx.Command != nil && ctx.Command.UsageLine == accountRenameUsage,
 			})
 			if err != nil {
 				return fmt.Errorf("initialize CLI session: %w", err)
 			}
 			session.Config = config
 		}
+		restoreSetAsideTokens(session)
 		app.CmdExecutionStarted = true
 		if ctx != nil && ctx.Stdout != nil {
 			session.Out = ctx.Stdout
@@ -84,42 +81,27 @@ func cliBeforeRun(session *Session) func(ctx *clihelp.Context) error {
 			session.Config.ReadOnly = true
 		}
 		session.Config.DryRun = app.FlagDryRun
-		return selectCLIAccount(session.Config)
-	}
-}
-
-// The ordinary parsed options own account selection. Mixing name and index is
-// refused; repeating an index follows the flag parser's last-value-wins rule.
-func selectCLIAccount(config *cfg_g.Config) error {
-	if flagAccountIndex != "" && app.FlagAccountName != "" {
-		return fmt.Errorf("%w: --account and --account-index cannot be used together", clihelp.ErrUsage)
-	}
-	if flagAccountIndex != "" {
-		idx, err := strconv.Atoi(flagAccountIndex)
-		if err != nil || idx <= 0 || idx > len(config.Accounts) {
-			return fmt.Errorf("%w: account index %q is out of range; you have %d configured account(s)",
-				clihelp.ErrUsage, flagAccountIndex, len(config.Accounts))
+		cfg_g.ForbidConfigWrites(app.FlagDryRun)
+		if err := openDirManifests(session.Config); err != nil {
+			return err
 		}
-		config.SelectedAccount = cfg_g.NameOf(config.Accounts[idx-1])
-		return nil
+		invoked := ""
+		if ctx != nil && ctx.App != nil {
+			invoked = ctx.App.InvokedName()
+		}
+		if err := refuseStrayAccountName(session.Config, invoked); err != nil {
+			return err
+		}
+		return selectCLIAccount(session.Config, flagAccount)
 	}
-	if app.FlagAccountName == "" {
-		return nil
-	}
-	acc, err := cfg_g.Lookup(config.Accounts, app.FlagAccountName)
-	if err != nil {
-		return err
-	}
-	config.SelectedAccount = cfg_g.NameOf(*acc)
-	return nil
 }
 
-// cliRootRun handles `mail_cli`, `mail_cli %label`, and anything else that
+// cliRootRun handles `feral`, `feral %label`, and anything else that
 // reached the root.
 //
 // A label reference is unambiguous -- only a label can start with the sigil --
-// so naming one is taken as a request to scan it: `mail_cli %` is the inbox,
-// `mail_cli %work:receipts` is that folder on that account. Nothing else at the
+// so naming one is taken as a request to scan it: `feral %` is the inbox,
+// `feral %work:receipts` is that folder on that account. Nothing else at the
 // root does anything, and a zero-argument invocation still prints help, because
 // it once ran a scan across *every* configured account.
 func cliRootRun(session *Session) func(ctx *clihelp.Context) error {
@@ -139,7 +121,7 @@ func cliRootRun(session *Session) func(ctx *clihelp.Context) error {
 			}
 			ctx.App.RenderGlobal(clihelp.Options{Writer: out})
 			fmt.Fprintf(out, "\nNote: running with no arguments does not scan. Use '%s%s' for the inbox.\n",
-				"mail_cli ", cfg_g.LabelSigil)
+				"feral ", cfg_g.LabelSigil)
 			return nil
 		}
 
@@ -193,7 +175,7 @@ func versionCmd() clihelp.Command {
 			if ctx != nil && ctx.Stdout != nil {
 				out = ctx.Stdout
 			}
-			fmt.Fprintf(out, "mail_cli version %s\n", app.Version)
+			fmt.Fprintf(out, "feral version %s\n", app.Version)
 			return nil
 		},
 	}
@@ -216,6 +198,7 @@ func cliCommands(session *Session) []clihelp.Command {
 		CalendarCmd(session),
 		ContactsCmd(session),
 		buildAccountCommands(session),
+		LinkCmd(session),
 		buildConfigCommands(session),
 		buildUtilsCommands(session),
 	}
@@ -282,10 +265,14 @@ func InitCLI(session *Session) *clihelp.App {
 		globalNote = fmt.Sprintf("GitHub: [%s](%s)",
 			strings.TrimPrefix(githubURL, "https://github.com/"), githubURL)
 	}
+	// -H is where the joke goes; -h stays a plain statement of what this is.
+	globalNote = strings.TrimSpace("A wild dog to take care of your email. What could possibly go wrong?\n\n" +
+		"Not much: --dry-run shows what any command would do, --read-only never touches the server, " +
+		"spam is moved to a folder rather than deleted, and emptying that folder asks first.\n\n" + globalNote)
 
 	return &clihelp.App{
 		Name:        app.AppName,
-		Description: "Gmail / JMAP Spam Checker CLI tool",
+		Description: nameMark() + " -- a terminal mail client for Linux: Gmail, Outlook, Fastmail.",
 		Version:     app.Version,
 		ConfigPath:  configPath,
 		// The label, not the URL: on a terminal that understands OSC 8 this is a
@@ -303,7 +290,7 @@ func InitCLI(session *Session) *clihelp.App {
 		},
 		Examples:          cliExamples(),
 		PersistentOptions: cliPersistentOptions(),
-		// The bare form `mail_cli %inbox` runs scan, so it takes scan's flags.
+		// The bare form `feral %inbox` runs scan, so it takes scan's flags.
 		// App.Options binds them on the root alone and does not hand them to
 		// every subcommand, which is what made them persistent before; the
 		// shared scanOptions keeps this scope and `scan` from drifting.
@@ -317,3 +304,24 @@ func InitCLI(session *Session) *clihelp.App {
 		Commands:  cliCommands(session),
 	}
 }
+
+// openDirManifests is the forward guard for the download directory and the
+// configuration directory (see cache/meta): a run refuses one a newer build
+// reshaped. The download directory is a cache, so its manifest is recorded
+// under --read-only too; the configuration directory is never written under
+// --read-only or --dry-run, as config.json is not.
+func openDirManifests(config *cfg_g.Config) error {
+	if config == nil {
+		return nil
+	}
+	if err := meta.OpenDir(config.CacheRoot, meta.DownloadDirFile, app.Version, !config.DryRun); err != nil {
+		return err
+	}
+	return meta.OpenDir(config.ConfigDir, meta.ConfigDirFile, app.Version, !config.DryRun && !config.ReadOnly)
+}
+
+// nameMark is the program's name as its help heads a line with it. The dog is
+// printed whatever the locale: the help pages under docs/ are generated from
+// this text, and a mark that depended on LANG would make them differ from one
+// machine to the next.
+func nameMark() string { return app.AppName + " \U0001F415" }

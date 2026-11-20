@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cfg_g"
 )
 
 // contactsCall records how a stubbed contacts op was invoked.

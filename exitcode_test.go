@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -31,6 +31,7 @@ func TestExitCodeFor(t *testing.T) {
 			fmt.Errorf("resolving: %w", &cfg_g.UnknownAccountError{Ident: "x"}), exitUsageError},
 		{"an ambiguous account",
 			&cfg_g.AmbiguousAccountError{Ident: "outlook", Candidates: []string{"a", "b"}}, exitUsageError},
+		{"a cancelled pick", fmt.Errorf("pick: %w", app.ErrCancelled), exitCancelled},
 		{"a runtime failure", errors.New("server refused the connection"), exitRuntimeError},
 	}
 

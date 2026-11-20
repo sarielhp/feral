@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label print'
-parent: 'mail_cli label'
+title: 'feral label print'
+parent: 'feral label'
 ---
 
-# mail\_cli label print
+# feral label print
 
 Print all labels/folders, one per line (full path only).
 
 ## Usage
 
 ```
-mail_cli label print
+feral label print
 ```
 
 ## Flags
@@ -20,7 +20,7 @@ mail_cli label print
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -28,8 +28,8 @@ mail_cli label print
 
 ## Examples
 
-- `mail_cli label print`
+- `feral label print`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

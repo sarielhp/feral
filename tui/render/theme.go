@@ -23,6 +23,9 @@ const (
 	ColorSpam
 	ColorPoli
 	ColorICS
+	// ColorFolderTopBg is the folder view's top bar, a colour of its own so
+	// the view does not pass for the message list.
+	ColorFolderTopBg
 	// ColorAccount0 is the first of accountColors slots that tell accounts
 	// apart in a listing that mixes them.
 	ColorAccount0
@@ -82,6 +85,7 @@ func NewDefaultTheme() *Theme {
 			"#ff6666",
 			"#ff7f7f",
 			"#0a2a0a",
+			"#1e5a3a",
 			// Account colours: distinct hues, all readable on the dark background.
 			"#66d9ef",
 			"#f0a35e",

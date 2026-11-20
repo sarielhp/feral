@@ -1,15 +1,15 @@
 ---
-title: 'mail_cli search'
+title: 'feral search'
 ---
 
-# mail\_cli search
+# feral search
 
 Search email history or export to mbox.
 
 ## Usage
 
 ```
-mail_cli search <query> [flags]
+feral search <query> [flags]
 ```
 
 ## Parameters
@@ -25,7 +25,7 @@ mail_cli search <query> [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,11 +37,11 @@ mail_cli search <query> [flags]
 
 ## Examples
 
-- `mail_cli search "taxes 2025"`
-- `mail_cli search from:alice@example.com -n 25`
-- `mail_cli -A work search "from:manager has:attachment"`
-- `mail_cli search from:lawyer@firm.com --all -o legal.mbox` — Export every match to an archive
+- `feral search "taxes 2025"`
+- `feral search from:alice@example.com -n 25`
+- `feral -A work search "from:manager has:attachment"`
+- `feral search from:lawyer@firm.com --all -o legal.mbox` — Export every match to an archive
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

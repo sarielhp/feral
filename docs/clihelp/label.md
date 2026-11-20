@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli label'
+title: 'feral label'
 has_children: true
 ---
 
-# mail\_cli label
+# feral label
 
 Subcommands include download (a folder to mbox) and upload (an mbox into a folder), sort and move (file mail into the keep/ hierarchy). Manage, inspect, and organize remote mail server labels and hierarchical folder trees across accounts, including cached folder statistics and structure repair.
 
 ## Usage
 
 ```
-mail_cli label <subcommand> [args...]
+feral label <subcommand> [args...]
 ```
 
 ## Subcommands
@@ -39,7 +39,7 @@ mail_cli label <subcommand> [args...]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -47,16 +47,16 @@ mail_cli label <subcommand> [args...]
 
 ## Examples
 
-- `mail_cli label list` — List folders that hold messages
-- `mail_cli label list --ext` — Include message counts and hierarchy
-- `mail_cli label count %inbox` — How many messages are in the inbox
-- `mail_cli label count %inbox -q` — Just the number, for a script
-- `mail_cli label search receipts` — Find folders whose name contains a word
-- `mail_cli label create "%Receipts/2026"` — Create a nested folder
-- `mail_cli label rm "%Receipts/2025"` — Delete a folder
-- `mail_cli label rename "%OldName" "%NewName"` — Rename a folder in place
-- `mail_cli label repair` — Create the missing parents of nested folders
+- `feral label list` — List folders that hold messages
+- `feral label list --ext` — Include message counts and hierarchy
+- `feral label count %inbox` — How many messages are in the inbox
+- `feral label count %inbox -q` — Just the number, for a script
+- `feral label search receipts` — Find folders whose name contains a word
+- `feral label create "%Receipts/2026"` — Create a nested folder
+- `feral label rm "%Receipts/2025"` — Delete a folder
+- `feral label rename "%OldName" "%NewName"` — Rename a folder in place
+- `feral label repair` — Create the missing parents of nested folders
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

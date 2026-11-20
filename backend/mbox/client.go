@@ -1,19 +1,22 @@
 package mbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/label"
+	"net/mail"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 type client struct {
@@ -90,6 +93,21 @@ func (c *client) FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageFolderRef
 	return refs, nil
 }
 
+// LatestInboxIDs is the INBOX index, which is all an mbox view has.
+func (c *client) LatestInboxIDs(ctx context.Context, limit int) ([]email.ID, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ids, err := folderindex.IDs(c.localCfg.AccountCache, "INBOX")
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
+}
+
 func (c *client) GetRawMessageContext(ctx context.Context, msgID email.ID) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -162,6 +180,10 @@ func (c *client) PrefetchMessages(_ []email.ID) error {
 	return nil
 }
 
+// SearchEmails matches query, case-insensitively, against each message's
+// subject, sender and decoded body text. The body goes through the same
+// extractor the viewer uses, so a base64 or quoted-printable body matches on
+// what it says rather than on its encoding.
 func (c *client) SearchEmails(query string, limit int) ([]email.ID, error) {
 	ids, err := folderindex.IDs(c.localCfg.AccountCache, "INBOX")
 	if err != nil {
@@ -176,20 +198,42 @@ func (c *client) SearchEmails(query string, limit int) ([]email.ID, error) {
 	qLower := strings.ToLower(query)
 	var matches []email.ID
 	for _, id := range ids {
-		em, err := msg.CachedEmail(c.localCfg.AccountCache, id)
-		if err != nil {
+		if !c.messageMatches(id, qLower) {
 			continue
 		}
-		if strings.Contains(strings.ToLower(em.Subject), qLower) ||
-			strings.Contains(strings.ToLower(em.FromEmail), qLower) ||
-			strings.Contains(strings.ToLower(em.FromRaw), qLower) {
-			matches = append(matches, id)
-			if limit > 0 && len(matches) >= limit {
-				break
-			}
+		matches = append(matches, id)
+		if limit > 0 && len(matches) >= limit {
+			break
 		}
 	}
 	return matches, nil
+}
+
+// messageMatches reports whether the cached message id contains qLower in its
+// subject, sender or body.
+func (c *client) messageMatches(id email.ID, qLower string) bool {
+	em, err := msg.CachedEmail(c.localCfg.AccountCache, id)
+	if err != nil {
+		return false
+	}
+	for _, field := range []string{em.Subject, em.FromEmail, em.FromRaw} {
+		if strings.Contains(strings.ToLower(field), qLower) {
+			return true
+		}
+	}
+	raw, err := msg.Read(c.localCfg.AccountCache, id)
+	if err != nil {
+		return false
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return false
+	}
+	body, err := email.ExtractPlainBodyText(parsed)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(body), qLower)
 }
 
 // LabelWriter stubs
@@ -222,6 +266,12 @@ func (c *client) MarkAsRead(_ []email.ID) error {
 	return nil
 }
 
+// MarkAsUnread is a no-op: an mbox file keeps no server-side read state, so the
+// local read cache is the only record.
+func (c *client) MarkAsUnread(_ []email.ID) error {
+	return nil
+}
+
 func (c *client) MoveToInbox(_ []email.ID, _ label.Folder) error {
 	return mailclient.ErrReadOnlyOperationBlocked
 }
@@ -230,8 +280,21 @@ func (c *client) UploadRawEmail(_ []byte, _ label.Folder) (email.ID, error) {
 	return "", mailclient.ErrReadOnlyOperationBlocked
 }
 
-func (c *client) DeleteMessages(_ []email.ID, _ label.Folder) error {
-	return mailclient.ErrReadOnlyOperationBlocked
+// DeleteMessages removes messages from the mbox file itself, in one rewrite
+// under the locks mail delivery honors (see rewrite.go). An account is
+// read-only unless its config says otherwise, and the read-only decorator
+// stops this call before it gets here. A single .eml file is not rewritten.
+func (c *client) DeleteMessages(ids []email.ID, folder label.Folder) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if isEmlPath(c.mboxPath) {
+		return fmt.Errorf("%s is a single message, not an mbox: %w", c.mboxPath, errors.ErrUnsupported)
+	}
+	if !strings.EqualFold(folder.String(), c.inboxName()) {
+		return fmt.Errorf("mbox %s has no folder %q, only %s", c.mboxPath, folder, c.inboxName())
+	}
+	return deleteFromMbox(c.mboxPath, c.localCfg.AccountCache, ids)
 }
 
 // SpamManager stubs
@@ -284,4 +347,10 @@ func (c *client) SendEmail(_ []byte) error {
 // InboxFolder is the account's inbox, as the server names it.
 func (c *client) InboxFolder() label.Folder {
 	return label.FromServer(c.inboxName())
+}
+
+// InboxMessageBefore is unsupported: an mbox view has no arrival times and
+// nothing empties its inbox.
+func (c *client) InboxMessageBefore(context.Context, time.Time) (mailclient.InboxEntry, bool, error) {
+	return mailclient.InboxEntry{}, false, fmt.Errorf("mbox: inbox age: %w", errors.ErrUnsupported)
 }

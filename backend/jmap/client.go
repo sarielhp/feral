@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	mailemail "github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cache/cachedir"
+	mailemail "github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"log/slog"
 	"math/rand/v2"
@@ -21,12 +21,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 
 	"git.sr.ht/~rockorager/go-jmap"
 	jmapMail "git.sr.ht/~rockorager/go-jmap/mail"
@@ -312,22 +312,35 @@ func (c *client) EnsureLabelExists(folder label.Folder) error {
 }
 
 func (c *client) MarkAsRead(messageIDs []mailemail.ID) error {
+	return c.setSeen(messageIDs, true)
+}
+
+func (c *client) MarkAsUnread(messageIDs []mailemail.ID) error {
+	return c.setSeen(messageIDs, false)
+}
+
+// setSeen sets or clears the $seen keyword, which is JMAP's read flag.
+func (c *client) setSeen(messageIDs []mailemail.ID, seen bool) error {
 	if len(messageIDs) == 0 {
 		return nil
 	}
 	if err := c.init(); err != nil {
 		return err
 	}
+	state := "unread"
+	if seen {
+		state = "read"
+	}
 	updates := make(map[jmap.ID]jmap.Patch)
 	for _, id := range messageIDs {
-		updates[jmap.ID(id)] = jmap.Patch{"keywords/$seen": true}
+		updates[jmap.ID(id)] = jmap.Patch{"keywords/$seen": seen}
 	}
 	req := &jmap.Request{}
 	req.Invoke(&email.Set{
 		Account: c.accID,
 		Update:  updates,
 	})
-	resp, err := executeJMAPOpWithRetry(context.Background(), "mark as read", func() (*jmap.Response, error) {
+	resp, err := executeJMAPOpWithRetry(context.Background(), "mark as "+state, func() (*jmap.Response, error) {
 		return c.client.Do(req)
 	})
 	if err != nil {
@@ -335,7 +348,7 @@ func (c *client) MarkAsRead(messageIDs []mailemail.ID) error {
 	}
 	var lastErr error
 	forEachNotUpdated(resp, func(failedID jmap.ID, errSet *jmap.SetError) {
-		lastErr = fmt.Errorf("failed to mark %s as read: %s", failedID, safeStr(errSet.Description))
+		lastErr = fmt.Errorf("failed to mark %s as %s: %s", failedID, state, safeStr(errSet.Description))
 	})
 	return lastErr
 }

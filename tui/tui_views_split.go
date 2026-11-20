@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -45,7 +45,8 @@ func (m *tuiModel) buildDetailHeaders() string {
 		if hasICS {
 			prefix = "⏰📎"
 		}
-		badge := fmt.Sprintf("%s Attachments (%d): %s (Press 'v'/'a' to manage)", prefix, len(m.attachments), strings.Join(names, ", "))
+		badge := fmt.Sprintf("%s Attachments (%d): %s (Press '%s' to manage)", prefix, len(m.attachments), strings.Join(names, ", "),
+			m.keyHint(m.screenGroup(), actAttachments))
 		hdrs.WriteString(render.Plain(badge).WithFg(render.ColorDate).Render(m.theme.Theme()) + "\n")
 	}
 	for _, line := range strings.Split(m.detailH, "\n") {
@@ -211,10 +212,7 @@ func renderSplitView(m *tuiModel) string {
 	}
 	t := m.theme.Theme()
 
-	availH := m.height - 2
-	if m.showError {
-		availH--
-	}
+	availH := m.height - 2 - m.bannerLines()
 	if availH < 6 {
 		availH = 6
 	}
@@ -222,7 +220,7 @@ func renderSplitView(m *tuiModel) string {
 	topLines := max(3, (availH-1)/2)
 	bottomLines := max(3, availH-topLines-1)
 
-	headerWidth := 4 + 2 + 8 + 2 + 20 + 2 + 2 + 2 + 5 + 2
+	headerWidth := m.indexHeaderWidth(width)
 	subjWidth := width - headerWidth
 
 	start := m.indexStart
@@ -320,10 +318,10 @@ func renderDetailICSEventCard(m *tuiModel, ev *calendar.ICSEvent, vw int) string
 		if m.icsDiscrepancy != "" {
 			warn += " (" + m.icsDiscrepancy + ")"
 		}
-		warn += " — press 'a' → 'u' to update or 'c' to add new"
+		warn += " — press '" + m.keyHint(m.screenGroup(), actAttachments) + "' → 'u' to update or 'c' to add new"
 		calStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Bold(true).Render(warn)
 	case icsStatusNotInCalendar:
-		calStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")).Bold(true).Render("✗ Not in your Google Calendar (press 'a' → 'c' to add)")
+		calStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")).Bold(true).Render("✗ Not in your Google Calendar (press '" + m.keyHint(m.screenGroup(), actAttachments) + "' → 'c' to add)")
 	case icsStatusChecking:
 		calStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Render("⏳ Checking Google Calendar...")
 	case icsStatusAddedVerified:

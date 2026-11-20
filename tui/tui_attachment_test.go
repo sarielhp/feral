@@ -1,15 +1,15 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -375,22 +375,20 @@ func TestTUI_AttachmentDrawer_ImagePreview(t *testing.T) {
 	}
 }
 
-func TestExtractPDFPreview_EmptyAndMalformed(t *testing.T) {
-	emptyResult := extractPDFPreview(nil, 10)
-	if emptyResult != "(Empty PDF file)" {
-		t.Errorf("expected '(Empty PDF file)', got: %q", emptyResult)
-	}
-
-	malformedResult := extractPDFPreview([]byte("not a real pdf"), 10)
-	if !strings.Contains(malformedResult, "PDF Document") {
-		t.Errorf("expected fallback message, got: %q", malformedResult)
-	}
-}
-
 func TestRenderCodeAttachmentPreview_Empty(t *testing.T) {
 	att := email.Attachment{Data: nil}
 	res := renderCodeAttachmentPreview(att, 80)
 	if res != "(Empty file)" {
 		t.Errorf("expected '(Empty file)', got: %q", res)
+	}
+}
+
+// PDFs and images are not rendered inside the TUI: the modal shows the binary
+// summary, and the list opens them in the OS viewer.
+func TestGenerateAttachmentPreviewText_PDFIsNotRendered(t *testing.T) {
+	att := email.Attachment{Filename: "doc.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.4\x00\xff\xfe not rendered")}
+	got := generateAttachmentPreviewText(att, 60)
+	if !strings.Contains(got, "Binary Attachment: doc.pdf") {
+		t.Errorf("want the binary summary for a PDF, got:\n%s", got)
 	}
 }

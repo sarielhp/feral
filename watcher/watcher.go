@@ -4,16 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
-	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/dirlock"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/dirlock"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 const (
@@ -46,6 +44,10 @@ type Options struct {
 	NoNotify bool
 	NoFlush  bool
 	Limit    int
+	// QuietFirstPoll records what the first poll finds without announcing
+	// it. A watcher that lives and dies with the TUI would otherwise open
+	// every session with a popup for mail the user is about to read.
+	QuietFirstPoll bool
 }
 
 func (o Options) normalized() Options {
@@ -71,21 +73,89 @@ type Deps struct {
 	// Flush sends whatever the offline outbox holds. Nil skips it.
 	Flush func() error
 
+	// Wake brings back the snoozed messages that are due at now. Nil skips
+	// it. Unlike Flush it runs on every poll, the TUI's included, and
+	// whether or not the poll itself succeeded: an unreachable account must
+	// not keep another account's snoozed mail hidden.
+	Wake func(ctx context.Context, now time.Time) error
+	// Archive files the new mail of a muted thread out of the inbox
+	// (archiveMuted). Nil leaves muted threads' mail in the inbox, announced.
+	Archive Archiver
+
 	// Notifier overrides the desktop notifier. Nil means notify-send, unless
 	// Options.NoNotify was set, in which case alerts are logged.
 	Notifier Notifier
 
+	// Alert shows a stalled-relay alert. Nil means notify-send, unless
+	// Options.NoNotify was set, in which case the alert is only logged.
+	Alert func(title, body string) error
+
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
+
+	// clients keeps each account's client from one poll to the next; Run
+	// sets it.
+	clients *clientCache
+	// relays remembers which relay accounts have been announced; Run sets it.
+	relays *relayTracker
 }
 
+// clientCache keeps one client per account across polls, so a poll costs
+// the inbox listing alone rather than a sign-in and, on JMAP, a session fetch
+// as well. A client whose listing failed is dropped and built afresh next
+// time, so a sign-in renewed meanwhile takes effect.
+type clientCache struct {
+	clients map[string]mailclient.Reader
+}
+
+// client is the account's client: the cached one when Run keeps a cache, or
+// a new one.
+func (d Deps) client(account cfg_acc.AccountConfig) (mailclient.Reader, error) {
+	if d.clients == nil {
+		return d.ClientFor(account)
+	}
+	if c, ok := d.clients.clients[account.Name]; ok {
+		return c, nil
+	}
+	c, err := d.ClientFor(account)
+	if err != nil {
+		return nil, err
+	}
+	d.clients.clients[account.Name] = c
+	return c, nil
+}
+
+// forget drops the account's cached client.
+func (d Deps) forget(name string) {
+	if d.clients != nil {
+		delete(d.clients.clients, name)
+	}
+}
+
+// ErrAlreadyWatching is Run's answer when another watcher -- a `feral
+// watch`, or a TUI that started one -- already polls this download directory.
+var ErrAlreadyWatching = errors.New("another feral watcher is already running")
+
 // Run polls every watched account until ctx is cancelled, then returns nil.
+//
+// Only one watcher runs per download directory: two would share one
+// watermark, and a message both of them saw arrive would be announced twice.
+// The first to start holds a lock for as long as it runs, and any other
+// returns ErrAlreadyWatching at once.
 //
 // It never panics and never exits the process: a network failure is a warning
 // and a longer wait, and one account failing does not stop the others.
 func Run(ctx context.Context, deps Deps, opts Options) error {
 	opts = opts.normalized()
 	rep := report.Or(deps.Reporter)
+	if deps.Config == nil {
+		return cfg_g.ErrNoAccounts
+	}
+	release, err := HoldWatchLock(deps.Config.CacheRoot)
+	if err != nil {
+		return err
+	}
+	defer release()
 	now := deps.Now
 	if now == nil {
 		now = time.Now
@@ -95,6 +165,11 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 		notifier = notifySendNotifier{}
 	}
 
+	if deps.Alert == nil && !opts.NoNotify {
+		deps.Alert = notifySendAlert
+	}
+	deps.clients = &clientCache{clients: map[string]mailclient.Reader{}}
+	deps.relays = &relayTracker{alerted: map[string]time.Time{}}
 	accounts, err := watchedAccounts(deps.Config, opts.Account)
 	if err != nil {
 		return err
@@ -102,8 +177,15 @@ func Run(ctx context.Context, deps Deps, opts Options) error {
 	rep.Infof("watch: polling %d account(s) every %s", len(accounts), opts.Interval)
 
 	wait := opts.Interval
+	quiet := opts.QuietFirstPoll
 	for {
-		err := pollOnce(ctx, deps, opts, rep, notifier, accounts, now)
+		cycleOpts, cycleNotifier := opts, notifier
+		if quiet {
+			cycleOpts.OnMail, cycleNotifier = "", recordOnly{rep}
+			quiet = false
+		}
+		wakeSnoozed(ctx, deps, rep, now)
+		err := pollOnce(ctx, deps, cycleOpts, rep, cycleNotifier, accounts, now)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -146,6 +228,15 @@ func pollOnce(ctx context.Context, deps Deps, opts Options, rep report.Reporter,
 		if ctx.Err() != nil {
 			return nil
 		}
+		// A local mbox file has no server to poll: what is new in it is
+		// what the TUI finds when it reads the file.
+		if account.IsMbox() {
+			continue
+		}
+		if account.InboxMaxAge != "" {
+			checkRelay(ctx, deps, rep, account, now())
+			continue
+		}
 		if err := checkAccount(ctx, deps, opts, rep, notifier, account, now); err != nil {
 			rep.Warnf("watch: %s: %v", account.Name, err)
 			errs = append(errs, fmt.Errorf("%s: %w", account.Name, err))
@@ -154,21 +245,18 @@ func pollOnce(ctx context.Context, deps Deps, opts Options, rep report.Reporter,
 	return errors.Join(errs...)
 }
 
-// checkAccount polls one account: fetch the newest messages, work out which
+// checkAccount polls one account: list the newest messages in its inbox, work out which
 // ones are new against the watermark, announce them, then record them.
 func checkAccount(ctx context.Context, deps Deps, opts Options, rep report.Reporter,
 	notifier Notifier, account cfg_acc.AccountConfig, now func() time.Time) error {
-	client, err := deps.ClientFor(account)
+	client, err := deps.client(account)
 	if err != nil {
 		return err
 	}
-	refs, err := client.FetchLatestAccountEmails(opts.Limit)
+	ids, err := client.LatestInboxIDs(ctx, opts.Limit)
 	if err != nil {
-		return fmt.Errorf("fetch latest: %w", err)
-	}
-	ids := make([]email.ID, 0, len(refs))
-	for _, ref := range refs {
-		ids = append(ids, ref.MessageID)
+		deps.forget(account.Name)
+		return fmt.Errorf("list the inbox: %w", err)
 	}
 
 	root := deps.Config.CacheRoot
@@ -186,21 +274,40 @@ func checkAccount(ctx context.Context, deps Deps, opts Options, rep report.Repor
 	}
 
 	since := state.Accounts[account.Name].LastChecked.Add(-staleGrace)
-	fresh := state.Unseen(account.Name, announceable(refs, account))
-	announce(ctx, opts, rep, notifier, account, client, fresh, since)
+	arrivals := newMessages(ctx, rep, account, client, state.Unseen(account.Name, ids), since)
+	arrivals = deps.archiveMuted(ctx, rep, account, arrivals)
+	if len(arrivals) > 0 && ctx.Err() == nil {
+		deliver(ctx, opts, rep, notifier, notificationsOf(account, arrivals))
+	}
+	if ctx.Err() != nil {
+		// Stopped before the alerts went out -- the TUI closing mid-poll.
+		// Leave the watermark alone, so the next watcher announces them.
+		return nil
+	}
 	return commitSeen(root, account.Name, ids, now())
 }
 
-// announce reports each new message, one at a time. It runs after the
-// watermark has been read and before it is written, so a message whose summary
-// cannot be read is still recorded as seen rather than announced again forever.
-// A message dated before since is recorded without being announced; see
-// staleGrace.
-func announce(ctx context.Context, opts Options, rep report.Reporter, notifier Notifier,
-	account cfg_acc.AccountConfig, client mailclient.Reader, ids []email.ID, since time.Time) {
+// recordOnly is the notifier of a quiet first poll: what it is handed is
+// recorded as seen, and only counted in the log.
+type recordOnly struct{ rep report.Reporter }
+
+func (r recordOnly) Notify(_ context.Context, news []Notification) error {
+	r.rep.Infof("watch: %s: %d message(s) arrived while nothing was watching; recorded without notifying",
+		news[0].Account, len(news))
+	return nil
+}
+
+// newMessages reads the summary of each new message worth announcing. It runs
+// after the watermark has been read and before it is written, so a message
+// whose summary cannot be read is still recorded as seen rather than
+// announced again forever. A message dated before since is recorded without
+// being announced -- or archived, if its thread is muted; see staleGrace.
+func newMessages(ctx context.Context, rep report.Reporter, account cfg_acc.AccountConfig,
+	client mailclient.Reader, ids []email.ID, since time.Time) []*email.Email {
+	var arrivals []*email.Email
 	for _, id := range ids {
 		if ctx.Err() != nil {
-			return
+			return arrivals
 		}
 		summary, err := client.GetMessageSummary(id)
 		if err != nil {
@@ -210,67 +317,51 @@ func announce(ctx context.Context, opts Options, rep report.Reporter, notifier N
 		if !summary.EmailDate.IsZero() && summary.EmailDate.Before(since) {
 			continue
 		}
-		deliver(ctx, opts, rep, notifier, Notification{
+		summary.ID = id
+		arrivals = append(arrivals, summary)
+	}
+	return arrivals
+}
+
+// notificationsOf is what one poll of an account announces: one desktop
+// notification for all of arrivals, and the --on-mail hook once per message.
+func notificationsOf(account cfg_acc.AccountConfig, arrivals []*email.Email) []Notification {
+	news := make([]Notification, 0, len(arrivals))
+	for _, summary := range arrivals {
+		news = append(news, Notification{
 			Account: account.Name,
 			From:    email.FormatSenderVerbose(summary.FromRaw),
 			Subject: summary.Subject,
 			Date:    summary.FormattedDate,
-			ID:      id,
+			ID:      summary.ID,
 		})
 	}
+	return news
 }
 
-// announceable returns the IDs of the refs filed where new mail is worth an
-// alert. The account-wide listing covers every folder, so without this the
-// watcher announced spam, the user's own sent mail and every draft autosave.
-func announceable(refs []cfg_acc.MessageFolderRef, account cfg_acc.AccountConfig) []email.ID {
-	ids := make([]email.ID, 0, len(refs))
-	for _, ref := range refs {
-		if !quietFolder(ref.Folder, account.SpamFolder) {
-			ids = append(ids, ref.MessageID)
-		}
-	}
-	return ids
-}
-
-// quietFolders names, by their last path element, the folders whose mail is
-// never announced, in the Gmail, JMAP and Outlook spellings.
-var quietFolders = map[string]bool{
-	"spam": true, "junk": true, "junk email": true, "junk e-mail": true, "bulk mail": true,
-	"trash": true, "deleted items": true, "deleted messages": true, "bin": true,
-	"sent": true, "sent items": true, "sent mail": true, "sent messages": true,
-	"draft": true, "drafts": true,
-}
-
-func quietFolder(folder, spamFolder string) bool {
-	if folder == "" {
-		return false
-	}
-	if spamFolder != "" && strings.EqualFold(folder, spamFolder) {
-		return true
-	}
-	return quietFolders[strings.ToLower(path.Base(folder))]
-}
-
-// deliver shows one alert: the desktop notification, or a log line when there
-// is none, and then the --on-mail hook.
-func deliver(ctx context.Context, opts Options, rep report.Reporter, notifier Notifier, n Notification) {
+// deliver shows one account's new mail: a single desktop notification for
+// the lot -- ten messages arriving together are one popup, not ten -- or a log
+// line per message when there is no notifier, and then the --on-mail hook for
+// each.
+func deliver(ctx context.Context, opts Options, rep report.Reporter, notifier Notifier, news []Notification) {
 	notified := false
 	if notifier != nil {
-		if err := notifier.Notify(ctx, n); err != nil {
+		if err := notifier.Notify(ctx, news); err != nil {
 			rep.Warnf("watch: desktop notification failed: %v", err)
 		} else {
 			notified = true
 		}
 	}
-	if !notified {
-		rep.Infof("watch: [%s] %s -- %s", n.Account, n.From, n.Subject)
-	}
-	if opts.OnMail == "" {
-		return
-	}
-	if err := runHook(ctx, opts.OnMail, n); err != nil {
-		rep.Warnf("watch: --on-mail %s failed: %v", opts.OnMail, err)
+	for _, n := range news {
+		if !notified {
+			rep.Infof("watch: [%s] %s -- %s", n.Account, n.From, n.Subject)
+		}
+		if opts.OnMail == "" || ctx.Err() != nil {
+			continue
+		}
+		if err := runHook(ctx, opts.OnMail, n); err != nil {
+			rep.Warnf("watch: --on-mail %s failed: %v", opts.OnMail, err)
+		}
 	}
 }
 
@@ -289,6 +380,25 @@ func flushOutbox(deps Deps, opts Options, rep report.Reporter) {
 	}
 	if err := deps.Flush(); err != nil {
 		rep.Warnf("watch: outbox flush failed: %v", err)
+	}
+}
+
+// wakeSnoozed brings back the snoozed messages that are due, before the
+// poll, so the poll that follows sees them in the inbox.
+//
+// Under --read-only or --dry-run it does nothing: moving a message back is a
+// server mutation, and the record would be updated for a move the read-only
+// decorator only simulated -- the message would stay in the snooze folder
+// with nothing left to bring it back.
+func wakeSnoozed(ctx context.Context, deps Deps, rep report.Reporter, now func() time.Time) {
+	if deps.Wake == nil || ctx.Err() != nil {
+		return
+	}
+	if deps.Config != nil && (deps.Config.ReadOnly || deps.Config.DryRun) {
+		return
+	}
+	if err := deps.Wake(ctx, now()); err != nil {
+		rep.Warnf("watch: snoozed messages: %v", err)
 	}
 }
 

@@ -4,18 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 // writeMboxFromAddr writes one fixed message to a buffer through writeToMbox,
@@ -219,7 +220,7 @@ func TestDownload_SingleLabelSafeAppendAndDeduplication(t *testing.T) {
 	if err != nil || count != 2 {
 		t.Fatalf("expected 2 messages in mbox, got %d (err: %v)", count, err)
 	}
-	if !existingIdx.contains("", &email.Email{MessageID: "<msg1@test.com>"}) || !existingIdx.contains("", &email.Email{MessageID: "<msg2@test.com>"}) {
+	if !existingIdx.Contains("", &email.Email{MessageID: "<msg1@test.com>"}) || !existingIdx.Contains("", &email.Email{MessageID: "<msg2@test.com>"}) {
 		t.Errorf("missing message IDs in existing index")
 	}
 
@@ -239,7 +240,7 @@ func TestDownload_SingleLabelSafeAppendAndDeduplication(t *testing.T) {
 	if err != nil || count != 3 {
 		t.Fatalf("expected 3 messages in mbox after safe append, got %d (err: %v)", count, err)
 	}
-	if !existingIdx.contains("", &email.Email{MessageID: "<msg3@test.com>"}) {
+	if !existingIdx.Contains("", &email.Email{MessageID: "<msg3@test.com>"}) {
 		t.Errorf("expected msg3 to be appended, but it is not in the existing index")
 	}
 }

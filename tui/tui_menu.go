@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/filebrowser"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/filebrowser"
+	"github.com/sarielhp/feral/tui/render"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -133,7 +133,7 @@ func (m *tuiModel) kAttachmentDrawer(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch s {
 	case "f1":
-		m.attachmentHelpOpen = !m.attachmentHelpOpen
+		m.setAttachmentHelp(!m.attachmentHelpOpen)
 		return m, nil
 	case "tab", "l", "right":
 		if m.width >= 100 && len(m.attachments) > 0 {
@@ -153,9 +153,6 @@ func (m *tuiModel) kAttachmentDrawer(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.vp.ScrollDown(1)
 		m.updateAttachmentFocusOnScroll()
 		return m, nil
-	case "i":
-		m.toggleInvertColors()
-		return m, nil
 	case "enter", "o", "x":
 		att := m.attachments[m.attCursor]
 		if email.IsICSAttachment(att) && s == "enter" {
@@ -163,7 +160,7 @@ func (m *tuiModel) kAttachmentDrawer(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		tmpFile, err := writeTempAttachment(att)
 		if err == nil {
-			go openSystemFile(tmpFile)
+			m.openAttachmentFile(att, tmpFile)
 			m.saveStatus = "Opened: " + att.Filename
 		} else {
 			m.saveStatus = "Error: " + err.Error()
@@ -179,18 +176,7 @@ func (m *tuiModel) kAttachmentDrawer(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		m.handleAttachmentSave(m.attachments[m.attCursor])
 	case "S", "b", "B":
-		att := m.attachments[m.attCursor]
-		savePattern := ""
-		if m.Config() != nil {
-			savePattern = m.Config().AttachmentSaveDir
-		} else if m.cfg != nil {
-			savePattern = m.cfg.AttachmentSaveDir
-		}
-		initialDir, _ := cfg_g.ExpandSavePath(savePattern, time.Now())
-		m.fileBrowser = filebrowser.New(initialDir, att.Filename, m.width, m.height)
-		m.fileBrowserOpen = true
-		m.pendingSaveAtt = att
-		m.saveStatus = ""
+		m.openAttachmentSaveDialog(m.attachments[m.attCursor])
 	case "c", "C", "u", "U":
 		m.handleAttachmentCalendarAction(m.attachments[m.attCursor])
 	}
@@ -210,6 +196,10 @@ func (m *tuiModel) afterFileBrowser(newFb filebrowser.Model, cmd tea.Cmd) (tea.M
 	if m.fileBrowser.Canceled {
 		m.fileBrowserOpen = false
 		m.pendingSaveStem = ""
+		m.pendingMbox = nil
+		m.savingMessageToDisk = false
+		m.savingMessageID = ""
+		m.setSaveHelp(false)
 		return m, nil
 	}
 
@@ -218,6 +208,15 @@ func (m *tuiModel) afterFileBrowser(newFb filebrowser.Model, cmd tea.Cmd) (tea.M
 	}
 
 	m.fileBrowserOpen = false
+	m.savingMessageToDisk = false
+	m.savingMessageID = ""
+	m.setSaveHelp(false)
+	if !m.fileBrowser.AllowFileSelect && m.fileBrowser.SelectedDir != "" {
+		m.lastSaveDir = m.fileBrowser.SelectedDir
+	}
+	if m.pendingMbox != nil {
+		return m, m.appendPendingMbox()
+	}
 	if m.mode == modeCompose && m.compose != nil && m.fileBrowser.AllowFileSelect {
 		return m, m.attachBrowserFile(cmd)
 	}
@@ -282,16 +281,24 @@ func renderAttachmentHelp(m *tuiModel) string {
 	borderColor := t.Get(render.ColorBorder)
 	helpBg := lipgloss.Color("#1a1a35")
 
-	leftCol := []string{
-		"  Enter / v    Preview attachment in popup window (.ics / text / media)",
-		"  o / x        Open in default system application",
-		"  s            Quick save to default directory",
-		"  S / b        Open File Browser to choose directory",
-		"  c            Add event to Google Calendar (.ics)",
-		"  j / ↓        Next attachment",
-		"  k / ↑        Previous attachment",
-		"  F1           Toggle this help",
-		"  Esc / q / a  Close attachment drawer",
+	rows := m.helpFind.filter([]helpRow{
+		{"Enter / v", "Preview attachment in popup window (.ics / text / media)"},
+		{"o / x", "Open in default system application"},
+		{"s", "Quick save to default directory"},
+		{"S / b", "Choose a directory (opens where feral started)"},
+		{"c", "Add event to Google Calendar (.ics)"},
+		{"j / ↓", "Next attachment"},
+		{"k / ↑", "Previous attachment"},
+		{"F1", "Toggle this help"},
+		{"/", "Search this help"},
+		{"Esc / q / a", "Close attachment drawer"},
+	})
+	leftCol := []string{noHelpMatch}
+	if len(rows) > 0 {
+		leftCol = leftCol[:0]
+	}
+	for _, r := range rows {
+		leftCol = append(leftCol, "  "+padTo(r.keys, 11)+"  "+r.desc)
 	}
 
 	savePattern := "(default: ~/Downloads)"
@@ -313,7 +320,8 @@ func renderAttachmentHelp(m *tuiModel) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, lipgloss.NewStyle().Background(helpBg).Render(markHints("  Press F1 or Esc to dismiss  ", hint{"Press F1 or Esc to dismiss", "esc"})))
+	footer := markHints(smallHelpFooter(m.helpFind, "Press F1 or Esc to dismiss")+"  ", hint{"Press F1 or Esc to dismiss", "esc"})
+	lines = append(lines, lipgloss.NewStyle().Background(helpBg).Render(footer))
 
 	content := strings.Join(lines, "\n")
 
@@ -398,12 +406,19 @@ func (m *tuiModel) handleMenuSelection() (tea.Model, tea.Cmd) {
 	}
 	switch m.menuItems[m.menuCursor] {
 	case "Move to Spam":
+		// As the S key does: under --read-only the move is refused here, not
+		// left to the server layer, because marking also trains the filter
+		// and records an override -- local records of a move that never was.
+		if m.refuseReadOnly() {
+			m.menuOpen = false
+			return m, nil
+		}
 		targetID := m.resolveMenuTargetID()
 		if targetID != "" {
 			plan := m.planAction([]email.ID{targetID}, m.currentF)
 			m.removeEmailByID(targetID)
 			m.addPending(targetID, pendingSpam)
-			m.mode = modeIndex
+			m.showList()
 			return m, m.cmdSpam(targetID, plan)
 		}
 	case "Switch Account":

@@ -18,10 +18,10 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 var (
@@ -99,11 +99,10 @@ func resolveConfigDir(config *cfg_g.Config) (string, error) {
 	}
 	configDir := config.ConfigDir
 	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
+		var err error
+		if configDir, err = cfg_g.UserConfigDir(); err != nil {
 			return "", fmt.Errorf("cannot determine outlook token location: %w", err)
 		}
-		configDir = filepath.Join(homeDir, ".config", app.AppName)
 	}
 	if !filepath.IsAbs(configDir) {
 		return "", fmt.Errorf("outlook token directory %q is not absolute", configDir)
@@ -126,6 +125,14 @@ func GetTokenPath(config *cfg_g.Config, accName string) (string, error) {
 	oldPath := filepath.Join(configDir, legacyHashedTokenFileName(accName))
 	cfg_g.MigrateFileSanitization(oldPath, newPath)
 	return newPath, nil
+}
+
+// TokenFileNames are the names, in the configuration directory, the account
+// accName's token may be under: the current one first, then the two older
+// schemes GetTokenPath and the token source still migrate from. Computing them
+// changes nothing on disk.
+func TokenFileNames(accName string) []string {
+	return []string{tokenFileName(accName), legacyHashedTokenFileName(accName), legacyTokenFileName(accName)}
 }
 
 // GetLegacyTokenPath returns the pre-v0.6 unhashed token path for backward compatibility.
@@ -269,7 +276,7 @@ var interactiveAuthPossible = func() bool {
 // this program: with nobody to ask, fail and say what to run.
 func getNewTokenViaDeviceCode(ctx context.Context, rep report.Reporter) (*Token, error) {
 	if !interactiveAuthPossible() || !report.CanPrompt(rep) {
-		return nil, fmt.Errorf("%w: run `mail_cli account login <name>` from a terminal (device-code sign-in needs a browser and cannot run unattended)",
+		return nil, fmt.Errorf("%w: run `feral account login <name>` from a terminal (device-code sign-in needs a browser and cannot run unattended)",
 			ErrInteractiveAuthRequired)
 	}
 
@@ -462,7 +469,14 @@ func (ts *tokenSource) TokenContext(ctx context.Context) (*Token, error) {
 type oauthTransport struct {
 	base        http.RoundTripper
 	tokenSource *tokenSource
+	// immutableIDs asks Graph for IDs that survive a move. See
+	// meta.ImmutableIDs: it is set only for a cache keyed by them.
+	immutableIDs bool
 }
+
+// preferImmutableIDs is the request header that makes Graph return, and
+// accept, a message ID that does not change when the message moves.
+const preferImmutableIDs = `IdType="ImmutableId"`
 
 func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL == nil || !strings.EqualFold(req.URL.Hostname(), "graph.microsoft.com") {
@@ -481,6 +495,9 @@ func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	cloned := req.Clone(req.Context())
 	cloned.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+	if t.immutableIDs {
+		cloned.Header.Set("Prefer", preferImmutableIDs)
+	}
 	base := t.base
 	if base == nil {
 		base = http.DefaultTransport
@@ -488,11 +505,11 @@ func (t *oauthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return base.RoundTrip(cloned)
 }
 
-func getOutlookClient(config *cfg_g.Config, accName string, rep report.Reporter) *http.Client {
+func getOutlookClient(config *cfg_g.Config, accName string, rep report.Reporter, immutableIDs bool) *http.Client {
 	ts := newTokenSource(config, accName)
 	ts.rep = report.Or(rep)
 	return &http.Client{
-		Transport: &oauthTransport{tokenSource: ts},
+		Transport: &throttleTransport{base: &oauthTransport{tokenSource: ts, immutableIDs: immutableIDs}},
 		Timeout:   30 * time.Second,
 	}
 }

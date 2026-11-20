@@ -2,20 +2,21 @@ package integration
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/mailops"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/testenv"
+
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/mailops"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/report"
 )
 
 // These tests perform real mutations against a real server: they move, copy,
@@ -25,26 +26,26 @@ import (
 //
 // Three things stand between them and someone's actual mail.
 //
-// They are opt-in twice over: MAIL_CLI_LIVE_MUTATE must be set, and
-// MAIL_CLI_MUTATE_ACCOUNT must name the account explicitly. There is no
+// They are opt-in twice over: FERAL_LIVE_MUTATE must be set, and
+// FERAL_MUTATE_ACCOUNT must name the account explicitly. There is no
 // default and no "active account" fallback, because the account these run
 // against must be a deliberate choice rather than whatever happened to be
 // selected.
 //
 // The named account must be marked account_type "test", which is what
-// `mail_cli account new <type> <name> --test` records. A regular account is
+// `feral account new <type> <name> --test` records. A regular account is
 // refused outright, so pointing the variable at a real mailbox by mistake
 // fails instead of destroying anything.
 //
 // And they only ever touch folders they create, named for the run, which are
 // deleted at the end. Nothing operates on Inbox or on any pre-existing folder.
 //
-//	MAIL_CLI_LIVE_MUTATE=1 MAIL_CLI_MUTATE_ACCOUNT=test_account \
+//	FERAL_LIVE_MUTATE=1 FERAL_MUTATE_ACCOUNT=test_account \
 //	    go test ./integration/ -run Mutation -v
 
 const (
-	mutateEnvVar    = "MAIL_CLI_LIVE_MUTATE"
-	mutateAcctVar   = "MAIL_CLI_MUTATE_ACCOUNT"
+	mutateEnvVar    = "FERAL_LIVE_MUTATE"
+	mutateAcctVar   = "FERAL_MUTATE_ACCOUNT"
 	testAccountType = "test"
 )
 
@@ -59,15 +60,17 @@ func mutationClient(t *testing.T) (mailclient.MailClient, string) {
 func mutationClientAccount(t *testing.T) (mailclient.MailClient, cfg_acc.AccountConfig) {
 	t.Helper()
 
-	if os.Getenv(mutateEnvVar) == "" {
+	if testenv.Getenv(t, mutateEnvVar) == "" {
 		t.Skipf("mutating tests are opt-in; set %s=1 to run them", mutateEnvVar)
 	}
-	name := os.Getenv(mutateAcctVar)
+	name := testenv.Getenv(t, mutateAcctVar)
 	if name == "" {
 		t.Skipf("%s must name the account to mutate; there is deliberately no default", mutateAcctVar)
 	}
 
-	config, err := cfg_g.LoadConfig()
+	// The loader that writes nothing: a test may not move or rewrite the
+	// user's configuration directory.
+	config, err := cfg_g.LoadConfigNoWrite()
 	if err != nil || config == nil {
 		t.Skipf("no usable configuration: %v", err)
 	}
@@ -80,7 +83,7 @@ func mutationClientAccount(t *testing.T) (mailclient.MailClient, cfg_acc.Account
 	// created with --test; a regular account has "regular" or nothing.
 	if !strings.EqualFold(acc.AccountType, testAccountType) {
 		t.Fatalf("refusing to mutate %q: account_type is %q, not %q. "+
-			"Create a throwaway account with `mail_cli account new <type> <name> --test`",
+			"Create a throwaway account with `feral account new <type> <name> --test`",
 			name, acc.AccountType, testAccountType)
 	}
 
@@ -113,7 +116,7 @@ func findAccount(config *cfg_g.Config, name string) (cfg_acc.AccountConfig, bool
 // runFolder names a folder for this run only, so a test never shares a folder
 // with another run or with anything that was already there.
 func runFolder(suffix string) string {
-	return fmt.Sprintf("mail_cli_test_%d_%s", time.Now().UnixNano(), suffix)
+	return fmt.Sprintf("feral_test_%d_%s", time.Now().UnixNano(), suffix)
 }
 
 // seedFolder creates a folder and uploads the given fixtures into it, returning
@@ -251,8 +254,9 @@ func TestMutationMoveEmail(t *testing.T) {
 		t.Fatalf("MoveEmail: %v", err)
 	}
 
-	// A move is only a move if the message also left the source. Outlook issues
-	// a new message ID on move, so this checks subjects rather than IDs.
+	// A move is only a move if the message also left the source. This checks
+	// subjects rather than IDs: Outlook's default IDs change on a move, and
+	// only a cache keyed by immutable IDs (meta.ImmutableIDs) keeps them.
 	after := subjectsIn(t, client, dst)
 	for _, s := range subjects {
 		if !after[s] {
@@ -360,30 +364,35 @@ func TestMutationFixturesSurviveRoundTrip(t *testing.T) {
 	}
 }
 
+// sendEnvVar opts in to the one test that sends mail. Mutation tests change
+// only the test account; this one transmits, so it is asked for separately.
+const sendEnvVar = "FERAL_LIVE_SEND"
+
+// resolveSelfEmailAddress is the account's own address as configured, or ""
+// when none is. It used to guess -- the login name plus "@outlook.com" or
+// "@gmail.com" -- and a wrong guess would mail a stranger.
 func resolveSelfEmailAddress(acc cfg_acc.AccountConfig) string {
-	recipient := acc.Username
-	if !strings.Contains(recipient, "@") {
-		switch strings.ToLower(acc.Type) {
-		case "outlook":
-			recipient += "@outlook.com"
-		case "gmail":
-			recipient += "@gmail.com"
-		}
+	addr := strings.TrimSpace(acc.GetSendAddress())
+	if strings.Count(addr, "@") != 1 {
+		return ""
 	}
-	return recipient
+	return addr
 }
 
 // TestMutationSendToSelf transmits an outbound email to the test account itself
 // and waits for delivery into the Inbox, verifying the live SMTP/API outbound pipeline.
 func TestMutationSendToSelf(t *testing.T) {
+	if testenv.Getenv(t, sendEnvVar) != "1" {
+		t.Skipf("sends real mail; set %s=1 to run it", sendEnvVar)
+	}
 	client, acc := mutationClientAccount(t)
 	recipient := resolveSelfEmailAddress(acc)
 	if recipient == "" {
-		t.Skipf("cannot determine email address for test account %s", acc.Name)
+		t.Skipf("account %s has no full address configured; set one with `feral account user-email`", acc.Name)
 	}
 
 	token := fmt.Sprintf("%d", time.Now().UnixNano()%100000000)
-	subject := fmt.Sprintf("[mail_cli-send-test %s] Self Delivery Verification", token)
+	subject := fmt.Sprintf("[feral-send-test %s] Self Delivery Verification", token)
 	body := fmt.Sprintf("Live outbound send-to-self test payload token=%s\nTimestamp: %s", token, time.Now().UTC().Format(time.RFC3339))
 	msgID := fmt.Sprintf("mail-cli-test-%s@%s", token, acc.Name)
 
@@ -392,7 +401,7 @@ func TestMutationSendToSelf(t *testing.T) {
 
 	if err := client.SendEmail([]byte(raw)); err != nil {
 		if strings.Contains(err.Error(), "ErrorAccessDenied") || strings.Contains(err.Error(), "403") {
-			t.Skipf("SendEmail refused (account token lacks Mail.Send scope; run `mail_cli account login %s` to grant): %v", acc.Name, err)
+			t.Skipf("SendEmail refused (account token lacks Mail.Send scope; run `feral account login %s` to grant): %v", acc.Name, err)
 		}
 		t.Fatalf("SendEmail to %q: %v", recipient, err)
 	}

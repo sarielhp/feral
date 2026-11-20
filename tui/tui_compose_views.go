@@ -3,13 +3,22 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/sarielhp/feral/email"
+
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 func (m *tuiModel) renderComposeScreen() string {
 	if m.compose == nil {
 		return ""
+	}
+
+	// A send waits on the server; say so, or the screen looks frozen.
+	if m.compose.sending {
+		return renderSendingDialog(m.width, m.height, m.compose)
 	}
 
 	if m.compose.DiscardConfirm {
@@ -66,18 +75,19 @@ func (m *tuiModel) renderComposeScreen() string {
 	bodyHeader := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#55ffff")).Render(" Message Body:")
 	lines = append(lines, divider, bodyHeader)
 
-	// Below the body: a divider and the two footer rows.
-	usedLines := len(lines) + 3
+	// 5. Footer Menu / Keybindings
+	footer := renderComposeFooter(boxW)
+	footerLines := strings.Count(footer, "\n") + 1
+
+	// Below the body: a divider and the footer rows.
+	usedLines := len(lines) + 1 + footerLines
 	availHeight := max(4, m.height-usedLines)
 	if m.compose.Vp.Height != availHeight || m.compose.Vp.Width != boxW-2 {
 		m.compose.Vp.Height = availHeight
 		m.compose.Vp.Width = boxW - 2
 		m.compose.Vp.SetContent(m.compose.Body)
 	}
-	lines = append(lines, keyZone("e", zoneRow, m.compose.Vp.View()), divider)
-
-	// 5. Footer Menu / Keybindings
-	lines = append(lines, renderComposeFooter())
+	lines = append(lines, keyZone("e", zoneRow, m.compose.Vp.View()), divider, footer)
 
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
@@ -133,7 +143,11 @@ func renderComposeHeaderFields(m *tuiModel) []string {
 	} else {
 		subjVal := m.compose.Subject
 		if subjVal == "" {
-			subjVal = dimStyle.Render("(no subject — press 's' to edit)")
+			if m.compose.suggestingSubject {
+				subjVal = dimStyle.Render("(generating subject with LLM...)")
+			} else {
+				subjVal = dimStyle.Render("(no subject — press 's' to edit, F4 for AI)")
+			}
 		} else {
 			subjVal = valStyle.Bold(true).Render(subjVal)
 		}
@@ -177,7 +191,7 @@ func renderComposeAttachments(m *tuiModel) []string {
 	return lines
 }
 
-func renderComposeFooter() string {
+func renderComposeFooter(width ...int) string {
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#55ffff")).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#aaaaaa"))
 	sendStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#55ff55")).Bold(true)
@@ -187,16 +201,17 @@ func renderComposeFooter() string {
 	item := func(zoneKey string, style lipgloss.Style, label, desc string) string {
 		return keyZone(zoneKey, zoneFooter, style.Render(label)+" "+descStyle.Render(desc))
 	}
-	row1 := " " + strings.Join([]string{
-		item(composeSendZone, sendStyle, "[y/Enter]", "Send"),
+	items1 := []string{
+		item(composeSendZone, sendStyle, "[y]", "Send"),
 		item("e", keyStyle, "[e]", "Edit Body"),
 		item("t", keyStyle, "[t]", "To"),
 		item("c", keyStyle, "[c]", "Cc"),
 		item("b", keyStyle, "[b]", "Bcc"),
 		item("s", keyStyle, "[s]", "Subj"),
+		item("f4", keyStyle, "[F4]", "AI Subj"),
 		item("f5", keyStyle, "[F5]", "Contacts"),
-	}, "  ")
-	row2 := " " + strings.Join([]string{
+	}
+	items2 := []string{
 		item("a", keyStyle, "[a]", "Add Att"),
 		item("d", keyStyle, "[d]", "Del Att"),
 		item("v", keyStyle, "[v]", "View Att"),
@@ -204,7 +219,17 @@ func renderComposeFooter() string {
 		item("f3", keyStyle, "[F3]", "Account"),
 		item("q", exitStyle, "[q/Esc]", "Save & Exit"),
 		item("x", exitStyle, "[x]", "Discard"),
-	}, "  ")
+	}
+
+	w := 0
+	if len(width) > 0 {
+		w = width[0]
+	}
+	if w > 0 && w < 100 {
+		return fitHints(w, "  ", append(items1, items2...))
+	}
+	row1 := " " + strings.Join(items1, "  ")
+	row2 := " " + strings.Join(items2, "  ")
 	return row1 + "\n" + row2
 }
 
@@ -216,8 +241,14 @@ func dialogActionRow(yLabel, nLabel string, yStyle, nStyle lipgloss.Style) strin
 }
 
 func renderDiscardConfirmDialog(m *tuiModel) string {
-	dialogWidth := 50
-	dialogHeight := 8
+	dialogWidth := min(50, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	dialogHeight := min(8, max(5, m.height-2))
+	if m.height > 0 && dialogHeight > m.height {
+		dialogHeight = m.height
+	}
 
 	var content strings.Builder
 	content.WriteString("\n")
@@ -245,8 +276,14 @@ func renderDiscardConfirmDialog(m *tuiModel) string {
 }
 
 func renderWarnEmptySendDialog(m *tuiModel) string {
-	dialogWidth := 56
-	dialogHeight := 9
+	dialogWidth := min(56, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	dialogHeight := min(9, max(5, m.height-2))
+	if m.height > 0 && dialogHeight > m.height {
+		dialogHeight = m.height
+	}
 
 	reason := m.compose.WarnEmptyReason
 	if reason == "" {
@@ -278,6 +315,20 @@ func renderWarnEmptySendDialog(m *tuiModel) string {
 		Render(dialogBox)
 }
 
+// sendConfirmSubjectLine shows the subject the message goes out with, and
+// says so when the model wrote it: that line is the one the user has not
+// read yet.
+func sendConfirmSubjectLine(c *composeState) string {
+	subject := strings.TrimSpace(c.Subject)
+	if subject == "" {
+		return "Subject: (none)"
+	}
+	if c.SubjectGenerated {
+		return "Subject (LLM): " + truncateTo(email.BidiDisplay(subject), 36)
+	}
+	return "Subject: " + truncateTo(email.BidiDisplay(subject), 42)
+}
+
 // renderSendConfirmDialog asks before a clicked Send goes out, naming where it
 // goes so the answer is an informed one.
 func renderSendConfirmDialog(m *tuiModel) string {
@@ -289,18 +340,28 @@ func renderSendConfirmDialog(m *tuiModel) string {
 	content.WriteString("\n")
 	content.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#55ff55")).Render("          SEND THIS EMAIL?          ") + "\n\n")
 	content.WriteString(fmt.Sprintf("  To: %s\n", truncateTo(to, 44)))
+	content.WriteString(fmt.Sprintf("  %s\n", sendConfirmSubjectLine(m.compose)))
 	content.WriteString(fmt.Sprintf("  %d attachment(s)\n\n", len(m.compose.Attachments)))
 	content.WriteString(dialogActionRow("[y] Send", "[n/Esc] Cancel",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#55ff55")).Bold(true),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))))
+
+	dialogWidth := min(54, max(20, m.width-4))
+	if m.width > 0 && dialogWidth > m.width {
+		dialogWidth = m.width
+	}
+	dialogHeight := min(9, max(5, m.height-2))
+	if m.height > 0 && dialogHeight > m.height {
+		dialogHeight = m.height
+	}
 
 	dialogBox := lipgloss.NewStyle().
 		Background(lipgloss.Color("#16162a")).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#55ff55")).
 		Padding(1, 2).
-		Width(54).
-		Height(8).
+		Width(dialogWidth).
+		Height(dialogHeight).
 		Render(content.String())
 
 	return lipgloss.NewStyle().
@@ -308,4 +369,36 @@ func renderSendConfirmDialog(m *tuiModel) string {
 		Height(m.height).
 		Align(lipgloss.Center, lipgloss.Center).
 		Render(dialogBox)
+}
+
+// handleSendTick re-arms the tick while the session's send is in flight; a
+// tick that outlives the send, or belongs to another draft, ends here.
+func (m *tuiModel) handleSendTick(msg sendTickMsg) (tea.Model, tea.Cmd) {
+	if m.compose != nil && m.compose.sending && m.compose.MessageID == msg.session {
+		return m, sendTickCmd(msg.session)
+	}
+	return m, nil
+}
+
+// sendTickInterval is how often the sending dialog refreshes; a variable so
+// tests that run the command do not wait a second for it.
+var sendTickInterval = time.Second
+
+func sendTickCmd(session string) tea.Cmd {
+	return tea.Tick(sendTickInterval, func(time.Time) tea.Msg { return sendTickMsg{session: session} })
+}
+
+// renderSendingDialog shows a send in flight with the seconds it has taken.
+// A send cannot be recalled once the server has it, so Esc does not cancel
+// one; pressing it says so instead of seeming to do nothing.
+func renderSendingDialog(width, height int, c *composeState) string {
+	elapsed := max(0, int(time.Since(c.sendStart).Seconds()))
+	lines := []string{fmt.Sprintf(" Sending message... %ds ", elapsed)}
+	if c.sendEscNoted {
+		lines = append(lines, "", "A send cannot be canceled; please wait.")
+	}
+	if c.quitAfterSend {
+		lines = append(lines, "", "Exiting once it is sent.")
+	}
+	return renderStatusDialog(width, height, strings.Join(lines, "\n"))
 }

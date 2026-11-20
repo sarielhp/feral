@@ -2,15 +2,15 @@ package cli
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -80,7 +80,7 @@ func TestResolveTuiFolderPrefix_ZeroMatches(t *testing.T) {
 
 	assertFolderPrefixError(t, session, "archive",
 		`no folder matches "archive"`,
-		`Run "mail_cli labels" to list folders`)
+		`Run "feral labels" to list folders`)
 }
 
 func TestResolveTuiFolderPrefix_AmbiguousMatches(t *testing.T) {

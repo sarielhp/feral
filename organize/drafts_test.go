@@ -2,12 +2,12 @@ package organize
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func rawMail(to, subject, msgID string, date time.Time) []byte {

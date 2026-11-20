@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 )
 
 type recordingReporter struct{ lines []string }
@@ -39,12 +39,14 @@ func (r *recordingReporter) has(substr string) bool {
 }
 
 type fakeNotifier struct {
-	got []Notification
-	err error
+	got   []Notification
+	calls int
+	err   error
 }
 
-func (f *fakeNotifier) Notify(_ context.Context, n Notification) error {
-	f.got = append(f.got, n)
+func (f *fakeNotifier) Notify(_ context.Context, news []Notification) error {
+	f.got = append(f.got, news...)
+	f.calls++
 	return f.err
 }
 
@@ -71,7 +73,11 @@ func testDeps(t *testing.T, client mailclient.Reader, rep report.Reporter) Deps 
 }
 
 func newMock(refs []cfg_acc.MessageFolderRef, messages map[email.ID][]byte) *mailclient.MockMailClient {
-	return &mailclient.MockMailClient{AccountLatestRefs: refs, RawMessages: messages}
+	ids := make([]email.ID, 0, len(refs))
+	for _, ref := range refs {
+		ids = append(ids, ref.MessageID)
+	}
+	return &mailclient.MockMailClient{InboxIDs: ids, RawMessages: messages}
 }
 
 func TestCheckAccountFirstRunRecordsWithoutNotifying(t *testing.T) {
@@ -121,9 +127,7 @@ func TestCheckAccountAnnouncesOnlyNewMail(t *testing.T) {
 	}
 
 	// Second run: "b" has arrived.
-	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{
-		{MessageID: "b", Folder: "Inbox"}, {MessageID: "a", Folder: "Inbox"},
-	}
+	client.InboxIDs = []email.ID{"b", "a"}
 	if err := checkAccount(context.Background(), deps, Options{}, rep, notifier,
 		deps.Config.Accounts[0], deps.Now); err != nil {
 		t.Fatal(err)
@@ -141,43 +145,33 @@ func TestCheckAccountAnnouncesOnlyNewMail(t *testing.T) {
 	}
 }
 
-// Mail filed in spam, trash, sent or drafts is recorded but never announced:
-// the account-wide listing covers every folder, and a draft autosave is not
-// new mail.
-func TestCheckAccountSkipsQuietFolders(t *testing.T) {
+// Only the inbox is watched, through the one cheap listing: mail filed
+// elsewhere -- spam, sent, drafts, a label a filter skipped the inbox for -- is
+// not new mail to announce, and the account-wide listing, which costs a
+// request per message on Gmail, is never used.
+func TestCheckAccountWatchesOnlyTheInbox(t *testing.T) {
 	rep := &recordingReporter{}
 	notifier := &fakeNotifier{}
 	messages := map[email.ID][]byte{
 		"a": rawMessage("old", "alice@example.com"),
 		"s": rawMessage("spam", "spammer@example.com"),
-		"d": rawMessage("draft", "me@example.com"),
-		"g": rawMessage("gmail-sent", "me@example.com"),
 		"b": rawMessage("fresh", "bob@example.com"),
 	}
 	client := newMock([]cfg_acc.MessageFolderRef{{MessageID: "a", Folder: "Inbox"}}, messages)
+	client.FailOn = map[string]error{"FetchLatestAccountEmails": errors.New("the account-wide listing was used")}
+	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{{MessageID: "s", Folder: "Junk"}, {MessageID: "b", Folder: "Inbox"}}
 	deps := testDeps(t, client, rep)
 	account := deps.Config.Accounts[0]
 	if err := checkAccount(context.Background(), deps, Options{}, rep, notifier, account, deps.Now); err != nil {
 		t.Fatal(err)
 	}
 
-	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{
-		{MessageID: "s", Folder: "Junk"}, {MessageID: "d", Folder: "Drafts"},
-		{MessageID: "g", Folder: "[Gmail]/Sent Mail"}, {MessageID: "b", Folder: "Inbox"},
-		{MessageID: "a", Folder: "Inbox"},
-	}
+	client.InboxIDs = []email.ID{"b", "a"}
 	if err := checkAccount(context.Background(), deps, Options{}, rep, notifier, account, deps.Now); err != nil {
 		t.Fatal(err)
 	}
 	if len(notifier.got) != 1 || notifier.got[0].ID != "b" {
 		t.Fatalf("notified %+v, want only the inbox message b", notifier.got)
-	}
-	state, err := LoadState(deps.Config.CacheRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := state.Unseen("work", []email.ID{"s", "d", "g"}); len(got) != 0 {
-		t.Fatalf("quiet-folder messages left unseen: %v", got)
 	}
 }
 
@@ -199,7 +193,7 @@ func TestCheckAccountSkipsMailOlderThanLastPoll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{{MessageID: "b", Folder: "Inbox"}}
+	client.InboxIDs = []email.ID{"b"}
 	if err := checkAccount(context.Background(), deps, Options{}, rep, notifier, account, deps.Now); err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +216,7 @@ func TestCheckAccountLogsWhenNotificationUnavailable(t *testing.T) {
 		deps.Config.Accounts[0], deps.Now); err != nil {
 		t.Fatal(err)
 	}
-	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{{MessageID: "b", Folder: "Inbox"}}
+	client.InboxIDs = []email.ID{"b"}
 	if err := checkAccount(context.Background(), deps, Options{}, rep, notifier,
 		deps.Config.Accounts[0], deps.Now); err != nil {
 		t.Fatal(err)
@@ -243,7 +237,8 @@ func TestCheckAccountRunsOnMailHook(t *testing.T) {
 	t.Setenv("WATCH_HOOK_OUT", out)
 
 	script := filepath.Join(t.TempDir(), "hook.sh")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$MAIL_CLI_ACCOUNT|$MAIL_CLI_SUBJECT|$MAIL_CLI_ID\" >> \"$WATCH_HOOK_OUT\"\n"
+	// FERAL_* is the name now; MAIL_CLI_* is kept for hooks written before.
+	body := "#!/bin/sh\nprintf '%s\\n' \"$FERAL_ACCOUNT|$FERAL_SUBJECT|$FERAL_ID|$MAIL_CLI_ACCOUNT|$MAIL_CLI_SUBJECT|$MAIL_CLI_ID\" >> \"$WATCH_HOOK_OUT\"\n"
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +255,7 @@ func TestCheckAccountRunsOnMailHook(t *testing.T) {
 		deps.Config.Accounts[0], deps.Now); err != nil {
 		t.Fatal(err)
 	}
-	client.AccountLatestRefs = []cfg_acc.MessageFolderRef{{MessageID: "b", Folder: "Inbox"}}
+	client.InboxIDs = []email.ID{"b"}
 	if err := checkAccount(context.Background(), deps, opts, rep, notifier,
 		deps.Config.Accounts[0], deps.Now); err != nil {
 		t.Fatal(err)
@@ -270,15 +265,15 @@ func TestCheckAccountRunsOnMailHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hook did not write its output: %v", err)
 	}
-	if got := strings.TrimSpace(string(data)); got != "work|fresh|b" {
-		t.Fatalf("hook saw %q, want %q", got, "work|fresh|b")
+	if got := strings.TrimSpace(string(data)); got != "work|fresh|b|work|fresh|b" {
+		t.Fatalf("hook saw %q, want %q", got, "work|fresh|b|work|fresh|b")
 	}
 }
 
 func TestCheckAccountFetchFailureIsReturned(t *testing.T) {
 	rep := &recordingReporter{}
 	client := newMock(nil, nil)
-	client.FailOn = map[string]error{"FetchLatestAccountEmails": errors.New("dns: no such host")}
+	client.FailOn = map[string]error{"LatestInboxIDs": errors.New("dns: no such host")}
 	deps := testDeps(t, client, rep)
 
 	err := checkAccount(context.Background(), deps, Options{}, rep, &fakeNotifier{},
@@ -293,7 +288,7 @@ func TestPollOnceContinuesAfterOneAccountFails(t *testing.T) {
 	good := newMock([]cfg_acc.MessageFolderRef{{MessageID: "a", Folder: "Inbox"}},
 		map[email.ID][]byte{"a": rawMessage("hi", "a@example.com")})
 	bad := newMock(nil, nil)
-	bad.FailOn = map[string]error{"FetchLatestAccountEmails": errors.New("offline")}
+	bad.FailOn = map[string]error{"LatestInboxIDs": errors.New("offline")}
 
 	deps := Deps{
 		Config: &cfg_g.Config{
@@ -323,6 +318,34 @@ func TestPollOnceContinuesAfterOneAccountFails(t *testing.T) {
 	}
 	if !state.Known("good") {
 		t.Fatal("the healthy account was not polled after the failing one")
+	}
+}
+
+// An mbox account is a local file with no server to poll: the watcher never
+// builds a client for it, so it records nothing and announces nothing.
+func TestPollOnceSkipsMboxAccounts(t *testing.T) {
+	rep := &recordingReporter{}
+	deps := Deps{
+		Config: &cfg_g.Config{
+			Paths:    cfg_g.Paths{CacheRoot: t.TempDir()},
+			Accounts: []cfg_acc.AccountConfig{{Name: "spool", Type: "mbox", Path: "/nonexistent", InboxMaxAge: "15m"}},
+		},
+		Reporter: rep,
+		ClientFor: func(acc cfg_acc.AccountConfig) (mailclient.Reader, error) {
+			t.Fatalf("a client was built for mbox account %s", acc.Name)
+			return nil, nil
+		},
+		Now: fixedNow,
+	}
+	if err := pollOnce(context.Background(), deps, Options{}, rep, &fakeNotifier{}, deps.Config.Accounts, deps.Now); err != nil {
+		t.Fatalf("pollOnce: %v", err)
+	}
+	state, err := LoadState(deps.Config.CacheRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Known("spool") {
+		t.Fatal("the mbox account was recorded as polled")
 	}
 }
 

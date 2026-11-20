@@ -86,7 +86,7 @@ func newFakeJMAP(t *testing.T, user string, msgs ...fakeMessage) *fakeJMAP {
 	return f
 }
 
-// account is the config.json entry that points mail_cli at this server.
+// account is the config.json entry that points feral at this server.
 func (f *fakeJMAP) account(name string) map[string]any {
 	return map[string]any{
 		"name":             name,

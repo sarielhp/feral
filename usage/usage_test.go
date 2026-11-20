@@ -24,8 +24,8 @@ func TestUsage_GetApp(t *testing.T) {
 	if app == nil {
 		t.Fatal("expected non-nil clihelp.App")
 	}
-	if app.Name != "mail_cli" {
-		t.Errorf("expected app name 'mail_cli', got %q", app.Name)
+	if app.Name != "feral" {
+		t.Errorf("expected app name 'feral', got %q", app.Name)
 	}
 	if len(app.Commands) < 15 {
 		t.Errorf("expected at least 15 commands, got %d", len(app.Commands))
@@ -37,7 +37,7 @@ func TestUsage_RenderGlobal(t *testing.T) {
 	Render(clihelp.Options{Writer: &buf, Width: 80})
 	output := buf.String()
 
-	if !strings.Contains(output, "Usage") || !strings.Contains(output, "mail_cli") {
+	if !strings.Contains(output, "Usage") || !strings.Contains(output, "feral") {
 		t.Errorf("expected global usage header, got: %s", output)
 	}
 	if !strings.Contains(output, "Commands:") {
@@ -55,7 +55,7 @@ func TestUsage_RenderCommand(t *testing.T) {
 	}{
 		{
 			path:        []string{"scan"},
-			mustContain: []string{"mail_cli scan", "<lbl_prefix>", "-m, --move"},
+			mustContain: []string{"feral scan", "<lbl_prefix>", "-m, --move"},
 		},
 		{
 			path:        []string{"rule", "add"},
@@ -71,7 +71,7 @@ func TestUsage_RenderCommand(t *testing.T) {
 		},
 		{
 			path:        []string{"spam"},
-			mustContain: []string{"mail_cli spam", "del", "learn"},
+			mustContain: []string{"feral spam", "del", "learn"},
 		},
 		{
 			path:        []string{"tui"},
@@ -156,7 +156,7 @@ func TestUsage_GlobalRendersAtWidths(t *testing.T) {
 			t.Errorf("Global Render failed for width=%d", width)
 		}
 		output := buf.String()
-		if !strings.Contains(output, "Usage") || !strings.Contains(output, "mail_cli") {
+		if !strings.Contains(output, "Usage") || !strings.Contains(output, "feral") {
 			t.Errorf("width=%d: expected global usage header", width)
 		}
 		if !strings.Contains(output, "Commands:") {

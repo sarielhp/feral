@@ -172,7 +172,7 @@ func TestIsLockFile(t *testing.T) {
 		note string
 	}{
 		{name: "bare name", path: ".cache.lock", want: true, note: "the lock sitting at the cache root"},
-		{name: "full path", path: "/home/x/.cache/mail_cli/acc/.cache.lock", want: true, note: "the lock for one account's cache"},
+		{name: "full path", path: "/home/x/.cache/feral/acc/.cache.lock", want: true, note: "the lock for one account's cache"},
 		{name: "a message", path: "/home/x/messages/2025/01/02/abc.eml", want: false, note: "a downloaded message body"},
 		{name: "the index", path: "message_info.bin", want: false, note: "the index, which a wipe is allowed to rewrite"},
 		{name: "empty", path: "", want: false, note: "no path at all"},

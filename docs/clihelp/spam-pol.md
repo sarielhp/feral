@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli spam pol'
+title: 'feral spam pol'
 has_children: true
-parent: 'mail_cli spam'
+parent: 'feral spam'
 ---
 
-# mail\_cli spam pol
+# feral spam pol
 
-Inspect or unsubscribe from political fundraising emails in Spam. 'audit' inspects scoring details without mutating anything; 'unsub' sends opt-out requests and purges the emails.
+Inspect or unsubscribe from political fundraising emails in Spam. 'audit' inspects scoring details without mutating anything; 'unsub' sends opt-out requests, blacklists the senders (on Gmail also blocking them with a server filter), and permanently deletes what was unsubscribed from.
 
 ## Usage
 
 ```
-mail_cli spam pol <subcommand>
+feral spam pol <subcommand>
 ```
 
 ## Subcommands
@@ -28,7 +28,7 @@ mail_cli spam pol <subcommand>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -36,9 +36,9 @@ mail_cli spam pol <subcommand>
 
 ## Examples
 
-- `mail_cli spam pol audit` — Report political mail in Spam, changing nothing
-- `mail_cli spam pol unsub` — Send opt-outs and delete what was unsubscribed from
+- `feral spam pol audit` — Report political mail in Spam, changing nothing
+- `feral spam pol unsub` — Send opt-outs and delete what was unsubscribed from
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

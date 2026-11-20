@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // Account identifiers, and what happens when one does not name exactly one
@@ -74,7 +74,8 @@ func Lookup(accounts []cfg_acc.AccountConfig, ident string) (*cfg_acc.AccountCon
 		return nil, ErrNoAccounts
 	}
 	if ident == "" {
-		return &accounts[0], nil
+		// No identifier is the default account: default_account, or the first.
+		return DefaultOf(accounts), nil
 	}
 
 	for _, match := range []func(cfg_acc.AccountConfig) bool{
@@ -168,13 +169,14 @@ func SelectAccount(config *Config, ident string) (*Config, error) {
 }
 
 // IsSelected reports whether acc is the selected account. No selection means
-// the first account, the rule Lookup applies to an empty identifier.
+// the default account, the rule Lookup applies to an empty identifier.
 func (c *Config) IsSelected(acc cfg_acc.AccountConfig) bool {
 	if c == nil {
 		return false
 	}
 	if c.SelectedAccount == "" {
-		return len(c.Accounts) > 0 && strings.EqualFold(c.Accounts[0].Name, acc.Name)
+		def := DefaultOf(c.Accounts)
+		return def != nil && strings.EqualFold(def.Name, acc.Name)
 	}
 	return strings.EqualFold(string(c.SelectedAccount), acc.Name)
 }

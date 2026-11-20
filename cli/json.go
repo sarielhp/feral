@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sarielhp/mail_cli/app"
+	"github.com/sarielhp/feral/app"
 )
 
 // --json turns a listing into something a script can read.
 //
 // It writes to the product stream and nothing else does: progress, warnings and
-// the deprecation notices all go to the status stream, so `mail_cli --json
+// the deprecation notices all go to the status stream, so `feral --json
 // label list | jq` sees JSON and only JSON. That separation is what makes the
 // flag possible at all -- before it, every one of those lines was on stdout.
 

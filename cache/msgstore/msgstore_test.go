@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/email"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache/msg"
+	"github.com/sarielhp/feral/cache/msg"
 )
 
 // fakeFetcher stands in for a backend. It records what was asked for, so a test

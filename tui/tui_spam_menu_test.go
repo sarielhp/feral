@@ -2,7 +2,7 @@ package tui
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 	"time"
@@ -10,9 +10,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func setupTestSpamMenuModel(t *testing.T, readOnly bool) (*tuiModel, *mailclient.MockMailClient) {
@@ -202,58 +202,45 @@ func TestSpamMenu_ReadOnlyRefusesSpamCurrent(t *testing.T) {
 	}
 }
 
-// Help dialog: the right column must start at one display column, computed
-// from display width, not byte length. The arrow glyphs (↓/↑/←/→) in left
-// entries are three bytes each, so a byte-length column gave those rows less
-// padding and the right column came out ragged.
-func TestRenderHelp_ColumnsAlignByDisplayWidth(t *testing.T) {
+// Help page: every description must start at one column per layout column,
+// computed from display width, not byte length. The arrow glyphs (↓/↑/←/→) in
+// the keys are three bytes each, so a byte-length column would leave the rows
+// that carry them with less padding and the descriptions ragged.
+func TestRenderHelp_DescsAlignByDisplayWidth(t *testing.T) {
 	m := newTuiModel(nil, "", nil)
 	m.width = 100
 	m.height = 40
 
 	lines := strings.Split(renderHelp(m), "\n")
+	sec := helpSections[sectionIndex("Messages")]
 
-	// "Move down" has no multibyte glyph; its right neighbour sits at the
-	// intended column.
-	const anchorLeft = "Move down"
-	const anchorRight = "Compose new email"
-	wantCol := -1
-	for _, line := range lines {
-		plain := stripANSI(line)
-		if strings.Contains(plain, anchorLeft) && strings.Contains(plain, anchorRight) {
-			wantCol = displayColumn(plain, anchorRight)
-			break
-		}
-	}
-	if wantCol < 0 {
-		t.Fatal("anchor row not found in rendered help")
-	}
+	// Literal columns, not the layout formula restated: at 100 columns the
+	// Messages page is two columns, its widest key 12 cells wide, and the
+	// descriptions start 4 cells past the key column inside a 3-cell frame
+	// edge: 3+4+12 on the left, and 3+46+4+12 on the right, after a 46-cell
+	// column. If the layout changes, these numbers are the thing to re-derive.
+	two := true
+	wantLeft, wantRight := 19, 65
 
-	// Every right-column entry must begin at that column, including the rows
-	// whose left entry carries a multibyte arrow.
-	rightEntries := []string{
-		"Compose new email", "Reply / Group reply", "Archive email",
-		"Mark as spam", "Block sender (Spam/Trash)", "Unspam / Undo spam",
-		"Delete email", "Lock folder (read-only)", "Toggle folder tree",
-		"Expand subtree / Search", "Refresh folder", "Search/filter emails",
-		"Fuzzy search (all/folder)",
-	}
-	for _, entry := range rightEntries {
-		found := false
+	half := (len(sec.rows) + 1) / 2
+	for i, row := range sec.rows {
+		got := -1
 		for _, line := range lines {
-			plain := stripANSI(line)
-			idx := displayColumn(plain, entry)
-			if idx < 0 {
-				continue
+			if col := displayColumn(stripANSI(line), row.desc); col >= 0 {
+				got = col
+				break
 			}
-			found = true
-			if idx != wantCol {
-				t.Errorf("right entry %q starts at display column %d, want %d", entry, idx, wantCol)
-			}
-			break
 		}
-		if !found {
-			t.Errorf("right entry %q missing from help", entry)
+		if got < 0 {
+			t.Errorf("%q missing from the help page", row.desc)
+			continue
+		}
+		want := wantLeft
+		if two && i >= half {
+			want = wantRight
+		}
+		if got != want {
+			t.Errorf("%q starts at display column %d, want %d (left %d, right %d)", row.desc, got, want, wantLeft, wantRight)
 		}
 	}
 }
@@ -277,35 +264,50 @@ func stripANSI(s string) string {
 	return ansi.Strip(s)
 }
 
-// helpColumnsAlign reports whether every right-column entry in the rendered
-// help dialog begins at the same display column. Rows whose left entry carries
+// helpColumnsAlign reports whether every description on the rendered help
+// page starts at one display column per layout column. Rows whose keys carry
 // a multibyte arrow are the ones a byte-length column broke.
 func helpColumnsAlign(m *tuiModel) bool {
 	lines := strings.Split(renderHelp(m), "\n")
-	entries := []string{
-		"Compose new email", "Reply / Group reply", "Archive email",
-		"Mark as spam", "Block sender (Spam/Trash)", "Unspam / Undo spam",
-		"Delete email", "Lock folder (read-only)", "Toggle folder tree",
-		"Expand subtree / Search", "Refresh folder", "Search/filter emails",
-		"Fuzzy search (all/folder)",
+	sec := helpSections[sectionIndex("Messages")]
+
+	keyW := 0
+	for _, row := range sec.rows {
+		keyW = max(keyW, runewidth.StringWidth(row.keys))
 	}
-	want := -1
-	for _, entry := range entries {
+	inner := helpInnerWidth(m)
+	two := inner >= 80 && len(sec.rows) >= 12
+	colW := inner
+	if two {
+		colW = inner/2 - 1
+	}
+	pad := 3 // the frame's border and its side padding
+	wantLeft, wantRight := pad+4+keyW, pad+4+keyW
+	if two {
+		wantRight = pad + colW + 4 + keyW
+	}
+	half := (len(sec.rows) + 1) / 2
+
+	for i, row := range sec.rows {
+		got := -1
 		for _, line := range lines {
-			plain := stripANSI(line)
-			idx := displayColumn(plain, entry)
-			if idx < 0 {
-				continue
+			if idx := displayColumn(stripANSI(line), row.desc); idx >= 0 {
+				got = idx
+				break
 			}
-			if want == -1 {
-				want = idx
-			} else if idx != want {
-				return false
-			}
-			break
+		}
+		if got < 0 {
+			return false // the page did not show every row
+		}
+		want := wantLeft
+		if two && i >= half {
+			want = wantRight
+		}
+		if got != want {
+			return false
 		}
 	}
-	return want != -1
+	return true
 }
 
 func TestDimmedOverlayKeepsBackdropAroundDialog(t *testing.T) {

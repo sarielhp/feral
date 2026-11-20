@@ -1,7 +1,7 @@
 package google
 
 import (
-	cal "github.com/sarielhp/mail_cli/calendar"
+	cal "github.com/sarielhp/feral/calendar"
 	"testing"
 	"time"
 )
@@ -258,5 +258,47 @@ func TestFormatEventTimeSpan(t *testing.T) {
 				t.Errorf("formatEventTimeSpan() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildGoogleCalendarEvent_WindowsAndInvalidTimeZones(t *testing.T) {
+	loc, _ := time.LoadLocation("America/New_York")
+	start := time.Date(2026, 10, 27, 16, 0, 0, 0, loc)
+	end := start.Add(30 * time.Minute)
+
+	ev := &cal.ICSEvent{
+		Summary:       "Grad School advice meeting",
+		StartTimeZone: "Eastern Standard Time",
+		EndTimeZone:   "Eastern Standard Time",
+		StartParsed:   start,
+		EndParsed:     end,
+	}
+
+	gEvent := buildGoogleCalendarEvent(ev)
+	if gEvent.Start.TimeZone != "America/New_York" {
+		t.Errorf("Start.TimeZone = %q, want 'America/New_York'", gEvent.Start.TimeZone)
+	}
+	if gEvent.End.TimeZone != "America/New_York" {
+		t.Errorf("End.TimeZone = %q, want 'America/New_York'", gEvent.End.TimeZone)
+	}
+	if gEvent.Start.DateTime != "2026-10-27T16:00:00-04:00" {
+		t.Errorf("Start.DateTime = %q, want '2026-10-27T16:00:00-04:00'", gEvent.Start.DateTime)
+	}
+
+	// Unresolvable time zone must fall back to system time zone rather than passing invalid string to Google Calendar API
+	evUnknown := &cal.ICSEvent{
+		Summary:        "Unknown Zone Event",
+		StartTimeZone:  "Customer/Invented-Zone",
+		EndTimeZone:    "Customer/Invented-Zone",
+		StartParsed:    start,
+		EndParsed:      end,
+		ZoneUnresolved: true,
+	}
+	gEventUnknown := buildGoogleCalendarEvent(evUnknown)
+	if gEventUnknown.Start.TimeZone == "Customer/Invented-Zone" {
+		t.Errorf("Start.TimeZone passed unresolvable zone to Google API")
+	}
+	if _, err := time.LoadLocation(gEventUnknown.Start.TimeZone); err != nil {
+		t.Errorf("Start.TimeZone %q is not a valid IANA location: %v", gEventUnknown.Start.TimeZone, err)
 	}
 }

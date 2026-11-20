@@ -7,27 +7,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/llm"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/llm"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func (m *tuiModel) adjustScrollOffset() {
-	availH := m.height - 2
-	if m.showError {
-		availH--
-	}
+// indexLines is how many rows of the message list the screen shows.
+func (m *tuiModel) indexLines() int {
+	availH := m.height - 2 - m.bannerLines()
 	numLines := availH
 	if m.splitPreview && len(m.emails) > 0 {
 		numLines = max(3, (availH-1)/2)
 	}
-	if numLines <= 0 {
-		numLines = 1
-	}
+	return max(1, numLines)
+}
+
+func (m *tuiModel) adjustScrollOffset() {
+	numLines := m.indexLines()
 	oldStart := m.indexStart
 	m.indexStart = max(0, min(m.indexStart, len(m.emails)-numLines))
 	if m.eIdx < m.indexStart {
@@ -71,6 +72,13 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *tuiModel) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
+	m.detailVpDirty = true
+	m.resizePrimaryViewports()
+	m.resizeModalViewports(msg)
+	return m, nil
+}
+
+func (m *tuiModel) resizePrimaryViewports() {
 	if m.mode == modeDetail {
 		m.vp.Width = max(20, m.width-2)
 		m.vp.Height = max(5, m.height-3)
@@ -79,10 +87,39 @@ func (m *tuiModel) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 		m.vp.Height = max(5, m.height-2)
 	}
 	if m.compose != nil {
-		m.compose.Vp.Width = max(20, m.width-6)
-		m.compose.Vp.Height = max(5, m.height-14)
+		boxW := max(40, m.width)
+		m.compose.Vp.Width = boxW - 2
+		m.compose.Vp.Height = max(4, m.height-14)
+		m.compose.Vp.SetContent(m.compose.Body)
 	}
-	return m, nil
+	m.diagVp.Width = max(20, m.width)
+	m.diagVp.Height = max(5, m.height-1)
+}
+
+func (m *tuiModel) resizeModalViewports(msg tea.WindowSizeMsg) {
+	if m.fileBrowserOpen {
+		m.fileBrowser.Width = msg.Width
+		m.fileBrowser.Height = msg.Height
+	}
+	if m.showSummary {
+		m.setupSummaryViewport()
+	}
+	if m.icsModalOpen {
+		m.syncIcsViewport()
+	}
+	if m.attModalOpen {
+		m.syncAttachmentModalViewport()
+	}
+	if m.attachmentViewerOpen {
+		m.syncAttachmentViewerViewport()
+	}
+	if m.showHelp {
+		if m.helpSection < 0 {
+			m.followHelpCursor()
+		} else {
+			m.helpScroll = min(m.helpScroll, helpScrollBound(m))
+		}
+	}
 }
 
 func (m *tuiModel) handleFoldersLoaded(msg foldersLoadedMsg) (tea.Model, tea.Cmd) {
@@ -130,10 +167,11 @@ func (m *tuiModel) handleFoldersLoaded(msg foldersLoadedMsg) (tea.Model, tea.Cmd
 		m.currentF = resolved
 		m.selectedID = ""
 		m.loadCachedEmailsForFolder(m.currentF)
-		if len(m.emails) == 0 {
-			m.showLoad = "Downloading..."
-		} else {
+		if !m.loadIsMutation() {
 			m.showLoad = ""
+			if len(m.emails) == 0 {
+				m.showLoad = "Downloading..."
+			}
 		}
 		return m, m.loadEmailsCmd(m.currentF)
 	}
@@ -149,7 +187,8 @@ func (m *tuiModel) updateSelectionAfterEmailsLoaded() {
 		return
 	}
 	found := false
-	if !m.folderJustChanged && m.selectedID != "" {
+	justChanged := m.folderJustChanged
+	if !justChanged && m.selectedID != "" {
 		for i, e := range m.emails {
 			if e.ID == m.selectedID {
 				m.eIdx = i
@@ -161,6 +200,9 @@ func (m *tuiModel) updateSelectionAfterEmailsLoaded() {
 	m.folderJustChanged = false
 	if !found {
 		m.eIdx = len(m.emails) - 1
+		if justChanged {
+			m.eIdx = m.openingIndex()
+		}
 		m.selectedID = m.emails[m.eIdx].ID
 		m.adjustScrollOffset()
 		return
@@ -169,23 +211,42 @@ func (m *tuiModel) updateSelectionAfterEmailsLoaded() {
 }
 
 func (m *tuiModel) handleEmailsLoaded(msg emailsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.bgCheckingMail = false
+	if msg.client != nil && m.client != nil && !sameAccount(msg.client, m.client) {
+		return m, nil
+	}
+	if msg.folder != "" && msg.folder != m.currentF {
+		return m, nil
+	}
 	slog.Info("emailsLoadedMsg replacing rawEmails", slog.Int("incomingEmails", len(msg.emails)), slog.Int("prevRawEmails", len(m.rawEmails)))
-	if msg.isRead != nil {
-		m.isRead = msg.isRead
+	if msg.mergeFlags {
+		m.isRead = mergeFlags(m.isRead, msg.isRead)
+		m.isReplied = mergeFlags(m.isReplied, msg.isReplied)
+	} else {
+		if msg.isRead != nil {
+			m.isRead = msg.isRead
+		}
+		if msg.isReplied != nil {
+			m.isReplied = msg.isReplied
+		}
 	}
-	if msg.isReplied != nil {
-		m.isReplied = msg.isReplied
-	}
+	m.reapplyFlagEdits(msg.flagGen)
 	var filtered []email.Email
 	for _, e := range msg.emails {
 		if _, pending := m.pendingEmails[e.ID]; !pending {
 			filtered = append(filtered, e)
 		}
 	}
-	m.rawEmails = filtered
-	m.rebuildVisibleEmails()
-	m.updateSelectionAfterEmailsLoaded()
-	m.showLoad = ""
+	if m.fuzzyGlobal && m.savedRawEmails != nil {
+		// "~" has the whole cache on screen: the refresh is the folder's,
+		// so it replaces the rows Esc will put back, not the ones shown.
+		m.savedRawEmails = filtered
+	} else {
+		m.rawEmails = filtered
+		m.rebuildVisibleEmails()
+		m.updateSelectionAfterEmailsLoaded()
+	}
+	m.endFetchLoad()
 	slog.Info("emailsLoadedMsg DONE", slog.String("currentF", m.currentF), slog.Int("visibleEmails", len(m.emails)))
 
 	var cmds []tea.Cmd
@@ -237,7 +298,11 @@ func (m *tuiModel) handleDetailLoaded(msg detailMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// removeEmailFromList drops a message from the list after an action that filed
+// it elsewhere. In a saved set the list *is* the set, so the set stops listing
+// it too: otherwise a refresh would bring back the row the user just moved.
 func (m *tuiModel) removeEmailFromList(id email.ID) {
+	m.dropFromSavedSet([]email.ID{id})
 	for i, e := range m.emails {
 		if e.ID == id {
 			m.emails = append(m.emails[:i], m.emails[i+1:]...)
@@ -262,6 +327,7 @@ func (m *tuiModel) handleDoneMsg(msg doneMsg) (tea.Model, tea.Cmd) {
 func (m *tuiModel) handleSpamDone(msg spamDoneMsg) (tea.Model, tea.Cmd) {
 	m.showLoad = ""
 	m.removeEmailFromList(msg.id)
+	m.reportUndoable("Marked as spam", msg.undo)
 	return m, nil
 }
 
@@ -270,15 +336,18 @@ func (m *tuiModel) handleSpamDone(msg spamDoneMsg) (tea.Model, tea.Cmd) {
 func (m *tuiModel) handleMarkedSpamDone(msg markedSpamDoneMsg) (tea.Model, tea.Cmd) {
 	m.showLoad = ""
 	moved := 0
+	var movedIDs []email.ID
 	for _, id := range msg.ids {
 		if msg.failed[id] != nil {
 			continue
 		}
 		m.removePending(id)
 		m.removeEmailByID(id)
+		movedIDs = append(movedIDs, id)
 		moved++
 	}
-	m.saveStatus = fmt.Sprintf("Moved %d [SPAM] message(s) to Spam", moved)
+	m.dropFromSavedSet(movedIDs)
+	m.saveStatus = fmt.Sprintf("Moved %d [SPAM] message(s) to Spam", moved) + m.recordFinal("Moved [SPAM] to Spam", "the spam menu's move is not undone", movedIDs, moved)
 	if n := len(msg.failed); n > 0 {
 		m.saveStatus = fmt.Sprintf("Moved %d of %d [SPAM] message(s); %d failed", moved, len(msg.ids), n)
 		m.err = fmt.Errorf("%d message(s) could not be moved to Spam: %w", n, firstError(msg.failed, msg.ids))
@@ -352,12 +421,14 @@ func (m *tuiModel) handleUnspamDone(msg unspamDoneMsg) (tea.Model, tea.Cmd) {
 func (m *tuiModel) handleArchiveDone(msg archiveDoneMsg) (tea.Model, tea.Cmd) {
 	m.showLoad = ""
 	m.removeEmailFromList(msg.id)
+	m.reportUndoable("Archived", msg.undo)
 	return m, nil
 }
 
 func (m *tuiModel) handleDeleteDone(msg deleteDoneMsg) (tea.Model, tea.Cmd) {
 	m.showLoad = ""
 	m.removeEmailFromList(msg.id)
+	m.reportUndoable("Deleted", msg.undo)
 	return m, nil
 }
 
@@ -369,6 +440,29 @@ func (m *tuiModel) handleBlockDone(msg blockDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.removeEmailFromList(msg.id)
+	m.saveStatus = "Blocked " + msg.senderEmail + m.recordFinal("Blocked a sender", "blocking is a rule change", []email.ID{msg.id}, 1)
+	m.saveStatusTime = time.Now()
+	return m, nil
+}
+
+func (m *tuiModel) handleSaveEmailDone(msg saveEmailDoneMsg) (tea.Model, tea.Cmd) {
+	m.dropFromSavedSet(msg.moved)
+	if len(msg.moved) > 0 {
+		m.saveStatus = fmt.Sprintf("Moved %d message(s) to %s", len(msg.moved), msg.folder) + m.recordUndo(undoEntry{verb: "Moved", batches: msg.undo})
+		m.saveStatusTime = time.Now()
+		return m, nil
+	}
+	m.reportActionOutcome(msg.err,
+		fmt.Sprintf("failed to save message to %s", msg.folder),
+		fmt.Sprintf("Saved message to %s", msg.folder))
+	return m, nil
+}
+
+func (m *tuiModel) handleErrMsg(msg errMsg) (tea.Model, tea.Cmd) {
+	m.bgCheckingMail = false
+	m.showLoad = ""
+	m.err = msg.err
+	m.showError = true
 	return m, nil
 }
 
@@ -429,14 +523,15 @@ func (m *tuiModel) handleEmailSent(msg emailSentMsg) (tea.Model, tea.Cmd) {
 	}
 	m.err = nil
 	m.showError = false
-	var cmd tea.Cmd
+	var cmd, toast tea.Cmd
 	if sameSession {
 		quit := m.standaloneCompose || m.compose.quitAfterSend
 		encrypted := m.compose.Encrypt
-		m.mode = modeIndex
+		m.showList()
 		m.compose = nil
-		m.saveStatus = "Email sent successfully!"
+		m.saveStatus = "Email sent successfully!" + m.recordFinal("Sent a message", "a sent message cannot be recalled", nil, 1)
 		m.saveStatusTime = time.Now()
+		toast = m.showSentToast()
 		// The server copy is now a draft of a sent message: retire it,
 		// after any upload still in flight has landed.
 		req := syncRequest{kind: syncRetire, client: m.client, encrypted: encrypted}
@@ -446,8 +541,8 @@ func (m *tuiModel) handleEmailSent(msg emailSentMsg) (tea.Model, tea.Cmd) {
 			cmd = m.requestSync(msg.session, req)
 		}
 	}
-	m.markReplied(msg.targetID)
-	return m, cmd
+	m.markReplied(msg.targetID, msg.repliedCache)
+	return m, tea.Batch(cmd, toast)
 }
 
 // handleSendFailed keeps the session open for another try; a Ctrl+C that
@@ -470,13 +565,15 @@ func (m *tuiModel) handleSendFailed(msg emailSentMsg, sameSession bool) (tea.Mod
 	return model, cmd
 }
 
-func (m *tuiModel) markReplied(targetID email.ID) {
+// markReplied records targetID as replied in the cache of the account that
+// holds it, and on the rows on screen.
+func (m *tuiModel) markReplied(targetID email.ID, acct cachedir.Account) {
 	if targetID == "" {
 		return
 	}
-	m.isReplied[targetID] = true
-	if m.client != nil && m.client.Config() != nil {
-		_ = cache.MarkIDsReplied(m.client.Config().AccountCache, []email.ID{targetID}, m.isReplied)
+	m.noteReplied(targetID)
+	if !acct.IsZero() {
+		_ = cache.MarkIDsReplied(acct, []email.ID{targetID}, nil)
 	}
 	for i := range m.rawEmails {
 		if m.rawEmails[i].ID == targetID {
@@ -544,6 +641,15 @@ func (m *tuiModel) handleICSCalAdd(msg icsCalAddMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// clearSpamUndoBanner drops the "U undoes the spam mark" banner once its three
+// seconds are up.
+func (m *tuiModel) clearSpamUndoBanner() (tea.Model, tea.Cmd) {
+	if time.Since(m.lastSpammedTime) >= 3*time.Second {
+		m.undoSpamBanner = ""
+	}
+	return m, nil
+}
+
 func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -552,6 +658,8 @@ func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.key(msg)
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
+	case sentToastExpiredMsg:
+		return m, nil // the redraw drops the toast
 	case foldersLoadedMsg:
 		return m.handleFoldersLoaded(msg)
 	case emailsLoadedMsg:
@@ -576,22 +684,27 @@ func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleArchiveDone(msg)
 	case deleteDoneMsg:
 		return m.handleDeleteDone(msg)
+	case browserOpenedMsg:
+		m.reportActionOutcome(msg.err, "failed to open browser", "Opened message in browser")
+		return m, nil
 	case blockDoneMsg:
 		return m.handleBlockDone(msg)
+	case unsubPreparedMsg, unsubDoneMsg:
+		return m.handleUnsubMsg(msg)
 	case saveEmailDoneMsg:
-		m.reportActionOutcome(msg.err,
-			fmt.Sprintf("failed to save message to %s", msg.folder),
-			fmt.Sprintf("Saved message to %s", msg.folder))
-		return m, nil
+		return m.handleSaveEmailDone(msg)
+	case accountMoveDoneMsg:
+		return m.handleAccountMoveDone(msg)
+	case snoozeDoneMsg:
+		return m.handleSnoozeDone(msg)
+	case undoDoneMsg:
+		return m.handleUndoDone(msg)
 	case composeEditorFinishedMsg:
 		return m.handleComposeEditorFinished(msg)
 	case draftSyncedMsg:
 		return m.handleDraftSynced(msg)
 	case clearSpamUndoMsg:
-		if time.Since(m.lastSpammedTime) >= 3*time.Second {
-			m.undoSpamBanner = ""
-		}
-		return m, nil
+		return m.clearSpamUndoBanner()
 	case messageReadyToSaveMsg:
 		return m.handleMessageReadyToSave(msg)
 	case noticeExpiredMsg:
@@ -600,10 +713,17 @@ func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSummaryLoaded(msg)
 	case emailSentMsg:
 		return m.handleEmailSent(msg)
+	case sendTickMsg:
+		return m.handleSendTick(msg)
+	case subjectSuggestedMsg:
+		return m.handleSubjectSuggested(msg)
 	case errMsg:
-		m.showLoad = ""
-		m.err = msg.err
-		m.showError = true
+		return m.handleErrMsg(msg)
+	case bgCheckDoneMsg:
+		m.bgCheckingMail = false
+		if msg.foreground {
+			m.endFetchLoad()
+		}
 		return m, nil
 	case icsCalCheckMsg:
 		return m.handleICSCalCheck(msg)
@@ -612,17 +732,11 @@ func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ReportMsg:
 		return m.handleReport(msg)
 	case accountLoginFinishedMsg:
-		m.accountOverlayOpen = false
-		if msg.err != nil {
-			m.err = fmt.Errorf("login failed for %q: %w", msg.acc.Name, msg.err)
-			m.showError = true
-			return m, nil
-		}
-		return m.switchAccount(msg.acc)
+		return m.handleAccountLoginFinished(msg)
 	case timeTickMsg:
-		m.lastTime = time.Now()
-		m.cleanupIsReadMap()
-		return m, tea.Tick(time.Second*10, func(time.Time) tea.Msg { return timeTickMsg{} })
+		return m.handleTimeTick()
+	case relayStatusMsg:
+		return m.handleRelayStatus(msg)
 	case messageReadyForPipeMsg:
 		return m.handleMessageReadyForPipe(msg)
 	case pipeFinishedMsg:
@@ -634,9 +748,25 @@ func (m *tuiModel) updateInner(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBulkDone(msg)
 	case remoteSearchDoneMsg:
 		return m.handleRemoteSearchDone(msg)
+	case virtualMailboxLoadedMsg:
+		return m.handleVirtualMailboxLoaded(msg)
+	case mboxExportDoneMsg:
+		return m.handleMboxExportDone(msg)
 	default:
 		return m, nil
 	}
+}
+
+// handleAccountLoginFinished switches to the account a sign-in was for, or
+// says why the sign-in failed.
+func (m *tuiModel) handleAccountLoginFinished(msg accountLoginFinishedMsg) (tea.Model, tea.Cmd) {
+	m.accountOverlayOpen = false
+	if msg.err != nil {
+		m.err = fmt.Errorf("login failed for %q: %w", msg.acc.Name, msg.err)
+		m.showError = true
+		return m, nil
+	}
+	return m.switchAccount(msg.acc)
 }
 
 // reportActionOutcome records the result of a deferred background action: a
@@ -650,33 +780,4 @@ func (m *tuiModel) reportActionOutcome(err error, errPrefix, okMsg string) {
 	}
 	m.saveStatus = okMsg
 	m.saveStatusTime = time.Now()
-}
-
-// handleBulkDone reports a bulk action: the count is of the ids the servers
-// accepted, and any failure is shown as an error beside it.
-func (m *tuiModel) handleBulkDone(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var err error
-	switch msg := msg.(type) {
-	case bulkArchiveDoneMsg:
-		m.saveStatus = fmt.Sprintf("Archived %d message(s)", len(msg.ids))
-		err = msg.err
-	case bulkDeleteDoneMsg:
-		m.saveStatus = fmt.Sprintf("Deleted %d message(s)", len(msg.ids))
-		err = msg.err
-	case bulkMarkReadDoneMsg:
-		m.saveStatus = fmt.Sprintf("Marked %d message(s) as read", len(msg.ids))
-		if !msg.read {
-			m.saveStatus = fmt.Sprintf("Marked %d message(s) as unread locally (server unchanged)", len(msg.ids))
-		}
-		err = msg.err
-	case bulkSpamDoneMsg:
-		m.saveStatus = fmt.Sprintf("Reported %d message(s) as spam", len(msg.ids))
-		err = msg.err
-	}
-	m.saveStatusTime = time.Now()
-	if err != nil {
-		m.err = fmt.Errorf("bulk action failed: %w", err)
-		m.showError = true
-	}
-	return m, nil
 }

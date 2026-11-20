@@ -1,23 +1,23 @@
 ---
-title: 'mail_cli msg show'
-parent: 'mail_cli msg'
+title: 'feral msg show'
+parent: 'feral msg'
 ---
 
-# mail\_cli msg show
+# feral msg show
 
 Show emails by label prefix or message ID.
 
 ## Usage
 
 ```
-mail_cli msg show <lbl_prefix|message-id> [message-id] [flags]
+feral msg show <lbl_prefix|message-id> [message-id] [flags]
 ```
 
 ## Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `<lbl_prefix\|message-id>` | Folder prefix, or a message ID on its own |
+| `<lbl_prefix\|message-id>` | Folder prefix, message ID, or virtual/<name> |
 | `[message-id]` | Message ID or prefix within the folder |
 
 ## Flags
@@ -27,7 +27,7 @@ mail_cli msg show <lbl_prefix|message-id> [message-id] [flags]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -37,16 +37,25 @@ mail_cli msg show <lbl_prefix|message-id> [message-id] [flags]
 
 ## Examples
 
-- `mail_cli msg show receipts`
-- `mail_cli msg show receipts 1234abcd`
-- `mail_cli msg show receipts 1234abcd --web`
-- `mail_cli msg show 1234abcd --raw` — Output raw RFC822 message for piping
-- `mail_cli msg show 19f3a8216d52dfc6` — Show a message by ID alone, downloading it if needed
+- `feral msg show receipts`
+- `feral msg show receipts 1234abcd`
+- `feral msg show receipts 1234abcd --web`
+- `feral msg show 1234abcd --raw` — Output raw RFC822 message for piping
+- `feral msg show 19f3a8216d52dfc6` — Show a message by ID alone, downloading it if needed
+- `feral msg show virtual/last` — List a saved result set from the local cache
+
+## Saved searches
+
+A search, `last`, or a contact's latest mail saves its result set under the account that produced it, named after the query. `msg show virtual/<name>` lists one from the local cache -- no such folder exists on the server -- and F7 in the TUI browses them all.
+
+## Which account
+
+A folder is looked for in the default account (`account default`) unless the reference names one -- `%work:inbox`, or -A -- and in every account with `%all:inbox`. A message ID alone is looked for in every account.
 
 ## JSON output
 
-With --json a folder listing is one JSON array with an element per matched folder in every account -- {account, folder, message_ids, total} -- even when only one folder matches, so the output always parses. A message shown by ID is a single JSON object.
+With --json a folder listing is one JSON array with an element per matched folder in each account covered -- {account, folder, message_ids, total} -- even when only one folder matches, so the output always parses. A message shown by ID is a single JSON object.
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

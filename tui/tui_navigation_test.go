@@ -2,13 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/cache/msg"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/cache/msg"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/mailclient"
 	"strings"
 	"testing"
 	"time"
@@ -275,16 +275,22 @@ func TestNewNavigationKeys(t *testing.T) {
 	}
 }
 
+// Esc on the bare list with nothing to go back to asks before quitting; Esc
+// in the dialog quits once its grace has passed, and q quits at once.
 func TestEscapeToQuit(t *testing.T) {
 	m := newTuiModel(nil, "", nil)
 	m.mode = modeIndex
 
-	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
-	newM := res.(*tuiModel)
-	if !newM.done {
-		t.Error("expected done to be true after esc in index view")
+	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if m.done || !m.quitConfirmOpen {
+		t.Fatalf("esc: done=%v dialog=%v, want the dialog", m.done, m.quitConfirmOpen)
 	}
-	if cmd == nil {
-		t.Error("expected a tea.Quit command after esc in index view")
+	if !strings.Contains(m.View(), "Quit feral?") {
+		t.Error("the quit dialog is not drawn")
+	}
+	m.quitConfirmAt = time.Now().Add(-quitConfirmGrace)
+	res, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if !res.(*tuiModel).done || cmd == nil {
+		t.Error("esc in the dialog did not quit")
 	}
 }

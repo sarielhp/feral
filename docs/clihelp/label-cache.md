@@ -1,17 +1,17 @@
 ---
-title: 'mail_cli label cache'
+title: 'feral label cache'
 has_children: true
-parent: 'mail_cli label'
+parent: 'feral label'
 ---
 
-# mail\_cli label cache
+# feral label cache
 
 Manage the local labels cache: fetch and refresh cached label/folder data from the server.
 
 ## Usage
 
 ```
-mail_cli label cache <subcommand>
+feral label cache <subcommand>
 ```
 
 ## Subcommands
@@ -27,7 +27,7 @@ mail_cli label cache <subcommand>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli label cache <subcommand>
 
 ## Examples
 
-- `mail_cli label cache update`
+- `feral label cache update`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

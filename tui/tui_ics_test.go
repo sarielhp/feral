@@ -2,14 +2,14 @@ package tui
 
 import (
 	"bytes"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -609,11 +609,11 @@ func TestTUI_ICS_OpenFromAttachmentList(t *testing.T) {
 		{Filename: "invite.ics", ContentType: "text/calendar", Data: []byte(sampleICSData)},
 	}
 
-	// 'a' opens the attachment list, 'j' moves to the invite.
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// 'v' opens the attachment list, 'j' moves to the invite.
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
 	tm := res.(*tuiModel)
 	if !tm.attachmentListOpen {
-		t.Fatalf("expected attachmentListOpen=true after 'a'")
+		t.Fatalf("expected attachmentListOpen=true after 'v'")
 	}
 	res, _ = tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	tm = res.(*tuiModel)
@@ -696,10 +696,10 @@ func TestTUI_ICS_AttachmentListCAddsTheInvitation(t *testing.T) {
 		{Filename: "invite.ics", ContentType: "text/calendar", Data: []byte(sampleICSData)},
 	}
 
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	tm := res.(*tuiModel)
 	if !tm.attachmentListOpen || tm.attachmentListCursor != 0 {
-		t.Fatalf("'a' should open the list on its first entry")
+		t.Fatalf("'v' should open the list on its first entry")
 	}
 	res, cmd := tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	tm = res.(*tuiModel)
@@ -729,7 +729,7 @@ func TestTUI_ICS_AttachmentListCWithoutInvitation(t *testing.T) {
 	m.eIdx = 0
 	m.attachments = []email.Attachment{{Filename: "report.pdf", ContentType: "application/pdf", Data: []byte("%PDF")}}
 
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	res, cmd := res.(*tuiModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	tm := res.(*tuiModel)
 	if cmd != nil || tm.icsModalOpen {

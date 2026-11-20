@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/label"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -50,8 +50,13 @@ func (m *tuiModel) kFolder(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inFolderSearch = true
 		m.folderSearch = ""
 		m.buildEntries()
+	case s == ":" && m.bulkMovingToFolder:
+		// Another account's folders are not in the tree; the prompt names one.
+		m.bulkMovingToFolder = false
+		m.closeTree()
+		return m.beginAccountMove()
 	case s == "f" || s == "esc":
-		m.treeOpen = false
+		m.closeTree()
 		m.savingMessageToFolder = false
 		m.bulkMovingToFolder = false
 		m.savingMessageID = ""
@@ -83,7 +88,7 @@ func (m *tuiModel) kFolderSearch(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case k.Type == tea.KeyBackspace || s == "backspace" || s == "ctrl+h":
 		if len(m.folderSearch) > 0 {
-			m.folderSearch = m.folderSearch[:len(m.folderSearch)-1]
+			m.folderSearch = dropLastRune(m.folderSearch)
 			m.buildEntries()
 		}
 	case k.Type == tea.KeySpace:
@@ -113,7 +118,7 @@ func (m *tuiModel) selectFolderEntry() (tea.Model, tea.Cmd) {
 	if m.bulkMovingToFolder {
 		destFolder := n.Node.FullName
 		m.bulkMovingToFolder = false
-		m.treeOpen = false
+		m.closeTree()
 		m.inFolderSearch = false
 		m.folderSearch = ""
 		return m.executeBulkMoveToFolder(label.FromServer(destFolder))
@@ -125,23 +130,12 @@ func (m *tuiModel) selectFolderEntry() (tea.Model, tea.Cmd) {
 		m.savingMessageToFolder = false
 		m.savingMessageID = ""
 		m.savingMessageSourceFolder = ""
-		m.treeOpen = false
+		m.closeTree()
 		m.inFolderSearch = false
 		m.folderSearch = ""
 		return m.saveEmailToFolder(targetID, srcFolder, destFolder)
 	}
-	m.currentF = n.Node.FullName
-	m.treeOpen = false
-	m.inFolderSearch = false
-	m.folderSearch = ""
-	m.mode = modeIndex
-	m.loadCachedEmailsForFolder(n.Node.FullName)
-	if len(m.emails) == 0 {
-		m.showLoad = "Downloading..."
-	} else {
-		m.showLoad = ""
-	}
-	return m, m.loadEmailsCmd(n.Node.FullName)
+	return m.enterFolder(n.Node.FullName)
 }
 
 func (m *tuiModel) cycleFolderExpansion() {

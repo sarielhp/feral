@@ -8,8 +8,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/report"
 )
 
 // TerminalReporter writes progress to a terminal, with the markers and colours

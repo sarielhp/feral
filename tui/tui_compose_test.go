@@ -1,17 +1,17 @@
 package tui
 
 import (
-	"github.com/sarielhp/mail_cli/cache/cachedir"
+	"github.com/sarielhp/feral/cache/cachedir"
 	"net/mail"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -76,13 +76,13 @@ func TestTUI_ComposeCmd_NoRawHeadersInEditor(t *testing.T) {
 	m, _, _ := setupTestComposeModel(t, false)
 
 	// Trigger compose
-	cmd := m.composeCmd()
+	cmd := m.composeCmd("")
 	if cmd == nil {
 		t.Fatalf("expected non-nil cmd from composeCmd")
 	}
 
 	// Verify template generation
-	tempPath, _, err := m.createComposeBodyTemplate()
+	tempPath, _, err := m.createComposeBodyTemplate("")
 	if err != nil {
 		t.Fatalf("createComposeBodyTemplate error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestTUI_ReplyCmd_NoRawHeadersInEditor(t *testing.T) {
 		t.Fatalf("failed to read test message: %v", err)
 	}
 
-	tempPath, _, err := m.createReplyBodyTemplate(origMsg)
+	tempPath, _, err := m.createReplyBodyTemplate("", origMsg)
 	if err != nil {
 		t.Fatalf("createReplyBodyTemplate error: %v", err)
 	}
@@ -412,10 +412,15 @@ func TestTUI_Compose_SendSuccessAndCleanup(t *testing.T) {
 		t.Fatalf("expected cmd on send")
 	}
 
-	msg := cmd()
-	sentMsg, ok := msg.(emailSentMsg)
-	if !ok || sentMsg.err != nil {
-		t.Fatalf("expected successful emailSentMsg, got %v", msg)
+	var sentMsg emailSentMsg
+	var sawSent bool
+	for _, msg := range runCmd(cmd) {
+		if sm, ok := msg.(emailSentMsg); ok {
+			sentMsg, sawSent = sm, true
+		}
+	}
+	if !sawSent || sentMsg.err != nil {
+		t.Fatalf("expected successful emailSentMsg, got %+v (seen=%v)", sentMsg, sawSent)
 	}
 
 	// Verify client received sent email

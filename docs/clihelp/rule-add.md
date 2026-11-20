@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli rule add'
-parent: 'mail_cli rule'
+title: 'feral rule add'
+parent: 'feral rule'
 ---
 
-# mail\_cli rule add
+# feral rule add
 
 Add a server filter rule to auto-label emails from a sender or from a cached message ID.
 
 ## Usage
 
 ```
-mail_cli rule add <email|message_id> [lbl]
+feral rule add <email|message_id> [lbl]
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli rule add <email|message_id> [lbl]
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,10 +35,10 @@ mail_cli rule add <email|message_id> [lbl]
 
 ## Examples
 
-- `mail_cli rule add notifications@github.com %Dev/GitHub`
-- `mail_cli rule add 12345 %Dev/GitHub`
-- `mail_cli rule add 12345`
+- `feral rule add notifications@github.com %Dev/GitHub`
+- `feral rule add 12345 %Dev/GitHub`
+- `feral rule add 12345`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

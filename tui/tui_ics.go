@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/calendar"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/tui/render"
+	"github.com/sarielhp/feral/calendar"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/tui/render"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -60,8 +60,11 @@ func (m *tuiModel) openICSViewer(att email.Attachment) (tea.Model, tea.Cmd) {
 	m.icsCheckStatus = icsStatusChecking
 	m.icsEventIdx = 0
 
-	boxW := min(78, max(45, m.width-8))
-	contentW := max(20, boxW-6)
+	boxW := min(78, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	contentW := max(16, boxW-6)
 	m.icsVp = viewport.New(contentW, 6)
 
 	if events, err := calendar.ParseAllICSEventsData(att.Data); err == nil && len(events) > 0 {
@@ -102,8 +105,11 @@ func (m *tuiModel) updateICSEventSelection(newIdx int) {
 	m.icsEventIdx = newIdx
 	m.icsEvent = m.icsEvents[newIdx]
 
-	boxW := min(78, max(45, m.width-8))
-	contentW := max(20, boxW-6)
+	boxW := min(78, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	contentW := max(16, boxW-6)
 	if m.icsEvent.Description != "" {
 		m.icsVp.SetContent(email.WrapText(m.icsEvent.Description, contentW))
 	} else {
@@ -350,11 +356,29 @@ func renderICSEventFields(ev *calendar.ICSEvent, labelStyle, valStyle lipgloss.S
 	return lines
 }
 
+func (m *tuiModel) syncIcsViewport() {
+	boxW := min(78, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	contentW := max(16, boxW-6)
+	if m.icsVp.Width != contentW {
+		m.icsVp.Width = contentW
+		if m.icsEvent != nil && m.icsEvent.Description != "" {
+			m.icsVp.SetContent(email.WrapText(m.icsEvent.Description, contentW))
+		}
+	}
+}
+
 func renderICSModalOverlay(m *tuiModel) string {
 	t := m.theme.Theme()
 	borderColor := t.Get(render.ColorBorder)
 	bg := lipgloss.Color("#1a1a35")
-	boxW := min(78, max(45, m.width-8))
+	boxW := min(78, max(20, m.width-8))
+	if m.width > 0 && boxW > m.width {
+		boxW = m.width
+	}
+	m.syncIcsViewport()
 
 	headerTitle := "📅 CALENDAR EVENT (.ics)"
 	if len(m.icsEvents) > 1 {

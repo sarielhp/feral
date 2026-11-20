@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/virtual"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 const plainMessage = "From: Alice Smith <alice@example.com>\r\n" +
@@ -41,6 +43,7 @@ func TestRenderPrintsHeadersAndBody(t *testing.T) {
 		"Receipts",
 		"alice@example.com",
 		"bob@example.com",
+		"carol@example.com",
 		"quarterly report",
 		"Tue, 02 Sep 2025",
 		"the body of the message",
@@ -48,6 +51,54 @@ func TestRenderPrintsHeadersAndBody(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered output is missing %q\n--- output ---\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderCcAndBccFormatting(t *testing.T) {
+	msgWithCcBcc := "From: Alice <alice@example.com>\r\n" +
+		"To: Bob <bob@example.com>\r\n" +
+		"Cc: \"Carol Danvers\" <carol@example.com>, dave@example.com\r\n" +
+		"Bcc: Eve Secret <eve@example.com>\r\n" +
+		"Subject: secret meeting\r\n" +
+		"Date: Tue, 02 Sep 2025 10:04:05 +0000\r\n\r\n" +
+		"meeting content\r\n"
+
+	var buf bytes.Buffer
+	if err := Render(Options{}, &buf, &cfg_g.Config{}, "msg124", "Inbox", []byte(msgWithCcBcc)); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out := buf.String()
+
+	// CC should show names when available, falling back to email
+	if !strings.Contains(out, "Cc:         Carol Danvers, dave@example.com") {
+		t.Errorf("Cc line formatted incorrectly:\n%s", out)
+	}
+	// BCC should show name when available
+	if !strings.Contains(out, "Bcc:        Eve Secret") {
+		t.Errorf("Bcc line formatted incorrectly:\n%s", out)
+	}
+}
+
+func TestRenderOmitsEmptyToCcBcc(t *testing.T) {
+	msgNoRecipients := "From: Alice <alice@example.com>\r\n" +
+		"Subject: no recipients\r\n" +
+		"Date: Tue, 02 Sep 2025 10:04:05 +0000\r\n\r\n" +
+		"content\r\n"
+
+	var buf bytes.Buffer
+	if err := Render(Options{}, &buf, &cfg_g.Config{}, "msg125", "Inbox", []byte(msgNoRecipients)); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out := buf.String()
+
+	if strings.Contains(out, "To:") {
+		t.Errorf("expected To: to be omitted when empty, but found in:\n%s", out)
+	}
+	if strings.Contains(out, "Cc:") {
+		t.Errorf("expected Cc: to be omitted when empty, but found in:\n%s", out)
+	}
+	if strings.Contains(out, "Bcc:") {
+		t.Errorf("expected Bcc: to be omitted when empty, but found in:\n%s", out)
 	}
 }
 
@@ -332,6 +383,81 @@ func TestPerformJSONTargetPrintsOnlyTheMessage(t *testing.T) {
 	var detail map[string]any
 	if err := json.Unmarshal(out.Bytes(), &detail); err != nil {
 		t.Fatalf("output is not one JSON object: %v\n%s", err, out.String())
+	}
+}
+
+// VirtualPrefix recognises both spellings of a saved-set reference, and
+// nothing else.
+func TestVirtualPrefixRecognisesBothSpellings(t *testing.T) {
+	cases := []struct {
+		prefix string
+		name   string
+		ok     bool
+	}{
+		{"virtual/last", "last", true},
+		{"%virtual/from:bob@example.com", "from:bob@example.com", true},
+		{"virtual/", "", false},
+		{"%virtual/", "", false},
+		{"INBOX", "", false},
+		{"%INBOX", "", false},
+	}
+	for _, tc := range cases {
+		name, ok := VirtualPrefix(tc.prefix)
+		if ok != tc.ok || name != tc.name {
+			t.Errorf("VirtualPrefix(%q) = (%q, %v), want (%q, %v)", tc.prefix, name, ok, tc.name, tc.ok)
+		}
+	}
+}
+
+// A saved result set is listed from the cache: no folder of that name exists on
+// any server, so nothing is asked of the client.
+func TestVirtualMailboxListsASavedSetFromTheCache(t *testing.T) {
+	acc := cachedir.At(t.TempDir())
+	if err := virtual.Save(acc, &virtual.Mailbox{Name: "last", MessageIDs: []email.ID{"a", "b"}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	client := &mailclient.MockMailClient{Cfg: &cfg_g.Config{SelectedAccount: "work", AccountCache: acc}}
+
+	var out bytes.Buffer
+	listings, err := VirtualMailbox(Options{JSON: true}, &out, client, client.Cfg, "last", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listings) != 1 || listings[0].Folder != "virtual/last" || listings[0].Total != 2 {
+		t.Fatalf("listings = %+v", listings)
+	}
+	if len(listings[0].MessageIDs) != 2 || listings[0].MessageIDs[0] != "a" {
+		t.Errorf("message ids = %v, want [a b]", listings[0].MessageIDs)
+	}
+}
+
+// A target message inside a saved set is rendered through the client, so one
+// that was never downloaded is still fetched.
+func TestVirtualMailboxTargetRendersTheMessage(t *testing.T) {
+	acc := cachedir.At(t.TempDir())
+	if err := virtual.Save(acc, &virtual.Mailbox{Name: "last", MessageIDs: []email.ID{"msg1", "msg2"}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	client := &mailclient.MockMailClient{
+		Cfg:         &cfg_g.Config{SelectedAccount: "work", AccountCache: acc},
+		RawMessages: map[email.ID][]byte{"msg2": []byte(plainMessage)},
+	}
+
+	var out bytes.Buffer
+	if _, err := VirtualMailbox(Options{}, &out, client, client.Cfg, "last", "msg2"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "quarterly report") {
+		t.Errorf("the target message was not rendered:\n%s", out.String())
+	}
+}
+
+func TestVirtualMailboxUnknownNameIsAnError(t *testing.T) {
+	client := &mailclient.MockMailClient{Cfg: &cfg_g.Config{SelectedAccount: "work", AccountCache: cachedir.At(t.TempDir())}}
+
+	var out bytes.Buffer
+	if _, err := VirtualMailbox(Options{JSON: true}, &out, client, client.Cfg, "nope", ""); err == nil {
+		t.Error("listing a name that was never saved must fail")
 	}
 }
 

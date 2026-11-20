@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli account migrate'
-parent: 'mail_cli account'
+title: 'feral account migrate'
+parent: 'feral account'
 ---
 
-# mail\_cli account migrate
+# feral account migrate
 
 Copy configuration and credentials to a remote machine via SSH/SCP.
 
 ## Usage
 
 ```
-mail_cli account migrate [user@]host
+feral account migrate [user@]host
 ```
 
 ## Parameters
@@ -26,7 +26,7 @@ mail_cli account migrate [user@]host
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -34,9 +34,9 @@ mail_cli account migrate [user@]host
 
 ## Examples
 
-- `mail_cli account migrate myserver.local`
-- `mail_cli account migrate user@myserver.local`
+- `feral account migrate myserver.local`
+- `feral account migrate user@myserver.local`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

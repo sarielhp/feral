@@ -3,11 +3,12 @@ package mailclient
 import (
 	"context"
 	"errors"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 )
 
 // ErrInteractiveAuthRequired reports that an account needs a sign-in that a
@@ -41,6 +42,27 @@ type labelWriter interface {
 type EmailFetcher interface {
 	FetchAndDownloadEmails(folder label.Folder, cacheSubdir string) ([]email.ID, error)
 	FetchLatestAccountEmails(limit int) ([]cfg_acc.MessageFolderRef, error)
+	// LatestInboxIDs returns the IDs of the newest limit messages in the
+	// inbox, newest first. It asks the server for IDs alone, in one request,
+	// and downloads nothing: it is what the new-mail watcher polls, so it has
+	// to be cheap enough to run every minute. FetchLatestAccountEmails, by
+	// contrast, resolves each message's folder and caches its body.
+	LatestInboxIDs(ctx context.Context, limit int) ([]email.ID, error)
+	// InboxMessageBefore reports one message the server received into the
+	// inbox before cutoff; ok is false when there is none. Which one is
+	// unspecified -- Gmail cannot list oldest first -- so it answers "is
+	// anything this old still here", not "how old is the oldest". Received is
+	// the server's arrival time, never the sender's Date header. It costs a
+	// request or two and downloads no body: the relay check runs it every
+	// couple of minutes.
+	InboxMessageBefore(ctx context.Context, cutoff time.Time) (msg InboxEntry, ok bool, err error)
+}
+
+// InboxEntry is a message in the inbox as InboxMessageBefore reports it.
+type InboxEntry struct {
+	ID       email.ID
+	Received time.Time
+	Subject  string
 }
 
 // MessageAccessor retrieves messages by ID without the caller knowing which
@@ -103,12 +125,17 @@ type EmailSearcher interface {
 	SearchEmails(query string, limit int) ([]email.ID, error)
 }
 
-// EmailWriter is the mutating side of message handling: move, copy, mark read,
-// return to the inbox, and upload a new message.
+// EmailWriter is the mutating side of message handling: move, copy, mark read
+// or unread, return to the inbox, and upload a new message.
 type EmailWriter interface {
 	MoveEmail(messageIDs []email.ID, source, dest label.Folder) error
 	CopyEmail(messageIDs []email.ID, source, dest label.Folder) error
 	MarkAsRead(messageIDs []email.ID) error
+	// MarkAsUnread is MarkAsRead's inverse: it clears the seen flag so the
+	// message reads as new again on every client. A backend that keeps no
+	// server-side read state treats it as a no-op, and the local read cache
+	// remains the record.
+	MarkAsUnread(messageIDs []email.ID) error
 	MoveToInbox(messageIDs []email.ID, source label.Folder) error
 	UploadRawEmail(rawBytes []byte, target label.Folder) (email.ID, error)
 	// DeleteMessages permanently deletes messages, bypassing the trash. It

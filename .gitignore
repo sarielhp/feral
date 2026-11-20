@@ -1,5 +1,6 @@
 # Binaries
 mail_cli
+feral
 mail_cli_test
 
 # Build output of tools/build

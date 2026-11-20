@@ -27,13 +27,15 @@ func (m *tuiModel) kRightPane(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case s == "h" || s == "left" || s == "tab":
 		m.rightPaneFocus = false
 		return m, nil
-	case s == "i":
-		m.toggleInvertColors()
-		return m, nil
 	case s == "enter" || s == "o" || s == "x":
 		m.openAttachmentExternally(m.attCursor, "Opened: ", "Error: ")
 		return m, nil
-	case s == "a" || s == "v":
+	case s == "w" || s == "W":
+		return m.openCurrentEmailInBrowser()
+	case s == "a":
+		m.rightPaneFocus = false
+		return m.aliasCurrentSender()
+	case s == "v":
 		m.rightPaneFocus = false
 		m.attachmentDrawer = true
 		m.attCursor = 0

@@ -3,8 +3,8 @@ package gmail
 import (
 	"context"
 	"errors"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/report"
 	"net/http"
 	"net/http/httptest"
 	"strings"

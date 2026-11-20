@@ -1,16 +1,16 @@
 ---
-title: 'mail_cli mbox merge'
-parent: 'mail_cli mbox'
+title: 'feral mbox merge'
+parent: 'feral mbox'
 ---
 
-# mail\_cli mbox merge
+# feral mbox merge
 
 Merge mbox file x into y (copies messages in x but not in y, appending to y).
 
 ## Usage
 
 ```
-mail_cli mbox merge <x> <y>
+feral mbox merge <x> <y>
 ```
 
 ## Parameters
@@ -27,7 +27,7 @@ mail_cli mbox merge <x> <y>
 | `-A, --account <name>` | Target account name |
 | `--account-index N` | Target account by config index (also -N) |
 | `--read-only` | Block server writes (cache still updates) |
-| `--dry-run` | Report changes only; implies --read-only |
+| `-D, --dry-run` | Report changes only; implies --read-only |
 | `-v, --verbose` | Enable verbose output |
 | `--json` | Emit result as JSON on stdout |
 | `--logappend` | Append to existing logs instead of truncating |
@@ -35,8 +35,8 @@ mail_cli mbox merge <x> <y>
 
 ## Examples
 
-- `mail_cli mbox merge incoming.mbox archive.mbox`
+- `feral mbox merge incoming.mbox archive.mbox`
 
 ---
 
-[↑ mail\_cli](index.md) — [nav](nav.md)
+[↑ feral](index.md) — [nav](nav.md)

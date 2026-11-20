@@ -2,19 +2,22 @@ package cli
 
 import (
 	"context"
+	"time"
 
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/last"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
-	"github.com/sarielhp/mail_cli/outbox"
-	"github.com/sarielhp/mail_cli/scan"
-	"github.com/sarielhp/mail_cli/show"
-	"github.com/sarielhp/mail_cli/watcher"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/last"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
+	"github.com/sarielhp/feral/outbox"
+	"github.com/sarielhp/feral/outlookids"
+	"github.com/sarielhp/feral/scan"
+	"github.com/sarielhp/feral/show"
+	"github.com/sarielhp/feral/snooze"
+	"github.com/sarielhp/feral/watcher"
 )
 
 // Test stubs for the dependency interfaces. Each has a func field per method;
@@ -52,12 +55,13 @@ func (s stubClients) PreCheck(c *cfg_g.Config) error {
 }
 
 type stubMail struct {
-	ScanFn            func(scan.Options, *cfg_g.Config, string) (int, error)
-	ShowFn            func(show.Options, *cfg_g.Config, string, string) error
-	LastFn            func(last.Options, *cfg_g.Config, int) error
-	ExportFn          func(*cfg_g.Config, ExportOptions) error
-	PipeFn            func(*cfg_g.Config, PipeOptions, []string) error
-	RunBackendTestsFn func(*cfg_g.Config) error
+	ScanFn             func(scan.Options, *cfg_g.Config, string) (int, error)
+	ShowFn             func(show.Options, *cfg_g.Config, string, string) error
+	LastFn             func(last.Options, *cfg_g.Config, int) error
+	ExportFn           func(*cfg_g.Config, ExportOptions) error
+	SaveFolderToMboxFn func(*cfg_g.Config, string, string) error
+	PipeFn             func(*cfg_g.Config, PipeOptions, []string) error
+	RunBackendTestsFn  func(*cfg_g.Config) error
 }
 
 func (s stubMail) Scan(o scan.Options, c *cfg_g.Config, p string) (int, error) {
@@ -86,6 +90,13 @@ func (s stubMail) Export(c *cfg_g.Config, o ExportOptions) error {
 		return ErrNotConfigured
 	}
 	return s.ExportFn(c, o)
+}
+
+func (s stubMail) SaveFolderToMbox(c *cfg_g.Config, path, labelPrefix string) error {
+	if s.SaveFolderToMboxFn == nil {
+		return ErrNotConfigured
+	}
+	return s.SaveFolderToMboxFn(c, path, labelPrefix)
 }
 
 func (s stubMail) Pipe(c *cfg_g.Config, o PipeOptions, args []string) error {
@@ -328,6 +339,14 @@ type stubTUI struct {
 	RunFn           func(*cfg_g.Config, string, ...string) error
 	RunWithClientFn func(*cfg_g.Config, mailclient.MailClient, string) error
 	ComposeFn       func(*cfg_g.Config, ComposeOptions) error
+	DefaultKeysFn   func() ([]byte, error)
+}
+
+func (s stubTUI) DefaultKeys() ([]byte, error) {
+	if s.DefaultKeysFn == nil {
+		return nil, ErrNotConfigured
+	}
+	return s.DefaultKeysFn()
 }
 
 func (s stubTUI) Run(c *cfg_g.Config, p string, notices ...string) error {
@@ -354,6 +373,15 @@ func (s stubTUI) Compose(c *cfg_g.Config, opts ComposeOptions) error {
 type stubAccounts struct {
 	TokenPathFn func(string, cfg_acc.AccountConfig) (string, error)
 	OpenMboxFn  func(*cfg_g.Config, string, cachedir.Account) (mailclient.MailClient, error)
+	MigrateFn   func(context.Context, *cfg_g.Config, cfg_acc.AccountConfig) (outlookids.Report, error)
+	RenameFn    func(*cfg_g.Config, string, string) (cfg_g.AccountRename, error)
+}
+
+func (s stubAccounts) RenameAccount(c *cfg_g.Config, ident, to string) (cfg_g.AccountRename, error) {
+	if s.RenameFn == nil {
+		return cfg_g.AccountRename{}, ErrNotConfigured
+	}
+	return s.RenameFn(c, ident, to)
 }
 
 func (s stubAccounts) TokenPath(dir string, acc cfg_acc.AccountConfig) (string, error) {
@@ -370,6 +398,13 @@ func (s stubAccounts) OpenMbox(c *cfg_g.Config, path string, cacheDir cachedir.A
 	return s.OpenMboxFn(c, path, cacheDir)
 }
 
+func (s stubAccounts) MigrateOutlookIDs(ctx context.Context, c *cfg_g.Config, acc cfg_acc.AccountConfig) (outlookids.Report, error) {
+	if s.MigrateFn == nil {
+		return outlookids.Report{}, ErrNotConfigured
+	}
+	return s.MigrateFn(ctx, c, acc)
+}
+
 type stubContacts struct {
 	ListFn       func(*cfg_g.Config, string) error
 	SearchFn     func(*cfg_g.Config, string) error
@@ -379,6 +414,22 @@ type stubContacts struct {
 	SuggestFn    func(*cfg_g.Config, string) error
 	HarvestFn    func(*cfg_g.Config) error
 	PurgeFn      func(*cfg_g.Config, string) error
+	PickFn       func(*cfg_g.Config, PickOptions) error
+	ManageFn     func(*cfg_g.Config) error
+}
+
+func (s stubContacts) Pick(c *cfg_g.Config, o PickOptions) error {
+	if s.PickFn == nil {
+		return ErrNotConfigured
+	}
+	return s.PickFn(c, o)
+}
+
+func (s stubContacts) Manage(c *cfg_g.Config) error {
+	if s.ManageFn == nil {
+		return ErrNotConfigured
+	}
+	return s.ManageFn(c)
 }
 
 func (s stubContacts) List(c *cfg_g.Config, f string) error {
@@ -484,7 +535,15 @@ func (s stubOutbox) Remove(c *cfg_g.Config, id string) error {
 }
 
 type stubWatch struct {
-	WatchFn func(context.Context, *cfg_g.Config, watcher.Options) error
+	WatchFn      func(context.Context, *cfg_g.Config, watcher.Options) error
+	BackgroundFn func(context.Context, *cfg_g.Config, watcher.Options) error
+}
+
+func (s stubWatch) WatchInBackground(ctx context.Context, c *cfg_g.Config, opts watcher.Options) error {
+	if s.BackgroundFn == nil {
+		return ErrNotConfigured
+	}
+	return s.BackgroundFn(ctx, c, opts)
 }
 
 func (s stubWatch) Watch(ctx context.Context, c *cfg_g.Config, opts watcher.Options) error {
@@ -492,4 +551,63 @@ func (s stubWatch) Watch(ctx context.Context, c *cfg_g.Config, opts watcher.Opti
 		return ErrNotConfigured
 	}
 	return s.WatchFn(ctx, c, opts)
+}
+
+// stubSnooze records which calls were made over a fixed list of entries.
+type stubSnooze struct {
+	entries []snooze.Entry
+	calls   *[]string
+	until   *time.Time
+}
+
+func (s stubSnooze) record(call string) {
+	if s.calls != nil {
+		*s.calls = append(*s.calls, call)
+	}
+}
+
+func (s stubSnooze) Items(_ mailclient.MailClient, refs []string) ([]snooze.Item, error) {
+	items := make([]snooze.Item, 0, len(refs))
+	for _, r := range refs {
+		items = append(items, snooze.Item{ID: email.ID(r), Folder: "INBOX", Subject: "subject " + r})
+	}
+	return items, nil
+}
+
+func (s stubSnooze) Snooze(_ *cfg_g.Config, _ mailclient.MailClient, items []snooze.Item, until time.Time) ([]snooze.Entry, error) {
+	s.record("snooze")
+	if s.until != nil {
+		*s.until = until
+	}
+	out := make([]snooze.Entry, 0, len(items))
+	for _, it := range items {
+		out = append(out, snooze.Entry{ID: it.ID, Until: until, Subject: it.Subject})
+	}
+	return out, nil
+}
+
+func (s stubSnooze) List(*cfg_g.Config) ([]snooze.Entry, error) { return s.entries, nil }
+
+func (s stubSnooze) Select(_ *cfg_g.Config, refs []string) ([]snooze.Entry, error) {
+	if len(refs) == 0 {
+		var due []snooze.Entry
+		for _, e := range s.entries {
+			if e.Due(time.Now()) {
+				due = append(due, e)
+			}
+		}
+		return due, nil
+	}
+	matched, _ := snooze.Select(s.entries, refs)
+	return matched, nil
+}
+
+func (s stubSnooze) Wake(c *cfg_g.Config, refs []string) ([]snooze.Entry, error) {
+	s.record("wake")
+	return s.Select(c, refs)
+}
+
+func (s stubSnooze) Forget(c *cfg_g.Config, refs []string) ([]snooze.Entry, error) {
+	s.record("forget")
+	return s.Select(c, refs)
 }

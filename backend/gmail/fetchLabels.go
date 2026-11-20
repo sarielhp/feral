@@ -10,8 +10,8 @@ import (
 
 	gmailapi "google.golang.org/api/gmail/v1"
 
-	"github.com/sarielhp/mail_cli/cache/msgstore"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/cache/msgstore"
+	"github.com/sarielhp/feral/report"
 )
 
 // fetchGmailLabelsREST fetches all Gmail labels with populated message counts,

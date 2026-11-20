@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/label"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/label"
+	"github.com/sarielhp/feral/report"
 )
 
 // AmbiguityError reports that a label argument matched more than one folder.
@@ -38,7 +38,7 @@ func (e *NotFoundError) Error() string {
 // depended on which command you typed: `scan`, `show`, `archive` and `rule add`
 // got a permissive one that returned the user's input unchanged the moment the
 // server reported any match at all, with a nil error and no uniqueness check.
-// With folders `Work` and `Worklog`, `mail_cli scan wor` handed the string
+// With folders `Work` and `Worklog`, `feral scan wor` handed the string
 // "wor" to the backend -- where Gmail matched zero messages and did nothing,
 // and JMAP created a new empty mailbox literally named "wor" and filed messages
 // into it. Guessing is worse than failing, so this returns a typed error where

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/filebrowser/zonetest"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/filebrowser/zonetest"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"

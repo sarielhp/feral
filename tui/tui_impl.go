@@ -7,16 +7,20 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/report"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/report"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // InitTuiWithClient launches the TUI using an explicitly provided MailClient.
 func InitTuiWithClient(cfg *cfg_g.Config, client mailclient.MailClient, labelPrefix, initialNotice string, bk *Backend, rep *ProgramReporter) error {
+	keys, err := loadKeymap(cfg)
+	if err != nil {
+		return err
+	}
 	cfg.Quiet = true
 	app.InitTuiLogger(cfg.ConfigDir)
 	defer app.CloseTuiLogger()
@@ -25,6 +29,7 @@ func InitTuiWithClient(cfg *cfg_g.Config, client mailclient.MailClient, labelPre
 
 	model := newTuiModel(client, labelPrefix, bk)
 	model.cfg = cfg
+	model.keyMap = keys
 	model.rep = report.Or(rep)
 	if initialNotice != "" {
 		model.err = errors.New(initialNotice)
@@ -78,8 +83,12 @@ func InitTuiMode(config interface{}, labelPrefix, initialNotice string, bk *Back
 
 // InitTuiCompose launches the interactive compose screen directly.
 func InitTuiCompose(cfg *cfg_g.Config, client mailclient.MailClient, opts ComposeOptions, bk *Backend, rep *ProgramReporter) error {
+	keys, err := loadKeymap(cfg)
+	if err != nil {
+		return err
+	}
 	cfg.Quiet = true
-	if err := client.Validate(); err != nil {
+	if err = client.Validate(); err != nil {
 		return err
 	}
 	app.InitTuiLogger(cfg.ConfigDir)
@@ -90,6 +99,7 @@ func InitTuiCompose(cfg *cfg_g.Config, client mailclient.MailClient, opts Compos
 	model := newTuiModel(client, "", bk)
 	model.cfg = cfg
 	model.rep = report.Or(rep)
+	model.keyMap = keys
 	model.standaloneCompose = true
 	model.composeOpts = opts
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())

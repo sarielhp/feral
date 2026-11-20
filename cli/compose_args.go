@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/contacts"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/contacts"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -93,7 +93,7 @@ func isContactName(book *contacts.Book, name string) bool {
 		if strings.EqualFold(c.Name, name) {
 			return true
 		}
-		for _, nick := range c.Nicknames {
+		for _, nick := range c.AllAliases() {
 			if strings.EqualFold(nick, name) {
 				return true
 			}
@@ -136,9 +136,7 @@ func completionConfig(session *Session) *cfg_g.Config {
 		return config
 	}
 	if loaded.ConfigDir == "" {
-		if home, hErr := os.UserHomeDir(); hErr == nil {
-			loaded.ConfigDir = filepath.Join(home, ".config", app.AppName)
-		}
+		loaded.ConfigDir, _ = cfg_g.UserConfigDir()
 	}
 	return loaded
 }
@@ -202,7 +200,7 @@ func completeRecipients(session *Session) func(string) []string {
 // matching anywhere in a word, still offers when query matched only the name.
 func recipientSpelling(c contacts.Contact, query string) string {
 	lower := strings.ToLower(query)
-	for _, nick := range c.Nicknames {
+	for _, nick := range c.AllAliases() {
 		if strings.HasPrefix(strings.ToLower(nick), lower) {
 			return nick
 		}

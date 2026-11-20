@@ -11,6 +11,7 @@ module Tooling
   ANSI = /\e\[[\d;]*m/
   VERSION = /\A(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\z/
   DEEP_TOOLS = %w[govulncheck gocritic shadow revive dupl].freeze
+  HELP_FLAGS = %w[-h --help].freeze
 
   module_function
 
@@ -18,6 +19,64 @@ module Tooling
     Dir.chdir(File.realpath(File.expand_path('..', __dir__)))
     abort 'go.mod missing; adapt these tools in a Go repository' unless File.file?('go.mod')
     ENV['PATH'] = search_paths.join(File::PATH_SEPARATOR)
+    # go.mod decides the Go version: auto runs the newer of the local Go and
+    # the toolchain line, downloading it when needed. A GOTOOLCHAIN=local in
+    # the environment or in go env would quietly build with whatever is
+    # installed, and govulncheck then reports that Go's standard library.
+    ENV['GOTOOLCHAIN'] = 'auto'
+  end
+
+  # A settings constant, or default when a project's settings.rb predates it.
+  def setting(name, default)
+    ToolSettings.const_defined?(name) ? ToolSettings.const_get(name) : default
+  end
+
+  # The Go version go runs with here: under auto, the newer of the local
+  # installation and the go.mod toolchain line.
+  def go_version
+    run(executable('go'), 'env', 'GOVERSION').strip
+  end
+
+  # Moves the go.mod toolchain line to the latest patch of the Go in use, so a
+  # release builds with a standard library govulncheck accepts. A toolchain
+  # line below the local Go is ignored by auto, so the gate scanned whatever
+  # the machine had installed, and its advisories blocked every release until
+  # someone upgraded by hand.
+  def update_toolchain
+    return unless setting(:UPDATE_TOOLCHAIN, true)
+
+    running = go_version
+    return unless running.match?(/\Ago\d+\.\d+\.\d+\z/)
+
+    before = File.read('go.mod')
+    run(executable('go'), 'get', "toolchain@#{running}")
+    run(executable('go'), 'get', 'toolchain@patch')
+    return if File.read('go.mod') == before
+
+    puts "toolchain moved to #{go_version}; the full gate expects analyzers built with it (go-install-tools)"
+  end
+
+  # The Go that built an analyzer, from its embedded build information, or nil
+  # when it has none.
+  def analyzer_go_version(path)
+    out, _err, status = capture(executable('go'), 'version', '-m', path)
+    return nil unless status.success?
+
+    out.lines.first.to_s[/:\s+(go\d+\.\d+\.\d+)\s*\z/, 1]
+  end
+
+  # An analyzer built for another Go misreads this one's export data: gocritic
+  # once flagged every type assertion after a patch release. The full gate
+  # names the mismatch instead of reporting its symptoms.
+  def check_analyzer_toolchains
+    running = go_version
+    return unless running.match?(/\Ago\d+\.\d+\.\d+\z/)
+
+    stale = (%w[staticcheck] + DEEP_TOOLS).filter_map do |name|
+      built = analyzer_go_version(executable(name))
+      "#{name} (#{built})" if built && built != running
+    end
+    raise "analyzers built with another Go than #{running}: #{stale.join(', ')}; run go-install-tools" unless stale.empty?
   end
 
   def search_paths
@@ -152,6 +211,7 @@ module Tooling
   end
 
   def deep_review
+    check_analyzer_toolchains
     run(executable('govulncheck'), './...')
     out = run(executable('gocritic'), 'check', './...')
     raise "gocritic findings:\n#{out}" unless out.strip.empty?
@@ -167,6 +227,10 @@ module Tooling
     %w[go gofmt staticcheck go-audit].each { |name| executable(name) }
     DEEP_TOOLS.each { |name| executable(name) } if full
     checked = input_digest
+    # Tests and tools keep their scratch files under /tmp/<user>/feral, never in /tmp itself.
+    scratch = File.join('/tmp', ENV.fetch('USER', 'user'), 'feral')
+    FileUtils.mkdir_p(scratch)
+    ENV['TMPDIR'] = scratch
     out = run(executable('gofmt'), '-s', '-l', '.')
     raise "formatting required:\n#{out}" unless out.strip.empty?
 
@@ -296,12 +360,15 @@ module Tooling
   end
 
   def bump
-    raise 'unfinished release; use tools/bump --resume after inspecting local state' if File.exist?(state_path('release'))
+    if File.exist?(state_path('release'))
+      raise 'unfinished release; use tools/bump --resume after inspecting local state, or --abandon if nothing was published'
+    end
 
     remote, ref = upstream
     path, current = version
     raise 'bump requires a clean working tree; commit or snapshot first' unless git('status', '--porcelain').empty?
 
+    update_toolchain
     reuse = metadata_version? && verified?(metadata: true)
     updated = current.split('.').tap { |parts| parts[-1] = (parts[-1].to_i + 1).to_s }.join('.')
     File.write(state_path('release'), JSON.generate(base: head, version: updated, remote: remote, ref: ref))
@@ -317,7 +384,8 @@ module Tooling
     File.write(state_path('release'), JSON.generate(data))
     push_release(data)
   rescue StandardError => e
-    raise "#{e.message}\nLocal state retained. Inspect changes; tools/bump --resume never increments the version."
+    raise "#{e.message}\nLocal state retained. Inspect changes; tools/bump --resume never increments the version; " \
+          'tools/bump --abandon drops an unpublished release.'
   end
 
   def resume
@@ -331,8 +399,41 @@ module Tooling
     push_release(data)
   end
 
+  # Drops a pending release that never reached the remote, so a bump that can
+  # no longer resume (HEAD moved, the fix needed a commit) does not need its
+  # state file deleted by hand. The bump commit goes only while HEAD is still
+  # that commit; an uncommitted pending version is restored. Other files the
+  # bump touched are listed, not reverted.
+  def abandon
+    path = state_path('release')
+    raise 'no interrupted release to abandon' unless File.file?(path)
+
+    data = JSON.parse(File.read(path), symbolize_names: true)
+    data[:commit] ? drop_release_commit(data) : restore_pending_version(data)
+    FileUtils.rm_f(path)
+    puts "Abandoned release #{data.fetch(:version)}; nothing was published"
+    left = git('status', '--porcelain')
+    puts "Left for inspection:\n#{left}" unless left.empty?
+  end
+
+  def drop_release_commit(data)
+    commit = data.fetch(:commit)
+    if git('ls-remote', data.fetch(:remote), data.fetch(:ref)).split.first == commit
+      raise 'the release already reached the remote; finish it with tools/bump --resume'
+    end
+    raise 'HEAD is no longer the release commit; inspect and remove it by hand' unless head == commit
+    raise 'abandon requires a clean working tree' unless git('status', '--porcelain').empty?
+
+    git('reset', '--keep', "#{commit}^")
+  end
+
+  def restore_pending_version(data)
+    file, value = version
+    git('checkout', 'HEAD', '--', file) if value == data.fetch(:version)
+  end
+
   def complete_pending_commit(data)
-    raise 'HEAD changed before pending release commit; inspect local history' unless head == data.fetch(:base)
+    raise 'HEAD changed before pending release commit; inspect, then drop it with tools/bump --abandon' unless head == data.fetch(:base)
     raise 'pending version changed; inspect local files' unless version.last == data.fetch(:version)
 
     script('gate', '--full')
@@ -374,7 +475,28 @@ module Tooling
       raise "installed artifact mismatch: #{destination}" unless Digest::SHA256.file(built) == Digest::SHA256.file(destination)
       raise "installed permissions mismatch: #{destination}" unless File.stat(built).mode == File.stat(destination).mode
     end
+    install_links
     puts 'Installation verified'
+  end
+
+  # Each declared link replaces whatever is at its path -- an old binary, or a
+  # link -- by rename, as replace_file does, and is read back. A directory there
+  # is refused.
+  def install_links
+    links = defined?(ToolSettings::INSTALL_LINKS) ? ToolSettings::INSTALL_LINKS : {}
+    links.each do |link, target|
+      raise "installation link must be absolute: #{link}" unless link.start_with?('/')
+      raise "installation link target must be a name beside it: #{target}" if target.include?('/')
+      raise "installation link cannot replace a directory: #{link}" if File.directory?(link) && !File.symlink?(link)
+
+      staged = "#{link}.installing-#{Process.pid}"
+      FileUtils.rm_f(staged)
+      File.symlink(target, staged)
+      File.rename(staged, link)
+      raise "installed link mismatch: #{link}" unless File.readlink(link) == target
+    ensure
+      FileUtils.rm_f(staged) if staged
+    end
   end
 
   # Copy beside the destination, then rename over it. Writing into the
@@ -410,10 +532,28 @@ module Tooling
     raise "#{e.message}\n#{state}"
   end
 
-  def entry
+  # A script's help is printed, and nothing else happens, whenever -h or
+  # --help is among its arguments. Scripts took any lone argument as their
+  # commit message, so `tools/release --help` committed pending work as
+  # "--help", bumped the version and published the tag.
+  def entry(help = nil)
+    if ARGV.intersect?(HELP_FLAGS)
+      puts help || "#{File.basename($PROGRAM_NAME)}: no help written for this script"
+      exit
+    end
     setup
     yield
   rescue StandardError => e
     abort e.message
+  end
+
+  # A commit message is what the commit is called for good once it is pushed,
+  # so one that looks like an option -- a mistyped --ful, a --dry-run this
+  # script does not have -- is refused rather than committed.
+  def commit_message(text)
+    raise 'the commit message is empty' if text.strip.empty?
+    raise "refusing a commit message that looks like an option: #{text}" if text.start_with?('-')
+
+    text
   end
 end

@@ -2,8 +2,8 @@ package mailclient
 
 import (
 	"errors"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"log/slog"
 )
 
@@ -96,6 +96,12 @@ func (r *ReadOnlyMailClient) MarkAsRead(messageIDs []email.ID) error {
 	return nil
 }
 
+// MarkAsUnread returns nil without clearing any message's read state on the server.
+func (r *ReadOnlyMailClient) MarkAsUnread(messageIDs []email.ID) error {
+	slog.Debug("[READ-ONLY] Simulated MarkAsUnread", slog.String("account", r.AccountName), slog.Int("count", len(messageIDs)))
+	return nil
+}
+
 // MoveToInbox returns nil without moving the messages out of source on the server.
 func (r *ReadOnlyMailClient) MoveToInbox(messageIDs []email.ID, source label.Folder) error {
 	return r.simulatedMoveFrom("MoveToInbox", messageIDs, source)
@@ -180,3 +186,26 @@ func (r *ReadOnlyMailClient) SendEmail(_ []byte) error {
 // Retrieving a message is a read, so the accessors pass straight through. They
 // write to the local cache, which --read-only permits: a downloaded body is a
 // fact the server reported, not a change to it.
+
+// Refuses reports whether c refuses server changes: it is, or wraps, a
+// ReadOnlyMailClient, or its config is read-only or a dry run. An account's
+// own read_only setting shows only in the decorator -- the factory does not
+// copy it into the config -- so the wrappers are looked through. A caller
+// about to start a change it could not finish, such as an upload whose
+// removal from the source would then only be simulated, asks first.
+func Refuses(c MailClient) bool {
+	for c != nil {
+		if cfg := c.Config(); cfg != nil && (cfg.ReadOnly || cfg.DryRun) {
+			return true
+		}
+		switch v := c.(type) {
+		case *ReadOnlyMailClient:
+			return true
+		case *CheckingMailClient:
+			c = v.Delegate
+		default:
+			return false
+		}
+	}
+	return false
+}

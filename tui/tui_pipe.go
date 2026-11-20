@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/sarielhp/mail_cli/email"
+	"github.com/sarielhp/feral/email"
 )
 
 type messageReadyForPipeMsg struct {
@@ -95,7 +95,7 @@ func (m *tuiModel) handleMessageReadyForPipe(msg messageReadyForPipeMsg) (tea.Mo
 	}
 	c.Stdin = bytes.NewReader(msg.raw)
 
-	return m, tea.ExecProcess(c, func(err error) tea.Msg {
+	return m, runProgram(c, func(err error) tea.Msg {
 		return pipeFinishedMsg{err: err, cmd: msg.cmd}
 	})
 }

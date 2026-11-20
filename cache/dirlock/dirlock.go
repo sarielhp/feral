@@ -14,7 +14,7 @@
 // alongside a scheduled scan -- shares one download directory.
 //
 // Guard therefore takes both an in-process mutex and an advisory file lock, so
-// it is correct against goroutines and against separate mail_cli processes.
+// it is correct against goroutines and against separate feral processes.
 package dirlock
 
 import (
@@ -87,7 +87,22 @@ func (dl *dirLock) wrapRelease() func() {
 // still held, which preserves correctness within this process and degrades to
 // the previous behavior between processes rather than failing a user's command.
 func Guard(downloadDir string) (release func(), err error) {
-	dl := lockFor(downloadDir)
+	return guard(downloadDir, downloadDir, lockFileName)
+}
+
+// GuardFile is Guard for a single file that is updated by read-modify-write
+// outside any cache directory, such as the contacts book: it serializes on
+// path+".lock", beside the file, against goroutines and other processes.
+func GuardFile(path string) (release func(), err error) {
+	if path == "" {
+		return guard("", "", "")
+	}
+	return guard(path, filepath.Dir(path), filepath.Base(path)+".lock")
+}
+
+// guard locks key in process and dir/name across processes.
+func guard(key, dir, name string) (release func(), err error) {
+	dl := lockFor(key)
 	gid := curGoroutineID()
 
 	if gid != 0 && atomic.LoadInt64(&dl.owner) == gid {
@@ -99,14 +114,14 @@ func Guard(downloadDir string) (release func(), err error) {
 	atomic.StoreInt64(&dl.owner, gid)
 	dl.depth = 1
 
-	if downloadDir == "" {
+	if dir == "" {
 		return dl.wrapRelease(), nil
 	}
-	if mkErr := os.MkdirAll(downloadDir, 0700); mkErr != nil {
+	if mkErr := os.MkdirAll(dir, 0700); mkErr != nil {
 		return dl.wrapRelease(), mkErr
 	}
 
-	f, openErr := os.OpenFile(filepath.Join(downloadDir, lockFileName), os.O_CREATE|os.O_RDWR, 0600)
+	f, openErr := os.OpenFile(filepath.Join(dir, name), os.O_CREATE|os.O_RDWR, 0600)
 	if openErr != nil {
 		return dl.wrapRelease(), openErr
 	}

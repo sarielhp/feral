@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/cfg_acc"
+	"github.com/sarielhp/feral/cfg_acc"
 )
 
 // AppName is the program's name, used to build the paths of its default
 // configuration and cache directories and the prefixes of its temporary files.
 const (
-	AppName = "mail_cli"
+	AppName = "feral"
 )
 
 // evaluateDirty audits file-based config structures, applying default parameters where necessary and reporting if changes were made.
@@ -90,7 +90,7 @@ func evaluateAccountDefaults(fc *FileConfig) bool {
 	if len(*fc.Accounts) == 0 {
 		*fc.Accounts = []cfg_acc.AccountConfig{
 			{
-				Name:           "default",
+				Name:           "gmail", // never "default", which is reserved; see ValidateAccountName
 				Type:           "gmail",
 				Username:       fc.Username,
 				Password:       fc.Password,
@@ -229,16 +229,18 @@ func evaluateDirty(fc *FileConfig, raw map[string]interface{}, config *Config) b
 	if migrateGlobalEntities(fc) {
 		dirty = true
 	}
+	// After the account defaults: the aliases are in fc.Accounts, each
+	// account's account.json having been folded in by LoadConfigFile.
+	if MigrateAliasesToLinks(fc) {
+		dirty = true
+	}
 	return dirty
 }
 
 func newDefaultConfig(homeDir string) *Config {
-	cacheDir, errCache := os.UserCacheDir()
-	var defaultDownloadDir string
-	if errCache == nil {
-		defaultDownloadDir = filepath.Join(cacheDir, AppName)
-	} else {
-		defaultDownloadDir = filepath.Join(homeDir, ".cache", AppName)
+	defaultDownloadDir, errCache := UserCacheDir()
+	if errCache != nil {
+		defaultDownloadDir = CacheDirIn(filepath.Join(homeDir, ".cache"))
 	}
 
 	return &Config{
@@ -266,6 +268,7 @@ func newDefaultConfig(homeDir string) *Config {
 			Rules:            []cfg_acc.Rule{},
 		},
 		Prefs: Prefs{
+			TuiWatch:   true,
 			Verbose:    false,
 			Editor:     "emacs",
 			EditorArgs: []string{"-nw"},
@@ -328,6 +331,9 @@ func loadOrInitFileConfig(configPath string, config *Config, noWrite bool) (*Fil
 		if raw == nil {
 			raw = make(map[string]interface{})
 		}
+		// Whether the key was on disk, before the migration below adds it:
+		// the run that migrates still selects by program alias, as it did.
+		config.LinksDeclared = fc.Links != nil
 		dirty = evaluateDirty(&fc, raw, config)
 	}
 
@@ -390,9 +396,13 @@ func applyFileNetworkAndFolderConfig(config *Config, fc *FileConfig) {
 	if fc.MuttAliases != "" {
 		config.MuttAliases = fc.MuttAliases
 	}
+	if fc.MyEmails != nil {
+		config.MyEmails = fc.MyEmails
+	}
 	if fc.DefaultSendAccount != "" {
 		config.DefaultSendAccount = fc.DefaultSendAccount
 	}
+	config.DefaultAccount = fc.DefaultAccount
 	if fc.Limit != nil {
 		config.Limit = *fc.Limit
 	}
@@ -444,19 +454,25 @@ func applyFileFilterAndToolConfig(config *Config, fc *FileConfig) {
 	if fc.AttachmentSaveDir != "" {
 		config.AttachmentSaveDir = fc.AttachmentSaveDir
 	}
-	if fc.AttachmentInvertColors != nil {
-		config.AttachmentInvertColors = *fc.AttachmentInvertColors
+	if fc.SaveLocations != nil {
+		config.SaveLocations = fc.SaveLocations
 	}
 	if fc.SaveSentCopy != nil {
 		config.SaveSentCopy = *fc.SaveSentCopy
 	}
+	if fc.TuiWatch != nil {
+		config.TuiWatch = *fc.TuiWatch
+	}
 	if fc.GitHubURL != "" {
 		config.GitHubURL = fc.GitHubURL
+	}
+	if fc.Links != nil {
+		config.Links = *fc.Links
 	}
 	if len(config.Accounts) == 0 {
 		config.Accounts = []cfg_acc.AccountConfig{
 			{
-				Name:            "default",
+				Name:            "gmail",
 				Type:            "gmail",
 				Username:        config.Username,
 				Password:        config.Password,
@@ -490,11 +506,12 @@ func applyEnvironmentOverrides(config *Config) {
 		val := !strings.EqualFold(envAutoSum, "false") && envAutoSum != "0" && !strings.EqualFold(envAutoSum, "no")
 		config.LLM.AutoSummary = &val
 	}
+	if envAutoSubj := os.Getenv("LLM_AUTO_SUBJECT"); envAutoSubj != "" {
+		val := !strings.EqualFold(envAutoSubj, "false") && envAutoSubj != "0" && !strings.EqualFold(envAutoSubj, "no")
+		config.LLM.AutoSubject = &val
+	}
 	if envSaveDir := os.Getenv("ATTACHMENT_SAVE_DIR"); envSaveDir != "" {
 		config.AttachmentSaveDir = envSaveDir
-	}
-	if envInvert := os.Getenv("ATTACHMENT_INVERT_COLORS"); envInvert != "" {
-		config.AttachmentInvertColors = !strings.EqualFold(envInvert, "false") && envInvert != "0" && !strings.EqualFold(envInvert, "no")
 	}
 	if envSaveSent := os.Getenv("SAVE_SENT_COPY"); envSaveSent != "" {
 		config.SaveSentCopy = !strings.EqualFold(envSaveSent, "false") && envSaveSent != "0" && !strings.EqualFold(envSaveSent, "no")
@@ -503,7 +520,7 @@ func applyEnvironmentOverrides(config *Config) {
 
 func selectAccountByProgramAlias(config *Config) {
 	progName := filepath.Base(os.Args[0])
-	if progName == AppName || progName == "main" {
+	if progName == AppName || progName == LegacyAppName || progName == "main" {
 		return
 	}
 	for _, acc := range config.Accounts {
@@ -531,25 +548,56 @@ func LoadConfigNoWrite() (*Config, error) {
 	return loadConfig(true)
 }
 
+// LoadConfigForRename is LoadConfigNoWrite for the one command allowed to run
+// while an account rename is unfinished: `account rename`, which finishes it.
+// Every other load refuses (see RenameMarkerFile).
+func LoadConfigForRename() (*Config, error) {
+	return loadConfigFrom(true, true)
+}
+
 func loadConfig(noWrite bool) (*Config, error) {
+	return loadConfigFrom(noWrite, false)
+}
+
+func loadConfigFrom(noWrite, duringRename bool) (*Config, error) {
 	homeDir, errHome := os.UserHomeDir()
 	if errHome != nil {
 		return nil, fmt.Errorf("failed to detect user home directory: %w", errHome)
 	}
 
-	configDir := filepath.Join(homeDir, ".config", AppName)
+	// Migrate before anything below creates the directory: a run that made an
+	// empty feral directory first would read as a first run.
+	configDir := ConfigDirIn(homeDir)
+	if !noWrite {
+		var err error
+		if configDir, err = MigrateConfigDir(homeDir); err != nil {
+			return nil, err
+		}
+	}
 	configPath := filepath.Join(configDir, "config.json")
 	_ = os.MkdirAll(configDir, 0700)
+	if !duringRename {
+		if err := checkNoPendingRename(configDir); err != nil {
+			return nil, err
+		}
+	}
 
 	config := newDefaultConfig(homeDir)
+	config.ConfigDir = configDir
 	fc, err := loadOrInitFileConfig(configPath, config, noWrite)
 	if err != nil {
 		return nil, err
 	}
 
 	applyFileConfig(config, fc)
+	markDefault(config.Accounts, config.DefaultAccount)
 	applyEnvironmentOverrides(config)
-	selectAccountByProgramAlias(config)
+	// Until config.json has links, starting feral under an account's alias
+	// selects that account; after, a link does, and an alias is only a name
+	// -A accepts.
+	if !config.LinksDeclared {
+		selectAccountByProgramAlias(config)
+	}
 
 	return config, nil
 }

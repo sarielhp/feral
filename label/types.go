@@ -1,6 +1,6 @@
 package label
 
-import "github.com/sarielhp/mail_cli/email"
+import "github.com/sarielhp/feral/email"
 
 // Item is one folder or label as the server reports it: its display name, full
 // path, message counts and whether it is a label or a server folder.

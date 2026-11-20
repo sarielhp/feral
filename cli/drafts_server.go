@@ -2,13 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/mailclient"
-	"github.com/sarielhp/mail_cli/organize"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/mailclient"
+	"github.com/sarielhp/feral/organize"
 
 	"github.com/sarielhp/clihelp"
 )
@@ -23,7 +23,7 @@ func draftsServerCmd(session *Session) clihelp.Command {
 	return clihelp.Command{
 		Name:        "server",
 		Description: "List, trash or prune drafts on the server.",
-		UsageLine:   "mail_cli msg drafts server <ls | rm <id>... | prune [--sent] [--by-subject]>",
+		UsageLine:   "feral msg drafts server <ls | rm <id>... | prune [--sent] [--by-subject]>",
 		LongDescription: "Works on the selected account's Drafts folder. 'ls' shows each " +
 			"draft with the short ID 'rm' takes; a draft that cannot be read is listed as " +
 			"unreadable so it can still be removed. 'prune' trashes older copies of a " +
@@ -49,7 +49,7 @@ func draftsServerCmd(session *Session) clihelp.Command {
 			{
 				Name:        "ls",
 				Description: "List the drafts on the server.",
-				UsageLine:   "mail_cli msg drafts server ls",
+				UsageLine:   "feral msg drafts server ls",
 				Args:        clihelp.MinimumNArgs(0),
 				Run:         func(*clihelp.Context) error { return runServerDraftsList(session) },
 			},
@@ -57,7 +57,7 @@ func draftsServerCmd(session *Session) clihelp.Command {
 				Name:        "rm",
 				NoAbbrev:    true,
 				Description: "Trash server drafts by ID, or all of them.",
-				UsageLine:   "mail_cli msg drafts server rm <id>... | all",
+				UsageLine:   "feral msg drafts server rm <id>... | all",
 				LongDescription: "'all' moves every draft in the Drafts folder to the trash, " +
 					"unreadable ones included, and lists each one it moves. The trash keeps them " +
 					"until the server expires it, so nothing is lost at once; run with --dry-run " +
@@ -68,7 +68,7 @@ func draftsServerCmd(session *Session) clihelp.Command {
 			{
 				Name:        "prune",
 				Description: "Trash superseded and already-sent drafts.",
-				UsageLine:   "mail_cli msg drafts server prune [--sent] [--by-subject]",
+				UsageLine:   "feral msg drafts server prune [--sent] [--by-subject]",
 				Args:        clihelp.MinimumNArgs(0),
 				Options: []clihelp.Option{
 					clihelp.Bool(&flagDraftsPruneSent, "--sent", false, "Also trash drafts whose message is in the Sent folder."),
@@ -80,10 +80,10 @@ func draftsServerCmd(session *Session) clihelp.Command {
 			},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli msg drafts server ls"},
-			{Line: "mail_cli msg drafts server rm 141C4C3B 6C5A8047"},
-			{Line: "mail_cli --dry-run msg drafts server rm all", Description: "Show every draft rm all would trash"},
-			{Line: "mail_cli --dry-run msg drafts server prune --sent", Description: "Show what a prune would trash"},
+			{Line: "feral msg drafts server ls"},
+			{Line: "feral msg drafts server rm 141C4C3B 6C5A8047"},
+			{Line: "feral --dry-run msg drafts server rm all", Description: "Show every draft rm all would trash"},
+			{Line: "feral --dry-run msg drafts server prune --sent", Description: "Show what a prune would trash"},
 		},
 	}
 }

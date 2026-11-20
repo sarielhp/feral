@@ -29,19 +29,20 @@ func buildUtilsCommands(session *Session) clihelp.Command {
 		Name:            "utils",
 		Group:           "Setup",
 		Description:     "Maintain cache and shell integration.",
-		LongDescription: "Use utils cache for local download maintenance, utils color to inspect terminal colors, and utils completion or utils manpage for shell integration. utils doctor verifies server writes by creating and deleting a temporary folder and message; it changes the real account and refuses --read-only and --dry-run.",
-		UsageLine:       "mail_cli utils <subcommand>",
+		LongDescription: "Use utils cache for local download maintenance, utils color to inspect terminal colors, utils keys to start a keys.json that moves the TUI's keys, and utils completion or utils manpage for shell integration. utils doctor verifies server writes by creating and deleting a temporary folder and message; it changes the real account and refuses --read-only and --dry-run.",
+		UsageLine:       "feral utils <subcommand>",
 		Subcommands: []clihelp.Command{
 			CacheCmd(session),
 			color,
 			DoctorCmd(session),
+			KeysCmd(session),
 			clihelp.CompletionCommand(),
 			clihelp.ManPageCommand(),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli utils cache prune 30", Description: "Prune old local cached messages"},
-			{Line: "mail_cli utils completion install", Description: "Install shell completion"},
-			{Line: "mail_cli utils manpage", Description: "Print the manual page"},
+			{Line: "feral utils cache prune 30", Description: "Prune old local cached messages"},
+			{Line: "feral utils completion install", Description: "Install shell completion"},
+			{Line: "feral utils manpage", Description: "Print the manual page"},
 		},
 	}
 }
@@ -50,7 +51,7 @@ func buildUtilsCommands(session *Session) clihelp.Command {
 // the canonical builder's flags, validators, and handler. Clone the help slices
 // because changing compatibility help must not change the canonical subtree.
 func legacyCommand(cmd clihelp.Command, path string) clihelp.Command {
-	rewrite := strings.NewReplacer("mail_cli "+path, "mail_cli "+cmd.Name, path, cmd.Name)
+	rewrite := strings.NewReplacer("feral "+path, "feral "+cmd.Name, path, cmd.Name)
 	return rewriteCommandHelp(cmd, rewrite)
 }
 

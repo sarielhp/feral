@@ -6,12 +6,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sarielhp/mail_cli/app"
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/cachedir"
-	"github.com/sarielhp/mail_cli/cfg_acc"
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/app"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/cachedir"
+	"github.com/sarielhp/feral/cache/meta"
+	"github.com/sarielhp/feral/cfg_acc"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 func parseExtNoZero(args []string, isExt, isNoZero bool) (bool, bool) {
@@ -52,7 +53,11 @@ func ResolveCacheDir(config *cfg_g.Config) (cachedir.Account, error) {
 	if err != nil {
 		return cachedir.Account{}, err
 	}
-	return config.AccountCacheFor(*resolved.Account), nil
+	acct := config.AccountCacheFor(*resolved.Account)
+	if err := meta.Check(acct, resolved.Account.Type); err != nil {
+		return cachedir.Account{}, err
+	}
+	return acct, nil
 }
 
 // SearchLabels searches cached labels matching all given substring patterns.

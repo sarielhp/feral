@@ -6,8 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/label"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/label"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sarielhp/mail_cli/cache"
-	"github.com/sarielhp/mail_cli/cache/folderindex"
-	"github.com/sarielhp/mail_cli/mailclient"
+	"github.com/sarielhp/feral/cache"
+	"github.com/sarielhp/feral/cache/folderindex"
+	"github.com/sarielhp/feral/mailclient"
 )
 
 type graphMessage struct {
@@ -345,7 +345,7 @@ func (c *client) MoveAllSpam(dest label.Folder) error {
 	}
 	// Never escalate a move into a permanent purge. This was previously silent.
 	if strings.EqualFold(spamFolder, destLabel) {
-		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'mail_cli spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
+		return fmt.Errorf("spam_learn is set to %q, which is the spam folder itself; refusing to silently purge it. Run 'feral spam del' to delete deliberately, or set spam_learn to a different folder", destLabel)
 	}
 
 	moved, err := c.eachSpamBatch(spamFolder, func(ids []email.ID) (int, error) {
@@ -406,12 +406,22 @@ func (c *client) destroyBatch(ids []email.ID) int {
 }
 
 func (c *client) MarkAsRead(messageIDs []email.ID) error {
+	return c.setRead(messageIDs, true)
+}
+
+func (c *client) MarkAsUnread(messageIDs []email.ID) error {
+	return c.setRead(messageIDs, false)
+}
+
+// setRead sets or clears isRead on each message. Graph has no batch PATCH, so
+// the messages go one request at a time.
+func (c *client) setRead(messageIDs []email.ID, read bool) error {
 	if err := c.init(); err != nil {
 		return err
 	}
 	for _, id := range messageIDs {
 		bodyBytes, _ := json.Marshal(map[string]bool{
-			"isRead": true,
+			"isRead": read,
 		})
 		req, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("https://graph.microsoft.com/v1.0/me/messages/%s", id), bytes.NewBuffer(bodyBytes))
 		if err != nil {
@@ -425,7 +435,7 @@ func (c *client) MarkAsRead(messageIDs []email.ID) error {
 		if resp != nil {
 			resp.Body.Close()
 			if resp.StatusCode >= 400 {
-				return fmt.Errorf("outlook mark as read returned status %d", resp.StatusCode)
+				return fmt.Errorf("outlook set read state returned status %d", resp.StatusCode)
 			}
 		}
 	}

@@ -14,9 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/sarielhp/mail_cli/cfg_g"
-	"github.com/sarielhp/mail_cli/email"
-	"github.com/sarielhp/mail_cli/filebrowser"
+	"github.com/sarielhp/feral/cfg_g"
+	"github.com/sarielhp/feral/email"
+	"github.com/sarielhp/feral/filebrowser"
 )
 
 // noticeTTL is how long a notice stays on screen.
@@ -51,18 +51,7 @@ func (m *tuiModel) saveDirPattern() string {
 // Writing a file the user asked for is not a server mutation, so this is
 // allowed under --read-only.
 func (m *tuiModel) saveCurrentMessage() (tea.Model, tea.Cmd) {
-	id := m.currentEmailID()
-	if id == "" || m.client == nil {
-		return m, nil
-	}
-	client := m.client
-	return m, func() tea.Msg {
-		raw, err := client.GetRawMessage(id)
-		if err != nil {
-			return messageReadyToSaveMsg{err: fmt.Errorf("could not retrieve the message: %w", err)}
-		}
-		return messageReadyToSaveMsg{stem: messageFileStem(raw), raw: raw}
-	}
+	return m.startSaveMessageToDisk(m.currentEmailID())
 }
 
 // handleMessageReadyToSave opens the save dialog -- the one the attachment
@@ -71,6 +60,8 @@ func (m *tuiModel) saveCurrentMessage() (tea.Model, tea.Cmd) {
 // TUI looked like a file going somewhere arbitrary.
 func (m *tuiModel) handleMessageReadyToSave(msg messageReadyToSaveMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
+		m.savingMessageToDisk = false
+		m.savingMessageID = ""
 		m.err = fmt.Errorf("saving message: %w", msg.err)
 		m.showError = true
 		return m, nil
@@ -84,20 +75,67 @@ func (m *tuiModel) handleMessageReadyToSave(msg messageReadyToSaveMsg) (tea.Mode
 	name := messageFileName(dir, msg.stem)
 	m.openSaveDialog(dir, email.Attachment{Filename: name, Data: msg.raw})
 	m.pendingSaveStem = msg.stem
+	m.savingMessageToDisk = true
 	return m, nil
 }
 
-// openAttachmentSaveDialog opens the save dialog for an attachment, in the
-// configured attachment directory.
+// openAttachmentSaveDialog opens the save dialog for an attachment in the
+// directory feral was started from; the configured attachment directory
+// is one key away, as a jump. The dialog used to open in the configured
+// directory, a dated path that was never where the user was working.
 func (m *tuiModel) openAttachmentSaveDialog(att email.Attachment) {
-	dir, _ := cfg_g.ExpandSavePath(m.saveDirPattern(), time.Now())
-	m.openSaveDialog(dir, att)
+	m.openSaveDialog(m.saveStartDir(), att)
+}
+
+// saveStartDir is where a save dialog opens: the working directory feral
+// was started from, or home when it cannot be read.
+func (m *tuiModel) saveStartDir() string {
+	if dir, err := os.Getwd(); err == nil {
+		return dir
+	}
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+// saveLocations are the directories the save dialog's digit keys jump to:
+// the start directory, the configured attachment directory for today, the
+// directory the last save in this session went to, and the configured
+// save_locations (Downloads and home unless the config says otherwise), each
+// expanded like attachment_save_dir. SetLocations drops the duplicates.
+func (m *tuiModel) saveLocations() []filebrowser.Location {
+	locs := []filebrowser.Location{{Path: m.saveStartDir()}}
+	if pattern := m.saveDirPattern(); pattern != "" {
+		if dir, err := cfg_g.ExpandSavePath(pattern, time.Now()); err == nil {
+			locs = append(locs, filebrowser.Location{Path: dir})
+		}
+	}
+	if m.lastSaveDir != "" {
+		locs = append(locs, filebrowser.Location{Path: m.lastSaveDir})
+	}
+	for _, pattern := range m.configuredSaveLocations() {
+		if dir, err := cfg_g.ExpandSavePath(pattern, time.Now()); err == nil {
+			locs = append(locs, filebrowser.Location{Path: dir})
+		}
+	}
+	return locs
+}
+
+// configuredSaveLocations is the save_locations list, or its default.
+func (m *tuiModel) configuredSaveLocations() []string {
+	if cfg := m.Config(); cfg != nil {
+		return cfg.SaveLocationsOrDefault()
+	}
+	if m.cfg != nil {
+		return m.cfg.SaveLocationsOrDefault()
+	}
+	return cfg_g.DefaultSaveLocations
 }
 
 // openSaveDialog is the one way the save dialog opens, so no earlier save
 // can leave state behind for the next.
 func (m *tuiModel) openSaveDialog(dir string, att email.Attachment) {
 	m.fileBrowser = filebrowser.New(dir, att.Filename, m.width, m.height)
+	m.fileBrowser.SetLocations(m.saveLocations())
 	m.fileBrowserOpen = true
 	m.pendingSaveAtt = att
 	m.pendingSaveStem = ""

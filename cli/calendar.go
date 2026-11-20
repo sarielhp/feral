@@ -12,14 +12,14 @@ func calendarAddSubcmd(session *Session) clihelp.Command {
 		Title:           "calendar add [label_prefix] <message_id>",
 		Description:     "Add event from email's .ics attachment.",
 		LongDescription: "Add a calendar event from an .ics attachment in a specific email.",
-		UsageLine:       "mail_cli calendar add [label_prefix] <message_id>",
+		UsageLine:       "feral calendar add [label_prefix] <message_id>",
 		Parameters: []clihelp.Param{
 			{Name: "[label_prefix]", Description: "Label prefix to locate the message (defaults to inbox).", Complete: CompleteLabelRefs},
 			{Name: "<message_id>", Description: "Message ID or prefix containing the .ics attachment."},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli calendar add 1234abcd"},
-			{Line: "mail_cli calendar add %receipts 5678efgh"},
+			{Line: "feral calendar add 1234abcd"},
+			{Line: "feral calendar add %receipts 5678efgh"},
 		},
 		Args: clihelp.RangeArgs(1, 2),
 		Run: func(ctx *clihelp.Context) error {
@@ -48,13 +48,13 @@ func calendarWeekSubcmd(session *Session) clihelp.Command {
 		Title:           "calendar week [days]",
 		Description:     "Show upcoming calendar events.",
 		LongDescription: "Show all calendar events in the upcoming week or specified number of days.",
-		UsageLine:       "mail_cli calendar week [days]",
+		UsageLine:       "feral calendar week [days]",
 		Parameters: []clihelp.Param{
 			{Name: "[days]", Description: "Number of days to display (defaults to 7)."},
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli calendar week"},
-			{Line: "mail_cli calendar week 14"},
+			{Line: "feral calendar week"},
+			{Line: "feral calendar week 14"},
 		},
 		Args: clihelp.RangeArgs(0, 1),
 		Run: func(ctx *clihelp.Context) error {
@@ -76,9 +76,9 @@ func calendarAddAllSubcmd(session *Session) clihelp.Command {
 		Title:           "calendar add-all",
 		Description:     "Scan inbox and add all .ics events.",
 		LongDescription: "Scan inbox for .ics attachments and add them to calendar.",
-		UsageLine:       "mail_cli calendar add-all",
+		UsageLine:       "feral calendar add-all",
 		Examples: []clihelp.Example{
-			{Line: "mail_cli calendar add-all"},
+			{Line: "feral calendar add-all"},
 		},
 		Args: clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {
@@ -98,7 +98,7 @@ func CalendarCmd(session *Session) clihelp.Command {
 		Group:           "Calendar",
 		Description:     "Manage calendar events from attachments.",
 		LongDescription: "Parse iCalendar (.ics) attachments from emails and synchronize events with Google Calendar or inspect upcoming agenda schedules.",
-		UsageLine:       "mail_cli calendar <subcommand> [args...]",
+		UsageLine:       "feral calendar <subcommand> [args...]",
 		Subcommands: []clihelp.Command{
 			calendarAddSubcmd(session),
 			calendarWeekSubcmd(session),
@@ -106,9 +106,9 @@ func CalendarCmd(session *Session) clihelp.Command {
 			CalendarSyncCmd(session),
 		},
 		Examples: []clihelp.Example{
-			{Line: "mail_cli calendar week"},
-			{Line: "mail_cli calendar add 1234abcd"},
-			{Line: "mail_cli calendar add-all"},
+			{Line: "feral calendar week"},
+			{Line: "feral calendar add 1234abcd"},
+			{Line: "feral calendar add-all"},
 		},
 	}
 }
@@ -120,9 +120,9 @@ func calAddCmd(session *Session, name, path string) clihelp.Command {
 		Group:           "Calendar",
 		Description:     "Scan inbox and sync all .ics events.",
 		LongDescription: "Scan all messages in the inbox for .ics attachments, extract meeting invites, and synchronize them into the configured calendar account.",
-		UsageLine:       "mail_cli " + path,
+		UsageLine:       "feral " + path,
 		Examples: []clihelp.Example{
-			{Line: "mail_cli " + path, Description: "Add every .ics attachment in the inbox to the calendar"},
+			{Line: "feral " + path, Description: "Add every .ics attachment in the inbox to the calendar"},
 		},
 		Args: clihelp.NoArgs,
 		Run: func(_ *clihelp.Context) error {

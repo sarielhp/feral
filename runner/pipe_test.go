@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sarielhp/mail_cli/cli"
+	"github.com/sarielhp/feral/cli"
 )
 
 func TestExtractPipePayload(t *testing.T) {
